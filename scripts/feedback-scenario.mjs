@@ -201,7 +201,7 @@ async function doneAndCopy() {
 
 // --kit <dir>: what a real application installs today, since the @boring packages are not published: the three tarballs and the
 // `feedback` registry item with its @boring pins pointing at them (react and react-dom stay npm pins). Then, in the application:
-//   npx shadcn@4.21.0 add <dir>/feedback.json
+//   npx shadcn@4.21.1 add <dir>/feedback.json
 if (options.kit) {
   const kit = resolve(options.kit);
   mkdirSync(kit, { recursive: true });
@@ -210,7 +210,7 @@ if (options.kit) {
   const archives = packBoringDependencies(root, item, kit, (command, args) => runIn(kit, command, args));
   item.dependencies = item.dependencies.map(pin => { const name = pin.slice(0, pin.lastIndexOf('@')); return archives.has(name) ? `${name}@file:${archives.get(name)}` : pin; });
   writeFileSync(join(kit, 'feedback.json'), JSON.stringify(item, null, 2));
-  console.log(`Feedback kit in ${kit}:\n${[...archives.values()].map(path => '  ' + path).join('\n')}\n  ${join(kit, 'feedback.json')}\n\nIn the application (shadcn components.json present):\n  npx shadcn@4.21.0 add ${join(kit, 'feedback.json')}`);
+  console.log(`Feedback kit in ${kit}:\n${[...archives.values()].map(path => '  ' + path).join('\n')}\n  ${join(kit, 'feedback.json')}\n\nIn the application (shadcn components.json present):\n  npx shadcn@4.21.1 add ${join(kit, 'feedback.json')}`);
   process.exit(0);
 }
 
