@@ -5,9 +5,9 @@
 // fixture, not an identity provider.
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { EFFORTS, configureOffered, firstMessageTitle } from '../shared/conversation-host.mjs';
+import { EFFORTS, configureOffered } from '../shared/conversation-host.mjs';
 import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -18,6 +18,7 @@ import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
 import { createGitTool } from '@boring/agent/git';
 import { createChatTransportHandler } from '@boring/agent/chat-transport';
+import { createConversations, createConversationsHandler } from '@boring/agent/conversations';
 import { createMentionResolver, safeMentionPath } from '@boring/agent/mentions';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
@@ -161,35 +162,46 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   const environments = new Map(), byCwd = new Map(entries.map(variant => [variant.root, variant.env]));
   harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'session.sqlite')), { registry, models,
     env: target => environments.get(String(target.conversationId)) ?? byCwd.get(target.cwd) ?? fallback.env }, context);
-  const indexPath = join(directory, 'conversations.json');
-  const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : {};
-  const conversations = new Map();
-  const saveIndex = () => writeFileSync(indexPath, JSON.stringify(index));
-  // When each conversation last had activity (a submission, a stop, a creation), for the History list. Titles are the first message, read once.
-  const activityPath = join(directory, 'conversation-activity.json');
-  const activity = existsSync(activityPath) ? JSON.parse(readFileSync(activityPath, 'utf8')) : {};
-  const touch = id => { activity[String(id)] = Date.now(); writeFileSync(activityPath, JSON.stringify(activity)); };
-  const titles = new Map();
-  // The first message is the oldest user message; the scan runs newest first, so read every page and keep the smallest entry id.
-  async function titleOf(conversation) {
-    const known = titles.get(String(conversation.id));
-    if (known) return known;
-    const title = await firstMessageTitle(conversation, context);
-    if (title) titles.set(String(conversation.id), title);
-    return title;
-  }
-  // A conversation belongs to one variant: its agent is `standard-<variant>`, its environment that variant's.
+  // The conversation list (title, last message, last activity, archived, deleted) is one native document per conversation
+  // (`@boring/agent/conversations`), kept by Pi with the transcript. A conversation's owner is its variant's agent.
+  const managed = createConversations({ harness, context, onError: error => console.error('conversation metadata:', error?.message ?? error) });
+  // The live handles the chat transport serves (deleted ones are dropped), and the variant each belongs to.
+  const conversations = new Map(), variantOfConversation = new Map();
+  const register = (variant, conversation) => {
+    conversations.set(String(conversation.id), conversation); environments.set(String(conversation.id), variant.env); variantOfConversation.set(String(conversation.id), variant);
+  };
   async function create(variant) {
-    const conversation = await variant.agent.createConversation(harness, context);
-    conversations.set(String(conversation.id), conversation);
-    environments.set(String(conversation.id), variant.env);
-    (index[variant.agent.id] ??= []).push(conversation.id); saveIndex(); touch(conversation.id);
+    const conversation = await managed.create(variant.agent.id, { start: init => variant.agent.createConversation(harness, context, { init }) });
+    register(variant, conversation);
     return conversation;
   }
-  for (const variant of entries) {
-    for (const id of index[variant.agent.id] ?? []) { const found = await harness.conversation(id, context); if (found) { conversations.set(String(id), found); environments.set(String(id), variant.env); } }
-    if (!(index[variant.agent.id] ?? []).some(id => conversations.has(String(id)))) await create(variant);
+  // Dev data of earlier studio versions: its own index and activity files are read once, their conversations adopted, then set aside.
+  const legacyIndex = join(directory, 'conversations.json'), legacyActivity = join(directory, 'conversation-activity.json');
+  if (existsSync(legacyIndex)) {
+    const index = JSON.parse(readFileSync(legacyIndex, 'utf8'));
+    const activity = existsSync(legacyActivity) ? JSON.parse(readFileSync(legacyActivity, 'utf8')) : {};
+    for (const [owner, ids] of Object.entries(index)) for (const id of ids) await managed.adopt(id, owner, activity[String(id)] ? { updatedAt: activity[String(id)] } : {});
+    renameSync(legacyIndex, `${legacyIndex}.migrated`);
+    if (existsSync(legacyActivity)) renameSync(legacyActivity, `${legacyActivity}.migrated`);
   }
+  for (const variant of entries) {
+    let cursor;
+    do {
+      const page = await managed.list({ owner: variant.agent.id, archived: 'all', limit: 200, ...(cursor ? { cursor } : {}) });
+      for (const item of page.items) { const found = await harness.conversation(item.id, context); if (found) register(variant, found); }
+      cursor = page.next;
+    } while (cursor);
+    if (![...variantOfConversation.values()].includes(variant)) await create(variant);
+  }
+  // The History list's operations (list and search, create, rename, archive, delete, fork), scoped to the variant's agent.
+  for (const variant of entries) variant.conversationsHandler = createConversationsHandler({ conversations: managed, authenticate: async request => authenticated(request) ? {
+    owner: variant.agent.id, start: init => variant.agent.createConversation(harness, context, { init }),
+    opened: conversation => register(variant, conversation),
+    deleted: async id => {
+      conversations.delete(String(id)); environments.delete(String(id)); variantOfConversation.delete(String(id));
+      if (![...variantOfConversation.values()].includes(variant)) await create(variant);
+    },
+  } : null });
   // A self-evolving agent's `.agent/` lives in its workspace: the same scan as `reload` reinstalls it before any conversation resumes.
   for (const variant of entries) {
     if (!variant.agent.reload) continue;
@@ -203,11 +215,10 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   await channels?.start();
 
   function authenticated(request) { return request.headers.get('authorization') === `Bearer ${token}`; }
-  const ownerOf = conversation => entries.find(variant => (index[variant.agent.id] ?? []).some(id => String(id) === String(conversation.id)));
+  const ownerOf = conversation => variantOfConversation.get(String(conversation.id));
   const chat = createChatTransportHandler({ ...(heartbeatMs === undefined ? {} : { heartbeatMs }), authenticate: async request => {
     const conversation = conversations.get(new URL(request.url).searchParams.get('conversation') ?? '');
     if (!authenticated(request) || !conversation) return null;
-    if (request.method === 'POST') touch(conversation.id);
     const owner = ownerOf(conversation);
     // Every message sees what the person attached or @mentioned: the host reads the workspace and adds the files to the input.
     return { conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
@@ -224,7 +235,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       tools: variant.agent.extensions.flatMap(extension => (extension.tools ?? []).map(tool => tool.name)),
       chat: { models: offered.map(model => ({ provider: model.provider, modelId: model.modelId, label: model.label })), efforts: EFFORTS },
       notes: variant.notes, canvas: variant.canvas,
-      conversations: (index[variant.agent.id] ?? []).filter(id => conversations.has(String(id))),
+      conversations: [...variantOfConversation].filter(([, owner]) => owner === variant).map(([id]) => Number(id)).sort((a, b) => a - b),
     } : {}),
   });
   const describe = () => ({ variants: descriptors.map(descriptor => describeVariant(descriptor, variants.get(descriptor.id))), scenarios: scenarios.map(describeScenario) });
@@ -233,16 +244,12 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (!authenticated(request)) return Response.json({ reason: 'authentication-required' }, { status: 401 });
     const variant = variantOf(request);
     if (request.method === 'GET' && url.pathname === '/api/studio') return Response.json(describe());
-    const created = /^\/api\/variants\/([a-z0-9._-]+)\/conversations$/.exec(url.pathname);
-    // The History list: every conversation of the variant's agent with its title (first message) and last activity.
-    if (created) {
-      const target = variants.get(created[1]);
+    const listed = /^\/api\/variants\/([a-z0-9._-]+)\/conversations$/.exec(url.pathname);
+    // The History list: the variant's conversations, newest activity first (`@boring/agent/conversations`).
+    if (listed) {
+      const target = variants.get(listed[1]);
       if (!target) return Response.json({ reason: 'unknown-variant' }, { status: 404 });
-      if (request.method === 'GET') {
-        const found = (index[target.agent.id] ?? []).flatMap(id => conversations.has(String(id)) ? [conversations.get(String(id))] : []);
-        return Response.json({ conversations: await Promise.all(found.map(async conversation => ({ id: Number(conversation.id), title: await titleOf(conversation) ?? null, updatedAt: activity[String(conversation.id)] ?? null }))) });
-      }
-      if (request.method === 'POST') return Response.json({ conversationId: (await create(target)).id });
+      return target.conversationsHandler(request);
     }
     if (request.method === 'GET' && url.pathname === '/api/files') return Response.json({ files: (await walk(variant)).map(path => virtual(variant, path)) });
     // The retained versions of one workspace file (relative path) with their save times, newest first: the version list of a presented file.
@@ -352,6 +359,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));
       await channels?.close();
+      await managed.dispose();
       await harness.close(context);
       for (const variant of entries) { for (const connection of variant.mcp) await connection.close(); await variant.infra.close?.(); }
       workspaceDb.close();

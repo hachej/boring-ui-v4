@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { ImageContent, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
-import { AlertCircleIcon, CircleSlashIcon } from 'lucide-react';
+import { AlertCircleIcon, CircleSlashIcon, GitForkIcon } from 'lucide-react';
 import { CopyButton } from './code-block';
 import { Markdown } from './markdown';
 import type { CommandMentions } from './markdown';
@@ -20,6 +20,7 @@ import { thumbnail } from './composer';
 import { pieces } from './config';
 import { isFileBlock, segments } from './rows';
 import type { DeriveOptions, Row } from './rows';
+import { Button } from '../button/button';
 import { cn } from '../utils/utils';
 
 export interface RowContext {
@@ -34,6 +35,8 @@ export interface RowContext {
   readonly artifacts: { readonly open: ArtifactsConfig['open']; readonly isOpen?: ArtifactsConfig['isOpen'] | undefined } | undefined;
   /** Replaces the default copy button under a settled reply (the ambient window adds feedback and the time). */
   readonly replyActions?: ((reply: { readonly key: string; readonly text: string; readonly timestamp?: number | undefined }) => ReactNode) | undefined;
+  /** Fork the conversation after a settled reply (its last native entry): adds a Fork button next to Copy. */
+  readonly onFork?: ((entryId: string) => void) | undefined;
 }
 
 function Image({ image, onOpenImage }: { readonly image: ImageContent; readonly onOpenImage: RowContext['onOpenImage'] }) {
@@ -109,7 +112,9 @@ export function RowView({ row, context }: { readonly row: Row; readonly context:
         {row.stopReason === 'aborted' && <Notice tone="muted" testid="interrupted" icon={<CircleSlashIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>Response interrupted</Notice>}
         {settled && row.text && context.replyActions?.({ key: row.key, text: row.text, timestamp: row.timestamp })}
         {settled && row.text && !context.replyActions && <div className="mt-1 -ml-2 flex opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 pointer-coarse:opacity-100 max-sm:opacity-100 motion-reduce:transition-none">
-          <CopyButton text={row.text} label="Copy response" {...(context.onCopy ? { onCopy: context.onCopy } : {})} className="text-muted-foreground" /></div>}
+          <CopyButton text={row.text} label="Copy response" {...(context.onCopy ? { onCopy: context.onCopy } : {})} className="text-muted-foreground" />
+          {context.onFork && row.entryId && <Button size="icon-sm" variant="ghost" aria-label="Fork from here" title="Fork from here: a new conversation with the messages up to this reply" data-testid="fork-reply"
+            className="text-muted-foreground" onClick={() => context.onFork!(row.entryId!)}><GitForkIcon className="size-3.5" aria-hidden="true" /></Button>}</div>}
       </article>;
     }
   }

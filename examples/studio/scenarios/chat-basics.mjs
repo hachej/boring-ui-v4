@@ -132,4 +132,70 @@ export default [
       await browser.until('back to the transcript', `!${q('[data-testid=history]')}`, 5000);
     },
   },
+  {
+    id: 'chat-manage', group: 'Chat basics', title: 'Manage conversations', description: 'Rename, search by the last message, archive, fork from a reply and delete: the list is kept by the server in Pi.',
+    steps: [{ prompt: 'Reply with exactly: LANTERN-FIRST' }, { prompt: 'Reply with exactly: QUARTZFOUNTAIN' }],
+    async verify(t) {
+      const { browser, logText, q, qa, idle, say, history, pause } = t;
+      const row = id => `${qa('[data-testid=conversation-row]')}.find(row => row.dataset.conversationId === ${JSON.stringify(String(id))})`;
+      const rowAction = (id, action) => `${row(id)}?.parentElement.querySelector('[data-testid=${action}]')`;
+      const ids = () => browser.evaluate(`${qa('[data-testid=conversation-row]')}.map(row => row.dataset.conversationId)`);
+      const search = async text => {
+        await browser.evaluate(`(() => { const e = ${q('[data-testid=conversation-search]')}; e.focus(); e.select(); })()`);
+        await browser.press('Backspace');
+        if (text) await browser.type(q('[data-testid=conversation-search]'), text);
+        await pause(400);
+        await browser.until('the search has answered', `${q('[data-testid=conversations] [aria-busy]')} === null`, 10000);
+      };
+      const first = await history.current();
+      // A second chat.
+      await history.create();
+      await say('Reply with exactly: SECOND-CHAT');
+      await browser.until('the second chat answered', `/SECOND-CHAT/.test(${logText}) && ${idle}`, 20000);
+      const second = await history.current();
+      assert.notEqual(second, first);
+      // Rename the first one from the list.
+      await history.open();
+      await browser.until('both chats are listed', `!!${row(first)} && !!${row(second)}`, 10000);
+      await browser.click(rowAction(first, 'conversation-rename'));
+      await browser.until('the name field', `!!${q('[data-testid=conversation-rename-input]')}`, 5000);
+      await browser.evaluate(`(() => { const e = ${q('[data-testid=conversation-rename-input]')}; e.focus(); e.select(); })()`);
+      await browser.press('Backspace');
+      await browser.type(q('[data-testid=conversation-rename-input]'), 'Amber plans');
+      await browser.press('Enter');
+      await browser.until('the new name is listed', `${row(first)}?.innerText.includes('Amber plans')`, 10000);
+      // Search on the server finds it by a word of its last message (the title does not have it).
+      await search('quartzfountain');
+      assert.deepEqual(await ids(), [first], 'the last message matches, nothing else');
+      await t.shots('chat-manage-search');
+      await search('');
+      // Archive hides it; the Archived filter shows it.
+      await history.close();
+      await history.select(first);
+      await history.open();
+      await browser.click(rowAction(first, 'conversation-archive'));
+      await browser.until('the archived chat leaves the list', `!${row(first)} && !!${row(second)}`, 10000);
+      await browser.click(q('[data-testid=conversations-archived]'));
+      await browser.until('it is under Archived', `!!${row(first)}`, 10000);
+      await browser.click(q('[data-testid=conversations-archived]'));
+      await history.close();
+      // Fork from the first reply of the open (archived) chat: a new chat with the history up to that reply.
+      await browser.until('the first chat is shown', `/QUARTZFOUNTAIN/.test(${logText}) && ${idle}`, 15000);
+      await browser.click(`${qa('[data-testid=fork-reply]')}[0]`);
+      await browser.until('the fork is open', `${q('[data-testid=studio-main]')}.dataset.conversation !== ${JSON.stringify(first)} && ${q('[data-testid=connection]')}?.dataset.state === 'connected' && /LANTERN-FIRST/.test(${logText})`, 20000);
+      assert.doesNotMatch(await browser.evaluate(logText), /QUARTZFOUNTAIN/, 'the fork stops at the chosen reply');
+      const fork = await history.current();
+      await history.open();
+      await browser.until('the fork is listed with a derived title', `${row(fork)}?.innerText.includes('Amber plans (fork)')`, 10000);
+      // Delete removes it from the list and the chat moves to another conversation.
+      await browser.click(rowAction(fork, 'conversation-delete'));
+      await browser.click(rowAction(fork, 'conversation-delete-confirm'));
+      await browser.until('the fork is gone', `!${row(fork)}`, 10000);
+      await history.close();
+      await browser.until('another conversation is open', `${q('[data-testid=studio-main]')}.dataset.conversation !== ${JSON.stringify(fork)}`, 10000);
+      const listed = await t.api(`/api/variants/${await browser.evaluate(`${q('.studio')}.dataset.variant`)}/conversations?archived=all`).then(response => response.json());
+      assert.ok(!listed.conversations.some(item => String(item.id) === fork), 'the server no longer lists the deleted fork');
+      assert.ok(listed.conversations.some(item => String(item.id) === first && item.archived && item.title === 'Amber plans'), 'the renamed chat is archived, not deleted');
+    },
+  },
 ];
