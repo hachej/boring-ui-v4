@@ -1,0 +1,12 @@
+# Default gitleaks rules plus reviewed false positives: fictional fixture values and prose, matched by value, not by commit.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fictional fixtures and prose"
+regexTarget = "match"
+regexes = [
+  '''LANTERN-7F3A9C21''',
+  '''sk-fictional-0123456789''',
+  '''questions/validation/delivery''',
+]

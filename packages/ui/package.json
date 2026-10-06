@@ -1,0 +1,191 @@
+{
+  "name": "@boring/ui",
+  "version": "0.0.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "description": "Independent headless viewer contracts with optional resource and native Pi subpaths.",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js"
+    },
+    "./resources": {
+      "types": "./dist/resources.d.ts",
+      "import": "./dist/resources.js"
+    },
+    "./markdown": {
+      "types": "./dist/markdown.d.ts",
+      "import": "./dist/markdown.js"
+    },
+    "./pi": {
+      "types": "./dist/pi.d.ts",
+      "import": "./dist/pi.js"
+    },
+    "./markdown-editor": {
+      "types": "./dist/markdown-editor.d.ts",
+      "import": "./dist/markdown-editor.js"
+    },
+    "./native-chat": {
+      "types": "./dist/native-chat.d.ts",
+      "import": "./dist/native-chat.js"
+    },
+    "./remote-chat": {
+      "types": "./dist/remote-chat.d.ts",
+      "import": "./dist/remote-chat.js"
+    },
+    "./canvas": {
+      "types": "./dist/canvas.d.ts",
+      "import": "./dist/canvas.js"
+    },
+    "./canvas-editor": {
+      "types": "./dist/canvas-editor.d.ts",
+      "import": "./dist/canvas-editor.js"
+    },
+    "./html": {
+      "types": "./dist/html.d.ts",
+      "import": "./dist/html.js"
+    },
+    "./html-viewer": {
+      "types": "./dist/html-viewer.d.ts",
+      "import": "./dist/html-viewer.js"
+    },
+    "./experience": {
+      "types": "./dist/experience.d.ts",
+      "import": "./dist/experience.js"
+    },
+    "./experience/compose": {
+      "types": "./dist/experience-compose.d.ts",
+      "import": "./dist/experience-compose.js"
+    },
+    "./experience/document": {
+      "types": "./dist/experience-document.d.ts",
+      "import": "./dist/experience-document.js"
+    },
+    "./experience/document-viewer": {
+      "types": "./dist/experience-document-viewer.d.ts",
+      "import": "./dist/experience-document-viewer.js"
+    },
+    "./experience/regions": {
+      "types": "./dist/experience-regions.d.ts",
+      "import": "./dist/experience-regions.js"
+    }
+  },
+  "peerDependencies": {
+    "@boring/files": "0.0.0",
+    "@earendil-works/pi-durable": "1.0.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "marked": "17.0.6",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/react": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/extensions": "3.31.3",
+    "@tiptap/extension-list": "3.31.3",
+    "@tiptap/extension-table": "3.31.3",
+    "@tiptap/extension-image": "3.31.3",
+    "@tiptap/extension-highlight": "3.31.3",
+    "@tiptap/extension-bubble-menu": "3.31.3",
+    "@tiptap/extension-floating-menu": "3.31.3",
+    "@earendil-works/chord": "1.0.1",
+    "@earendil-works/pi-ai": "1.0.1",
+    "tldraw": "5.5.0",
+    "@tldraw/editor": "5.5.0",
+    "@tldraw/store": "5.5.0",
+    "@json-render/core": "0.21.0",
+    "@json-render/react": "0.21.0",
+    "zod": "4.6.5"
+  },
+  "peerDependenciesMeta": {
+    "@boring/files": {
+      "optional": true
+    },
+    "@earendil-works/pi-durable": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "marked": {
+      "optional": true
+    },
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/react": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
+    "@tiptap/markdown": {
+      "optional": true
+    },
+    "@tiptap/extensions": {
+      "optional": true
+    },
+    "@tiptap/extension-list": {
+      "optional": true
+    },
+    "@tiptap/extension-table": {
+      "optional": true
+    },
+    "@tiptap/extension-image": {
+      "optional": true
+    },
+    "@tiptap/extension-highlight": {
+      "optional": true
+    },
+    "@tiptap/extension-bubble-menu": {
+      "optional": true
+    },
+    "@tiptap/extension-floating-menu": {
+      "optional": true
+    },
+    "@earendil-works/chord": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "tldraw": {
+      "optional": true
+    },
+    "@tldraw/editor": {
+      "optional": true
+    },
+    "@tldraw/store": {
+      "optional": true
+    },
+    "@json-render/core": {
+      "optional": true
+    },
+    "@json-render/react": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

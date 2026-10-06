@@ -1,0 +1,62 @@
+name: Scripted browser journeys
+# The blocking browser layer: real Chromium against the studio and the ambient example with a scripted model (no key, no network model,
+# no retries). A failure here is a bug. Mark the job "Studio scripted journeys" as a required check in the repository settings.
+# The real-model layer is separate and never blocks: .github/workflows/studio-smoke.yml.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  scripted-journeys:
+    name: Studio scripted journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Playwright 1.63.0 pins chromium-headless-shell revision 1243 (Chrome 153.0.8010.12); the journeys only need the binary.
+      PLAYWRIGHT_VERSION: 1.63.0
+      CHROMIUM: ${{ github.workspace }}/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.1
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Cache the pinned Chromium headless shell
+        id: chromium
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ github.workspace }}/.cache/ms-playwright
+          key: chromium-headless-shell-1243-playwright-${{ env.PLAYWRIGHT_VERSION }}
+      - name: Install the pinned Chromium headless shell and its system libraries
+        run: npx --yes playwright@${{ env.PLAYWRIGHT_VERSION }} install --with-deps chromium-headless-shell
+      # Ubuntu 24.04 runners restrict unprivileged user namespaces through AppArmor, so Chromium aborts with
+      # "No usable sandbox". Re-allow them for this job rather than running Chromium without its sandbox.
+      - name: Allow the Chromium sandbox (user namespaces)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Fake-model correctness journey
+        run: npm run studio:journey:correctness
+      - name: Studio journeys with the scripted model
+        run: npm run studio:journey:scripted
+        env:
+          STUDIO_EVIDENCE: ${{ runner.temp }}/evidence/studio
+      - name: Ambient journey with the scripted model
+        run: npm run ambient:journey:scripted
+        env:
+          AMBIENT_EVIDENCE: ${{ runner.temp }}/evidence/ambient
+      - name: Evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: journey-evidence
+          path: |
+            ${{ runner.temp }}/evidence
+            .cache/evidence
+          if-no-files-found: ignore
+          retention-days: 7

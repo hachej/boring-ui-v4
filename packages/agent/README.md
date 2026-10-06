@@ -1,0 +1,198 @@
+# @boring/agent
+
+/native re-exports exact Pi handles, configuration, task/view types and native ToolRegistration/ToolExecutionApi/ToolExecutionResult/hooks. Use upstream defineTool, registry installation and runtime values directly. There is no parallel Boring HostOperation/RuntimeSchema/tool engine.
+
+/contracts contains only borrowed attachment and original runtime-question/delivery references. Passive attachment takes the native Harness, not a second possibly unrelated writable Registry. Host subtypes retain their native handle. Domain services keep their own signatures; no file package is required to configure an agent.
+
+`attachHarness({ harness })` preserves the exact host handle. It acquires no observers or resources, so detaching is passive and never closes the host. Use native observation APIs directly and release their subscriptions under their own owner.
+
+## One file tool set: the guard
+
+The agent edits files with Pi's own `read`, `write`, `edit` and `bash` over the workspace's `ExecutionEnv`; there are no document or artifact tools of Boring's. `createFileGuard({ files, root, resolveAccess })` from `@boring/agent/file-guard` returns a native extension that wraps those three tools with the public `wrapTool` (select it after the extension that registers them). Every wrapped call runs inside the workspace provider's mutation queue (`@boring/files/workspace`), so a viewer save cannot land between `edit`'s internal read and its write. A genuine `read` call records the file's revision as the conversation's last-read revision of that path in a native conversation document (`lastReadRevisions`, kept across restarts; a fork starts empty); `edit`'s internal read records nothing. `write` and `edit` of a file that exists are refused unless the conversation has read it and its revision still equals the recorded one, and the refusal tells the model to read the file again. Creating a file is allowed only while it is absent. After a successful `write` or `edit` the baseline is the revision just written. Pi's `edit` tries an exact match first and falls back to a fuzzy one (Unicode normalisation, trailing whitespace, smart quotes, dashes and special spaces); the guard does not change that. A `bash` write is not intercepted, but it changes the revision, so the next `write` or `edit` of that file is refused until it is read. The guard adds no strictness option and no file API of its own.
+
+## Artifacts
+
+`createPresentTool` from `@boring/agent/artifacts` returns the native `present(path)` tool: the agent writes a workspace file with its ordinary file tools and presents it, and the chat shows a card that points at that file (`target`, the revision shown, no `id` or `ordinal`). The file's versions are the history of the workspace provider (`@boring/files/workspace`, whose `keep` retains the presented revision); a card of an older revision pins it and a card of the newest follows the file as it changes. The tool writes nothing and refuses files that are missing, not UTF-8 text or larger than 256 KiB.
+
+The descriptor's `id` and `ordinal` are optional and `present` sets neither; `parseArtifact` validates a descriptor and has no Pi runtime dependency (the copied `pi-chat` registry item carries the same validator for the browser).
+
+## Approval gate
+
+`requireApproval(tool, { summarize })` from `@boring/agent/approval` wraps a native tool so each call waits for the person's Approve or Deny before `execute`. It reuses the ask-user mechanism (`askPerson` from `@boring/agent/ask-user`): a conversation document keyed by the tool call ID, answered with `answerUserQuestion` through the chat transport's `answer` operation, and shown by the `pi-chat` approval card. The check runs inside the tool's own execution in host code, so the model cannot skip it. While the call waits, the one-line `summarize` text is also published as the call's running details under `APPROVAL_DETAILS` (it stays as the result's details unless the tool returns its own). That is also how `pi-chat` recognizes a gated call: no list of tool names is needed. The card shows the summary as the headline with the raw arguments collapsed. Deny (or a stopped conversation) returns an error result starting `DENIED_PREFIX` and `execute` never runs. The wrapper is replay-safe: a pending approval survives a restart, and a retained native memo makes execution at most once (after a crash during execution the model gets an "outcome unknown" error instead of a repeat of the change). Reads are simply not wrapped.
+
+`createApprovalExtension({ name?, tools: { bash: true, write_note: { summarize, when } } })` is the same gate as an opt-in native extension: it brings no tools, only native `wraps` that decorate whichever tool of each name wins in a conversation, including Pi's stock `bash`, `write` and `edit`. Pi applies wraps only where the extension is selected, so the gate is per conversation: `conversation.configure({ extensions: { add: [approvals] } })` turns it on and `remove` turns it off from the next call. `when(args, call)` lets a rule ask only for some calls (for example any method but GET); `summarize(args, call)` writes the card's headline (default: the tool name and its arguments). `call` is `{ conversationId, callId, toolName }`, so a host with one conversation per site or project can name it in the headline. Approval extensions compose: a tool already gated is not gated again, so the first selected rule for a tool decides. `requireApproval(tool, { summarize, when? })` remains the building block for a tool you define yourself.
+
+Code mode: gated tools are native tools and must not be exposed to a code-mode sandbox, whose nested calls cannot reach a person. Give `run_code` the read tools only and send changes through the gated native tool. `isApprovalGated(tool)` lets a host filter automatically.
+
+## OptChat memory
+
+`@boring/agent/memory/optchat` is Victor Taelin's [OptChat](https://gist.github.com/VictorTaelin/91837951a5ce5b38f341ec1ba1df6449) (see also his [OptMem](https://github.com/VictorTaelin/OptMem)) as one native pi-durable extension: an endless conversation whose memory is the conversation itself, shown to the model as a compressed tree. Credit for the idea, the algorithm and the summarizer prompt is his; this package maps it onto Pi.
+
+```ts
+const memory = createOptChatMemory({ harness: () => harness, context, summarizer: { models, model: { provider, modelId } } });
+registry.install(memory.extension);                                              // like any extension
+await conversation.configure({ extensions: { add: [memory.extension] } }, context);    // on, for this conversation
+await conversation.configure({ extensions: { remove: [memory.extension] } }, context); // off again
+```
+
+Pi applies an extension's hooks only in conversations that select it, so memory is opt-in per conversation and there is no separate mode. A host that selects extensions by default selects it everywhere; give conversations an explicit `extensions` list to keep it opt-in. `createOptChatMemory(options)` returns `{ extension, nap(id), stats(id), zoom(id, n), date(id), forget(id), dispose() }`. Options: `harness`, `context` (long-lived, for background work), `summarizer` (required: `{ model }`, where `model` may be a function `(conversationId) => ModelRef`, sync or async, for example that conversation's own model, and `models` defaults to the Harness's; or `{ summarize(job, signal) }` returning one line), `nodeBytes` (512), `viewBytes` (128000), `jobs` (8, how many summary tasks of a conversation the host keeps live at once), `tries` (5), `cap` (30000), `retryMs` (10000), `settleTimeoutMs` (60000), `agentName`, `name`, `onError`. `dispose()` only stops this process's waits: the summary tasks belong to Pi, which keeps and recovers them, so it is harmless to skip and safe to call before `harness.close`.
+
+| Reference | Here |
+| --- | --- |
+| Append-only log of user, talk, tool and echo messages | The Pi transcript, never rewritten. Leaves are derived from the model context: a user message is `user`, assistant text `talk`, each tool call `tool`, each tool result `echo`; thinking is not logged. A leaf over `cap` characters keeps head and tail |
+| Summary tree: node (l, i) covers messages [i·2^l, (i+1)·2^l), at most `nodeBytes` | The same, purely binary. A short message, or two children that fit together, are their own text and cost no call |
+| The view tiles the whole chat, one `id+n\|text` line per node, fit incrementally by merging the most due pair (age / 2^(level+2)), never splitting | The same fold (`advanceFold`), kept per conversation and advanced as the log grows, so the start of the view stays the same between requests. `renderView` produces the `<chat>` block |
+| Each turn calls the model with [system][view][new message] | `GenerationTask.beforeRequest` replaces the messages before the current turn with the view, as the first block of the current user message. The turn in progress (the latest user message and the steps after it) stays verbatim; every positional system message is kept in order. The explanation of the view is a prompt section, so the system prompt and tools never change between calls |
+| Compactor: context first, no ids, scale line, resubmit with the cut at the limit, `JOBS` in parallel, retry after 10 s | The same protocol (`askModel`), run by native pi-durable tasks: each node `(level, index, fingerprint)` is one `boring.memory.optchat.node` task (shipped in the extension's `tasks`, input `{ key, level, index, of, upTo }`, one `summarize` phase) that calls the summarizer through `runtime.models` (or your `summarize`) and, in one commit, writes the node and the summarizer's usage into the extension's state. Pi schedules, runs and recovers them. See below |
+| A turn waits until every line of the view is a summary and never shows cut text | The request waits up to `settleTimeoutMs`; after that the missing lines show `(not summarized yet: zoom it)`, never a clipped message, and `zoom(id, 1)` returns the message whole |
+| `zoom(id, n)` and `date(id)` | Native replay-safe tools of the same names |
+| Summary files | A conversation document family (`boring.memory.optchat.nodes`, shards of 64 nodes per level, `fork: 'current'`), one fingerprint per node over the content it covers. A fork or an edit never shows a summary of different content: a stale node is unbuilt until rebuilt |
+
+What is native, what is host-side:
+
+- **Tasks.** The host creates node tasks with `conversation.commit(tx => tx.createTask(...))` (hooks are read-only) as `background: true`, conversation-owned tasks: they never keep the conversation busy, never block or get aborted with the user's run (`conversation.abort()` leaves them; `abort(context, { background: true })` aborts them), and show in `harness.taskGraph()` and `harness.inspect()`. A pending task after a restart is resumed by Pi once the extension is installed again (the extension carries the task definition; the options must be the same).
+- **Triggers (host admission, not scheduling).** After an answer (`onYield`, once the run is idle) and when a request needs its view (`beforeRequest`). A trigger creates the tasks of the nodes whose sources exist and whose preceding view is summarized. One live task per node key, found by scanning native tasks in the same commit that creates them. `jobs` caps how many are live per conversation; Pi has no task concurrency setting, so this is the host's admission cap and Pi's scheduler decides when they run. A node's parent is created by the next trigger or by the waiting `nap` or request, once its children are built.
+- **Waiting.** A request waits with `waitForTask` on the live node tasks, up to `settleTimeoutMs`, then shows the placeholder. `nap` waits the same way. These waits are in-process; if the process dies the tasks are not lost, only the cascade to parents waits for the next trigger.
+- **Retry.** A failed node is a failed native task (`outcome.failed`). Its last failure time is kept in the conversation document `boring.memory.optchat.state` (with the summarizer call count and spend), and a trigger creates the task again once `retryMs` has passed. No timer retries: a node in its retry window is left alone, so a request that needs it shows the placeholder instead of waiting. `onError` reports the first failure of a streak.
+- **Usage.** In the commit that stores a node (or records its failure) the task adds the summarizer's usage, all attempts of the cut-and-resubmit loop included, to the extension's own state document (`boring.memory.optchat.state`), reported by `stats().compactor.usage`. It is not written into Pi's `pi.usage`: Pi has no public way for a task to record model usage (`recordUsage` is internal), so per BORING-PI-4 that guarantee is unavailable here rather than worked around; a public usage-recording seam is an upstream request. Hosts that budget model spend add `stats().compactor.usage` to `harness.usage()`. Task and document kinds are all in `boring.memory.optchat.*`; this package writes no `pi.*` document.
+- **Still host-side.** The trigger and admission logic, the in-memory fold and log per process (a cache; fingerprints keep it honest), and the summarizer prompt. A custom `summarize` function has no model usage to record. A model call interrupted by a crash is rerun from the start of the task, and its spend is not recorded.
+
+Deviations, honestly:
+
+- The log is Pi's model context, not an OptChat file, so ids are positions in that context. A native compaction, reset or edit that changes earlier messages invalidates the summaries it touches (fingerprints), and the view is refolded. `beforeCompact` declines while the extension is selected: the view replaces compaction, and a native summary would cut the transcript the view is built from. That is the only effect on Pi's lifecycle.
+- The current turn is verbatim (including its tool steps) instead of being summarized to one line each as soon as it is logged; it enters the view when the next user message arrives. A user message sent mid-run starts a new "current turn" for the next step.
+- A request is rewritten once per attempt from the full context. The summaries are a cache rebuilt from the log; the summarizer's calls are not Pi generations: they run as Pi tasks and their usage is in `stats().compactor.usage`, not `pi.usage` (see above).
+- No cache breakpoints inside the view (provider-specific stream options are the host's), no subagent or `note` kinds, no `fsync` log or single-writer lock (Pi's storage owns durability), and the compactor prompt names only the four kinds Pi logs. Summaries are read from the documents on every request and stats call, since tasks write them.
+- Cost: the compactor makes about two calls per message, each carrying the view as context. Choose a cheap summarizer model; the browser-agent example uses the chat model only because it has one.
+- The package runs in Node and in a browser (no Node-only imports). Fictional-data tests are in `test/packages/agent.test.mjs`; `examples/bot` and `examples/browser-agent` have journeys.
+
+## Native questions
+
+`createQuestions` from `@boring/agent/questions` exposes a native task, session document family and extension. Install the extension explicitly. Call `admit(tx, question, ownership, context)` in a native commit to persist a single-choice question and its task together. `resolve` and `consume` take the caller's native transaction so host writes can share that atomic commit. Call them before host table writes: native task reads after a table write are unavailable and the operation returns conflict. Host authentication and current subject/policy checks run at both boundaries. A resolved answer is clarification, never publication permission.
+
+The question task runs its durable wait phase while observing the native document. Parents can park with native task waiting on its ID. No browser or process-local waiter registry owns the answer. Native shutdown cancels observation; reopening checks the retained document. Session documents retain resolved/cancelled evidence after task completion. Expiry changes only pending state; late consumption refuses without deleting a prior answer. If supplying a custom clock, use the same clock for the Harness. Raw native document access is trusted host access; remote question resolution is still pending.
+
+## Validated document delivery
+
+`createDocumentDelivery` from `@boring/agent/delivery` admits a producer callback and its delivery task in one native transaction. The callback creates ordinary native tasks and returns `TaskId<string>`. Delivery captures the document precondition and authenticated identity before production, waits on the native producer, validates its actual string output and persists that exact text before publication. Host validator versions and operation namespaces must remain stable across recovery.
+
+This is string validation and conditional Markdown delivery. It does not implement model repairs, arbitrary host record delivery or prove tool provenance. Supply both `ResourcePublisher` and `PublicationLookup`. Recovery defaults to lookup only after durable publication intent; a missing receipt stays unknown. Explicit `replay: 'safe'` requires host qualification of durable duplicate suppression. Abort means the native task stopped; an interrupted external publication can still require lookup under the admitted operation ID.
+
+The admission target can include `preconditions: readonly ResourceExpectation[]`. Use these for source-owned generation and human-edit revisions that must still match when output is published. Admission copies and validates the target and conditions before awaiting producer creation. The provider checks the guards in the same transaction as the document change; delivery includes them in its receipt digest. Independent subjects can use independent guards.
+
+```ts
+await conversation.commit(tx => delivery.admit(tx, createProducer,
+  { kind: 'absent', target: report, preconditions: [generation, humanEdit] },
+  { ownership: { kind: 'conversation' } }, context), context);
+```
+
+The native delivery task is version 2. Existing version 1 records migrate with empty guards and unchanged producer, identity, target, namespace, validation version and checkpoint. Downgrading to a version 1 definition refuses guarded version 2 work. A committed receipt remains the result of that original delivery after a guard advances; a guard change before publication causes conflict. Advancing a provider guard and admitting native tasks are still two separate transactions. Hosts need recovery for that boundary; this API does not make them atomic.
+
+`resolveAccess` may return a Promise. When recovery reads the original actor from native producer input, pass that already-authenticated access as the sixth admission argument: `admit(tx, createProducer, target, taskOptions, context, access)`. Admission captures its identity before awaiting producer creation. Publication still resolves current access and compares the original identity. Omitting the sixth argument preserves resolution during admission; such a resolver must not read the same Harness or call `tx.task` after producer writes. Native transactions reject table reads after their first write. Explicit access is trusted host input, not authentication or a grant. Resolved credential fields are copied before digest, memo and provider awaits.
+
+Run `node examples/background-document.mjs` after building for fictional question, native producer and document delivery without a model, browser or shell. The example resolves a fixed fictional answer in trusted host code; it is not an authenticated remote human journey.
+
+Import interfaces with `import type`. See [scaffold guide](../../docs/contracts/SCAFFOLD.md), [native examples](../../examples/native-compositions.ts) and [implementation evidence](../../docs/implementation/PARTIAL.md).
+
+## Authorized conversation text
+
+`createConversationProjectionHandler` from `@boring/agent/projection` returns a Fetch `Request` to `Response` handler. The host authenticates the request and supplies the original native conversation, Context, fixed runtime/scope/principal binding, current authorization callbacks and a revocation signal. Requests use GET with `?version=2`. Other versions return 426 and other methods return 405. No command or asset route is installed.
+
+The response is newline-delimited JSON with `boring.conversation-text` version 2 frames. The first frame is a bounded snapshot; subsequent frames contain changed rows and the complete bounded row order, or a replacement snapshot when that is smaller. A delta names its preceding frame. Connection ID, frame and observation time describe this observation only; they are not native durable cursors. The stable row key is the original conversation ID, entry ID and message index. Rows absent from a delta's order are removed.
+
+Only host-permitted user/assistant text blocks are selected. Entry data, system instructions, thinking, tool arguments/results, assets, Context and errors are excluded. Live generation is also excluded; entry permission does not authorize the private live document. Entries retain their original conversation IDs across forks so entry policy can distinguish inherited content. This projects raw retained entry text, not edited model-context reconstruction.
+
+`CONVERSATION_PROJECTION_LIMITS` fixes the window at 200 messages, each at most 32 KiB, with at most 192 KiB of messages and a 256 KiB frame. Byte limits measure UTF-8 JSON, including escaping and metadata; the frame limit includes its newline. Selection uses the pinned native entry-ID recency, then restores native presentation order, including its head marker. Oversized text is clipped at scalar boundaries and marked `clipped`. `window.truncated` reports omitted older permitted rows without counting denied entries. These limits bound adapter retention and wire output, not native watch allocation or the cost of scanning entries for permission.
+
+Authorization must return literal `true` at opening, after watch acquisition and before each candidate delivery. The synchronous entry policy must also return literal `true`. Abort the host signal on revocation or identity change, including idle periods. Policy changes without a native update require revocation and a fresh connection. No further payload is enqueued after abort; delivered bytes cannot be recalled. The browser integration must clear restricted presentation on close/identity change while preserving separately owned drafts. That browser integration is not implemented here.
+
+The adapter keeps the last bounded delivered window and no update queue. A slow reader observes the latest permitted view when it pulls. Unchanged visible rows produce no frame, including configuration-only updates. Disconnect stops only this connection's native watch. Reconnect authorizes a new watch and snapshot without submitting work. End of stream means observation ended, never confirmed task termination.
+
+`createConversationTextReceiver(expectedIdentity)` validates one complete JSON frame per `read(line)` call and returns a detached snapshot. It rejects unknown fields, invalid bounds, identity mismatches, connection changes, missing bases, duplicate keys and sequence gaps. Any failure clears its cache and requires a fresh initial snapshot. Call `reset()` when opening a new connection or ending restricted presentation. The receiver does not frame network chunks, own a socket or reconstruct native execution state.
+
+TLS, cookies, CORS, socket/proxy lifecycle, browser presentation and deployment authentication remain host qualifications. Public projection tests exercise actual native watches through in-process Fetch/Web Streams. `npm run test:projection-consumer` installs the agent archive without files/UI/execution packages, checks strict declarations, repeats the tests and builds the receiver for a browser. It requires the pinned registry archives in a writable npm cache.
+
+Run `node examples/conversation-projection.mjs` after building for a fictional authenticated stream and idle revocation demonstration.
+
+## Authenticated question responses
+
+`@boring/agent/question-response` exports `createQuestionResponseHandler`. It accepts a host `authenticateHuman(Request)` callback returning the original native conversation, question feature/reference, human Context and revocation signal. The host authenticates delegated human identity, applies cookie origin/CSRF rules where relevant and carries that identity into the original question's `authorize` policy. This is clarification resolution, not product approval, and must not be registered as agent approval authority.
+
+POST `application/json` with `{ schema: 'boring.question-response', version: 1, target: originalReference, resolutionId, answer }`. The bounded streamed body must contain exactly these fields and the exact original target. The handler checks the selected conversation and resolves inside its native transaction. The original feature checks scope, responder, subject/policy, expiry and duplicate identity. No inbox database or additional decision state is created.
+
+Responses expose the narrow native decision, with `no-store` headers. An observed abort before the transaction callback returns rolls back that attempt. External revocation has no atomic fence against durable commit. A commit error or observed late abort returns `resolution-not-confirmed`; the original resolution may already exist. Retry the same resolution identity under current authorization to recover its result. Closing the request never closes the borrowed Harness or cancels its question task.
+
+`test/packages/agent-question-response.test.mjs` exercises real native transactions through Fetch requests, including duplicate answers, identity/policy refusal, streamed byte limits, unacknowledged source cancellation and lost response recovery. `npm run test:question-consumer` repeats these scenarios from the installed agent tarball without files/UI/execution packages. Set `npm_config_cache` to a writable cache of the pinned dependencies. Socket/browser authentication, remote inbox presentation and human identity-provider integration remain unqualified.
+
+The strict TypeScript consumer recipe additionally installs `@modelcontextprotocol/sdk@1.31.0`. Pinned Pi model declarations transitively load `@google/genai`, whose declarations reference that optional SDK. This dependency is needed for this `skipLibCheck: false` recipe even though the question runtime does not call MCP. The consumer does not establish strict checking with only the agent's declared peers installed.
+
+`@boring/agent/git` exports `createGitTool(repository)`. Register this ordinary native tool with the same host-created `@boring/files/git` repository used by Bash or direct callers. It exposes the local service operations and preserves native ToolTask execution. The tool is always unsafe to replay because working Git has no publication receipts. The repository's host-bound authorization applies on every call. No environment or shell is mandatory for a file-only repository binding.
+
+
+## Pinned JSON definitions
+
+`loadAgentDefinition` from `@boring/agent/definitions` reads an authorized exact resource revision and returns a native `AgentChange` plus an `AgentDefinitionBinding`. Install `@boring/files` for this optional subpath. Importing the loader does not load the native engine or UI packages.
+
+The JSON resource contains exactly these fields:
+
+```json
+{"format":"boring.agent","version":1,"instructions":"Use the installed document tool.","tools":["save_note"]}
+```
+
+The host supplies the reader, exact `ref`, authenticated `access`, host implementation version and a `resolveTool(name)` callback. The callback returns a currently installed and permitted native tool with its implementation version, or `undefined` to refuse it. An empty `tools` array selects no tools. The loader rejects unknown fields, duplicate or unavailable tools, mismatched resource identity, incompatible retained bindings and observed cancellation. It executes no file code and configures no conversation.
+
+```ts
+const loaded = await loadAgentDefinition(options);
+await conversation.configure(loaded.change, context);
+```
+
+The binding retains the selected resource/view/revision, scope, SHA-256 of the exact bytes, format/native versions and ordered host/tool implementation versions. Persist it in host-owned or native storage when the workflow requires reproducibility. On reload, pass it as `expectedBinding` and resolve current permissions again. The host chooses whether to migrate a changed definition or refuse that workflow.
+
+Native configuration retains tool names. A later registry replacement or native wrapper can change execution even when the returned tool object and binding remain unchanged. Version tokens are host assertions about the effective implementation, including wrappers. They do not freeze code or grant future authority. Hosts requiring reproducibility must check versions and current authorization at admission and recovery.
+
+The resource must be UTF-8 `application/json`, optionally with `charset=utf-8`. The default accepted size is 65,536 bytes; `maxBytes` accepts integers from 1 to 1,048,576. This limits accepted bytes after the reader returns, not provider allocation. The loader preserves borrowed tool/provider ownership and checks an optional abort signal after awaited operations; it cannot interrupt a noncooperative reader or resolver.
+
+Run `node examples/agent-definitions.mjs` after building for a fictional definition, explicit native configuration and real document publication. `npm run test:definitions-consumer` installs files/agent archives with pinned registry dependencies, checks strict declarations and repeats exact-read, native publication, reopen and registry-replacement tests. Like the question consumer, this strict fixture explicitly installs the pinned optional model SDK declaration dependencies.
+
+## Structured output and native tool evidence
+
+`@boring/agent/validation` exports `createOutputValidation`. Install its native extension explicitly. A producer returns `{ text, evidence }`, where `evidence` contains retained native tool-result entry IDs. Create the returned validation task with `{ producer }` through ordinary `tx.createTask`; it waits for the producer and returns `valid`, `invalid` or `producer-failed`. Only a `valid` result may feed application delivery. The host supplies a stable task name and definition version; incompatible stored versions require native migration or refusal.
+
+The shared `check` method is also useful in `GenerationHooks.onYield` to request a bounded native continuation. Hook errors are observational. Always run the separate final validation task against the completed producer, even when the hook previously accepted an answer. Repair counts are application decisions, distinct from provider retries and compaction.
+
+Validation borrows the host Harness through `harness: () => harness`. It reads native records in one read-only transaction, then calls the host's `authorize` and `validate` functions outside that transaction. Authorization must return literal `true` before and after validation. Inputs and the validated JSON value are detached before later awaits; validators cannot return undefined, non-finite numbers or non-JSON objects. Throws and missing evidence refuse validation.
+
+Each evidence entry must link to a completed native ToolTask, its original assistant call and the original producer's ownership subtree. Task-owned conversations count; inherited fork history and sibling work do not. This bounded adapter accepts 1–64 distinct results and traverses at most 128 ownership edges per result. Every diagnostic currently refuses evidence, including informational truncation/spill notices. The host still checks tool semantics, current access and completeness; a silent truncation inside a custom tool cannot be inferred from native records.
+
+`NativeToolEvidence.call.arguments` contains the model's original call. Native argument preparation and tool hooks can change executed arguments. Tools requiring exact normalized-input provenance must retain those inputs with their actual return. This adapter proves the retained return and native call/task relationship, not exact executed arguments, external-source truth or nested code-mode evidence.
+
+## Asking the person
+
+`@boring/agent/ask-user` exports `createAskUserTool()`, a replay-safe native tool named `ask_user` with arguments `{ question, options?: string[2..6], allowFreeText? }`. The call waits on a conversation document keyed by its assistant entry and tool call ID, so no model request is held, a pending question survives a restart and stopping the conversation cancels it. A trusted host resolves it with `answerUserQuestion(conversation, askUserQuestionId(assistantEntryId, callId), answer)` (pass the scoped ID through `ChatTransportAccess.answer` after authenticating the person): the answer must be an option unless free text is allowed, at most 2000 characters; one answer wins, repeating it is idempotent. The tool result is `{"kind":"answered","answer":"..."}`. The chat transport also serves `?op=answer` and `?op=withdraw` (a queued message, by submission ID), both gated by `allow`.
+
+`?op=configure` (POST `{ model?: { provider, modelId }, thinkingLevel? }`) changes the conversation's native agent for a model or effort picker. It is gated by `allow('configure')` and delegated to `ChatTransportAccess.configure(change)`; without that function the op answers `not-supported`. The host function applies `conversation.configure(...)` and owns the allow-list: it validates the change against its own models and levels and returns a refusal such as `{ kind: 'refused', reason }` instead of applying it (the handler checks only the request shape). `createRemoteChat().configure(change)` returns whatever the host answered. A change applies from the next model request.
+
+`createSkillsExtension` tells the model that a user message starting with `/<skill-name>` is an explicit request to load that skill first, which is what the chat's `/` menu inserts. `defineAgent(...).skills` lists each skill's name and description for such a menu.
+
+## Self-evolution
+
+`defineAgent({ …, selfEvolving: true, workspace })` lets the agent keep its own standing instructions, skills and tools in the `.agent/` folder of its workspace and apply them with a `reload` tool; the plan and its reasons are in [SELF-EVOLUTION.md](../../docs/architecture/SELF-EVOLUTION.md). Off by default.
+
+- One native extension per workspace, named `self-evolving:<workspace>`, so two workspaces in one host never replace each other's tools. It carries the skills (the host's, then `.agent/skills/*.md` parsed with `parseSkill`, behind the usual `load_skill`), `reload`, the agent-written tools and the `agent-written` prompt section. It is selected last; the host's `instructions` become the first section (`host-instructions`) of `agent.<id>`, because Pi renders native `instructions` after every extension section.
+- `.agent/AGENTS.md` is rendered by that section on every request through the request's environment, labelled as agent-written and capped at `MAX_AGENT_INSTRUCTIONS` (16,000) characters.
+- `.agent/tools/<name>.json` is `{ name, description, parameters, run }`: `name` snake_case and not one of the agent's other tools, `parameters` a JSON Schema with `"type": "object"`, `run` one command line; a path under `.agent/` that `run` names must exist. Each becomes a native `ToolRegistration` whose `execute` runs `run` through the call's own `ExecutionEnv.exec` (the same provider instance as the files it was read from), with the arguments as one line of JSON on standard input (a quoted here-document); the output is the result and a non-zero exit is an error.
+- `reload` (and `DefinedAgent.reload(env, context)`, which a host calls on open and for the person's `/reload`) reads `.agent/` through the given environment's `FileSystem`, rebuilds the extension and calls the native `registry.install()` in every registry `install` was given (same name: replaced in place). Reloads are serialised. The report (`SelfEvolutionReport`, its `text` is the tool result) names tools added, changed and removed, the agent's skills, the instructions and every load error (invalid JSON, schema, missing script, name conflict, unreadable file). A reload never imports or evaluates anything. Without `exec` the tools are reported unavailable and skipped; instructions and skills still load.
+- Choices where the plan was silent: the folder is relative to the environment's working directory; there is no separate trust setting, approval or sandbox (isolation is where `exec` runs; hosts that want approval use the existing gate); `registry.uninstall()` is not needed because replacing the one extension removes deleted tools; an agent-written skill or tool that collides with a host one is refused, not shadowing it.
+
+| ID | Law | Structural check | Runtime proof |
+| --- | --- | --- | --- |
+| SELF-1 | Opt-in. Without `selfEvolving: true` nothing reads `.agent/`, and no `reload` tool or agent-written prompt section exists. | Prompt assembly test in `test/packages/agent.test.mjs`: without the option the same `.agent/AGENTS.md` is never shown and the native instructions stay last. | Studio journey `self-evolution`: a subagent (no option) over the same workspace has neither. |
+| SELF-2 | Never imported into the host. Agent-written tools execute only through the conversation's `ExecutionEnv`; no `import()`/`eval`/`Function` of workspace content in library or host code. | `npm run check` (`scripts/check-pi-boundary.mjs`, mutants in `test/pi-boundary.test.mjs`) over `packages/` and `examples/`. | Journey: a tool printing its environment on the virtual variant sees none of the host's variables. |
+| SELF-3 | The host's base prompt stays first and whole; agent-written instructions are appended, labelled and size-capped. | Prompt assembly order test in `test/packages/agent.test.mjs`. | Journey: the system context shows both, in order. |
+| SELF-4 | Reload is native and honest: the native `registry.install` replaces the extension in place, running calls finish on the old version (native Pi), every load error is reported in the tool result. | `npm run check` (`scanNativeReload`, mutants in `test/pi-boundary.test.mjs`): only native `registry.install`/`uninstall`, no registry of its own. | Journey: write tool → reload → next turn uses it; broken JSON → error reported; restart → still there; rollback → gone; `/reload` gives the same report. |
+
+Evidence is registered in [VERIFY.json](../../VERIFY.json) under `features`. Not proven at runtime: a call running during a reload finishing on its old registration (Pi's registry behaviour, relied on, not retested) and the report on an environment without `exec` (every studio variant has one).
+
+### Question notification recovery
+
+External channel question notifications record success after `adapter.send` resolves. A restart retries an unacknowledged notification with the same assistant-entry-bound question ID. A crash after the external send but before the native acknowledgement can duplicate the notification; this is at-least-once delivery. The adapter may deduplicate that stable ID. A local success record does not prove that a person read the message.

@@ -1,0 +1,56 @@
+name: Studio real-model smoke
+# Manual and non-blocking: five scenarios (hello, an artifact, ask_user, a shell task, a subagent) against the real model, retries allowed.
+# It prints a pass rate and exits 0 unless the rate is below the threshold. Never a required check, never part of `npm run verify`.
+# Needs the repository secret OPENAI_API_KEY (the owner adds it in Settings > Secrets and variables > Actions; nothing here creates it).
+on:
+  workflow_dispatch:
+    inputs:
+      min_pass_rate:
+        description: Fail the run only if the pass rate is below this fraction (0 to 1)
+        default: '0.6'
+      retries:
+        description: Retries per scenario (a real model sometimes answers in text instead of calling a tool)
+        default: '2'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    name: Studio real-model smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_VERSION: 1.63.0
+      CHROMIUM: ${{ github.workspace }}/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.1
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ github.workspace }}/.cache/ms-playwright
+          key: chromium-headless-shell-1243-playwright-${{ env.PLAYWRIGHT_VERSION }}
+      - run: npx --yes playwright@${{ env.PLAYWRIGHT_VERSION }} install --with-deps chromium-headless-shell
+      # Ubuntu 24.04 runners block the user namespaces Chromium's sandbox needs; re-allow them for this job.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Smoke scenarios against the real model
+        run: npm run studio:smoke
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          STUDIO_SMOKE_MIN: ${{ inputs.min_pass_rate }}
+          STUDIO_RETRIES: ${{ inputs.retries }}
+          STUDIO_EVIDENCE: ${{ runner.temp }}/evidence/studio
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-evidence
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: ignore
+          retention-days: 7

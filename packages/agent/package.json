@@ -1,0 +1,30 @@
+{
+  "name": "@boring/agent", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
+  "description": "Native Pi attachment, the read/write/edit guard, durable questions and conditional document delivery.",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./native": { "types": "./dist/native.d.ts", "import": "./dist/native.js" },
+    "./contracts": { "types": "./dist/contracts.d.ts", "import": "./dist/contracts.js" },
+    "./definitions": { "types": "./dist/definitions.d.ts", "import": "./dist/definitions.js" },
+    "./file-guard": { "types": "./dist/file-guard.d.ts", "import": "./dist/file-guard.js" },
+    "./artifacts": { "types": "./dist/artifacts.d.ts", "import": "./dist/artifacts.js" },
+    "./ask-user": { "types": "./dist/ask-user.d.ts", "import": "./dist/ask-user.js" },
+    "./questions": { "types": "./dist/questions.d.ts", "import": "./dist/questions.js" },
+    "./delivery": { "types": "./dist/delivery.d.ts", "import": "./dist/delivery.js" },
+    "./question-response": { "types": "./dist/question-response.d.ts", "import": "./dist/question-response.js" },
+    "./projection": { "types": "./dist/projection.d.ts", "import": "./dist/projection.js" },
+    "./agents": { "types": "./dist/agents.d.ts", "import": "./dist/agents.js" },
+    "./chat-transport": { "types": "./dist/chat-transport.d.ts", "import": "./dist/chat-transport.js" },
+    "./mentions": { "types": "./dist/mentions.d.ts", "import": "./dist/mentions.js" },
+    "./validation": { "types": "./dist/validation.d.ts", "import": "./dist/validation.js" },
+    "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
+    "./approval": { "types": "./dist/approval.d.ts", "import": "./dist/approval.js" },
+    "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" }
+  },
+  "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0" },
+  "peerDependenciesMeta": { "@boring/files": { "optional": true } },
+  "engines": { "node": ">=22.19.0" }
+}

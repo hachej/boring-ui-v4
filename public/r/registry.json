@@ -1,0 +1,1264 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "boring-ui-v4",
+  "homepage": "https://github.com/hachej/boring-ui-v4",
+  "items": [
+    {
+      "name": "markdown-editor",
+      "type": "registry:component",
+      "title": "Markdown editor",
+      "description": "A host-owned styled wrapper over the concrete borrowed Markdown controller.",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "@boring/files@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "marked@17.0.6",
+        "@tiptap/core@3.31.3",
+        "@tiptap/react@3.31.3",
+        "@tiptap/pm@3.31.3",
+        "@tiptap/starter-kit@3.31.3",
+        "@tiptap/markdown@3.31.3",
+        "@tiptap/extensions@3.31.3",
+        "@tiptap/extension-list@3.31.3",
+        "@tiptap/extension-table@3.31.3",
+        "@tiptap/extension-image@3.31.3",
+        "@tiptap/extension-highlight@3.31.3",
+        "@tiptap/extension-bubble-menu@3.31.3",
+        "@tiptap/extension-floating-menu@3.31.3"
+      ],
+      "files": [
+        {
+          "path": "registry/markdown-editor/markdown-editor.tsx",
+          "type": "registry:component"
+        }
+      ],
+      "css": {
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"]": {
+          "background": "var(--boring-editor-background, var(--background, #fff))",
+          "color": "var(--boring-editor-foreground, var(--foreground, #111827))",
+          "border": "1px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "border-radius": "var(--boring-editor-radius, var(--radius, 0.75rem))",
+          "padding": "1rem",
+          "display": "grid",
+          "gap": "1rem",
+          "min-width": "0",
+          "font-family": "inherit"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] > header": {
+          "display": "flex",
+          "align-items": "center",
+          "justify-content": "space-between",
+          "flex-wrap": "wrap",
+          "gap": "0.75rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] > header > strong": {
+          "margin": "0",
+          "font-size": "1.125rem",
+          "font-weight": "600"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [role=\"toolbar\"]": {
+          "display": "flex",
+          "flex-wrap": "wrap",
+          "gap": "0.375rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] button": {
+          "appearance": "none",
+          "font": "inherit",
+          "font-size": "0.875rem",
+          "line-height": "1.4",
+          "background": "var(--boring-editor-control-background, var(--background, #fff))",
+          "color": "inherit",
+          "border": "1px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "border-radius": "0.375rem",
+          "padding": "0.375rem 0.625rem",
+          "cursor": "pointer"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] button[aria-pressed=\"true\"]": {
+          "background": "var(--boring-editor-accent, var(--accent, #e5e7eb))",
+          "font-weight": "600"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] button:disabled": {
+          "opacity": "0.5",
+          "cursor": "not-allowed"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] button:focus-visible, .boring-markdown-recipe[data-boring=\"markdown-editor\"] textarea:focus-visible": {
+          "outline": "2px solid var(--boring-editor-focus, var(--ring, #2563eb))",
+          "outline-offset": "2px"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [role=\"status\"]": {
+          "font-size": "0.875rem",
+          "color": "var(--boring-editor-muted, var(--muted-foreground, #4b5563))"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] nav[aria-label=\"Document outline\"]": {
+          "border-bottom": "1px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "padding-bottom": "0.75rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] nav ol": {
+          "padding-left": "1.25rem",
+          "margin": "0",
+          "display": "grid",
+          "gap": "0.25rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content": {
+          "min-height": "12rem",
+          "max-width": "75ch",
+          "width": "100%",
+          "margin-inline": "auto",
+          "line-height": "1.7",
+          "overflow-wrap": "anywhere"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content p": {
+          "margin": "0.75rem 0"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content h1": {
+          "font-size": "1.875rem",
+          "line-height": "1.2",
+          "margin": "1.25rem 0 0.75rem",
+          "font-weight": "700"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content h2": {
+          "font-size": "1.5rem",
+          "line-height": "1.3",
+          "margin": "1.25rem 0 0.75rem",
+          "font-weight": "650"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content h3": {
+          "font-size": "1.25rem",
+          "margin": "1rem 0 0.5rem",
+          "font-weight": "600"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content ul": {
+          "list-style": "disc",
+          "padding-left": "1.5rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content ol": {
+          "list-style": "decimal",
+          "padding-left": "1.5rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content ul[data-type=\"taskList\"]": {
+          "list-style": "none",
+          "padding-left": "0"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content li[data-type=\"taskItem\"]": {
+          "display": "flex",
+          "gap": "0.5rem",
+          "align-items": "baseline"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content blockquote": {
+          "border-left": "3px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "padding-left": "1rem",
+          "margin-inline": "0",
+          "color": "var(--boring-editor-muted, var(--muted-foreground, #4b5563))"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content pre, .boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-boring=\"proposal\"] pre": {
+          "overflow-x": "auto",
+          "background": "var(--boring-editor-code-background, var(--muted, #f3f4f6))",
+          "border-radius": "0.375rem",
+          "padding": "0.75rem",
+          "font-family": "ui-monospace, monospace"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content code": {
+          "font-family": "ui-monospace, monospace",
+          "font-size": "0.9em"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] > textarea": {
+          "width": "100%",
+          "min-height": "16rem",
+          "resize": "vertical",
+          "font-family": "ui-monospace, monospace",
+          "font-size": "0.875rem",
+          "line-height": "1.6",
+          "padding": "0.75rem",
+          "background": "inherit",
+          "color": "inherit",
+          "border": "1px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "border-radius": "0.375rem",
+          "box-sizing": "border-box"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [role=\"alert\"]": {
+          "border-left": "3px solid var(--boring-editor-danger, var(--destructive, #b91c1c))",
+          "padding": "0.75rem",
+          "overflow-wrap": "anywhere"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-boring=\"proposal\"]": {
+          "border": "1px solid var(--boring-editor-border, var(--border, #d1d5db))",
+          "padding": "0.75rem",
+          "border-radius": "0.375rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-boring=\"proposal\"] summary": {
+          "cursor": "pointer",
+          "font-weight": "600"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] .boring-markdown-content:focus-visible": {
+          "outline": "2px solid var(--boring-editor-focus, var(--ring, #2563eb))",
+          "outline-offset": "2px"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-boring=\"proposal-diff\"]": {
+          "font-family": "ui-monospace, monospace",
+          "font-size": "0.875rem",
+          "line-height": "1.5",
+          "overflow-x": "auto"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-diff]": {
+          "white-space": "pre-wrap",
+          "overflow-wrap": "anywhere",
+          "padding": "0.125rem 0.375rem"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-diff=\"add\"]": {
+          "background": "var(--boring-editor-diff-add-background, #ecfdf5)",
+          "color": "var(--boring-editor-diff-add-foreground, #065f46)"
+        },
+        ".boring-markdown-recipe[data-boring=\"markdown-editor\"] [data-diff=\"remove\"]": {
+          "background": "var(--boring-editor-diff-remove-background, #fff1f2)",
+          "color": "var(--boring-editor-diff-remove-foreground, #9f1239)"
+        }
+      },
+      "docs": "Create and own a MarkdownController from @boring/ui/markdown. Pass it to MarkdownEditor. The wrapper does not acquire resources or dispose the controller. Version 0.0.0 is currently a local tarball qualification target; no hosted v4 registry or package release is advertised."
+    },
+    {
+      "name": "html-viewer",
+      "type": "registry:component",
+      "title": "HTML source and passive preview",
+      "description": "Exact HTML source editing with a reconstructed passive preview and borrowed controller. Browser security qualification remains separate.",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "@boring/files@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0"
+      ],
+      "files": [
+        {
+          "path": "registry/html-viewer/html-viewer.tsx",
+          "type": "registry:component"
+        }
+      ],
+      "css": {
+        ".boring-html-recipe[data-boring=\"html-viewer\"]": {
+          "background": "var(--boring-html-background, var(--background, #fff))",
+          "color": "var(--boring-html-foreground, var(--foreground, #111827))",
+          "border": "1px solid var(--boring-html-border, var(--border, #d1d5db))",
+          "border-radius": "var(--boring-html-radius, var(--radius, 0.75rem))",
+          "padding": "1rem",
+          "display": "grid",
+          "gap": "0.75rem",
+          "min-width": "0",
+          "font-family": "inherit"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] > header": {
+          "display": "flex",
+          "justify-content": "space-between",
+          "align-items": "center",
+          "flex-wrap": "wrap",
+          "gap": "0.75rem"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] [role=\"toolbar\"]": {
+          "display": "flex",
+          "flex-wrap": "wrap",
+          "gap": "0.375rem"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] button": {
+          "font": "inherit",
+          "background": "var(--boring-html-background, var(--background, #fff))",
+          "color": "var(--boring-html-foreground, var(--foreground, #111827))",
+          "border": "1px solid var(--boring-html-border, var(--border, #d1d5db))",
+          "border-radius": "0.375rem",
+          "padding": "0.375rem 0.625rem",
+          "cursor": "pointer"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] button[aria-pressed=\"true\"]": {
+          "font-weight": "700",
+          "text-decoration": "underline"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] button:disabled": {
+          "opacity": "0.5",
+          "cursor": "not-allowed"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] button:focus-visible, .boring-html-recipe[data-boring=\"html-viewer\"] textarea:focus-visible": {
+          "outline": "2px solid var(--boring-html-focus, var(--ring, #2563eb))",
+          "outline-offset": "2px"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] .boring-html-viewer__source": {
+          "box-sizing": "border-box",
+          "width": "100%",
+          "min-height": "18rem",
+          "font-family": "monospace",
+          "line-height": "1.5",
+          "background": "var(--boring-html-background, var(--background, #fff))",
+          "color": "var(--boring-html-foreground, var(--foreground, #111827))",
+          "padding": "0.75rem",
+          "border": "1px solid var(--boring-html-border, var(--border, #d1d5db))",
+          "border-radius": "0.375rem",
+          "resize": "vertical"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] .boring-html-viewer__frame": {
+          "box-sizing": "border-box",
+          "width": "100%",
+          "min-height": "18rem",
+          "border": "1px solid var(--boring-html-border, var(--border, #d1d5db))",
+          "border-radius": "0.375rem"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] [role=\"status\"]": {
+          "font-size": "0.875rem"
+        },
+        ".boring-html-recipe[data-boring=\"html-viewer\"] [role=\"alert\"]": {
+          "border-inline-start": "0.25rem solid currentColor",
+          "padding-inline-start": "0.75rem"
+        }
+      }
+    },
+    {
+      "name": "pi-chat",
+      "type": "registry:component",
+      "title": "Pi chat",
+      "description": "A complete Tailwind chat over the borrowed native chat controller: composer, messages, one collapsible activity block per turn (tool calls and reasoning), message queue, history, a human-in-the-loop question card, an Approve / Deny card for host tools wrapped with requireApproval and optional artifact cards that open generated content in the host's panel. Chat only: no layout. Owned, editable source; no AI SDK. The optional pi-ambient and pi-workspace blocks build on it.",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "marked@17.0.6",
+        "entities@7.0.1",
+        "@earendil-works/pi-durable@1.0.1",
+        "@earendil-works/chord@1.0.1",
+        "@earendil-works/pi-ai@1.0.1",
+        "@modelcontextprotocol/sdk@1.31.0",
+        "lucide-react@1.51.0",
+        "use-stick-to-bottom@1.1.6",
+        "clsx@2.1.1",
+        "tailwind-merge@3.7.0"
+      ],
+      "files": [
+        {
+          "path": "registry/pi-chat/activity.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/activity.tsx"
+        },
+        {
+          "path": "registry/pi-chat/artifact-card.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/artifact-card.tsx"
+        },
+        {
+          "path": "registry/pi-chat/approval-card.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/approval-card.tsx"
+        },
+        {
+          "path": "registry/pi-chat/artifact.ts",
+          "type": "registry:component",
+          "target": "components/pi-chat/artifact.ts"
+        },
+        {
+          "path": "registry/pi-chat/button.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/button.tsx"
+        },
+        {
+          "path": "registry/pi-chat/code-block.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/code-block.tsx"
+        },
+        {
+          "path": "registry/pi-chat/composer.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/composer.tsx"
+        },
+        {
+          "path": "registry/pi-chat/config.ts",
+          "type": "registry:component",
+          "target": "components/pi-chat/config.ts"
+        },
+        {
+          "path": "registry/pi-chat/empty-state.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/empty-state.tsx"
+        },
+        {
+          "path": "registry/pi-chat/history.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/history.tsx"
+        },
+        {
+          "path": "registry/pi-chat/markdown.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/markdown.tsx"
+        },
+        {
+          "path": "registry/pi-chat/mention-menu.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/mention-menu.tsx"
+        },
+        {
+          "path": "registry/pi-chat/message.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/message.tsx"
+        },
+        {
+          "path": "registry/pi-chat/notice.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/notice.tsx"
+        },
+        {
+          "path": "registry/pi-chat/pi-chat.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/pi-chat.tsx"
+        },
+        {
+          "path": "registry/pi-chat/picker-keyboard.ts",
+          "type": "registry:component",
+          "target": "components/pi-chat/picker-keyboard.ts"
+        },
+        {
+          "path": "registry/pi-chat/pickers.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/pickers.tsx"
+        },
+        {
+          "path": "registry/pi-chat/question-card.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/question-card.tsx"
+        },
+        {
+          "path": "registry/pi-chat/queue.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/queue.tsx"
+        },
+        {
+          "path": "registry/pi-chat/rows.ts",
+          "type": "registry:component",
+          "target": "components/pi-chat/rows.ts"
+        },
+        {
+          "path": "registry/pi-chat/session.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/session.tsx"
+        },
+        {
+          "path": "registry/pi-chat/shimmer.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/shimmer.tsx"
+        },
+        {
+          "path": "registry/pi-chat/slash-menu.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/slash-menu.tsx"
+        },
+        {
+          "path": "registry/pi-chat/tool.tsx",
+          "type": "registry:component",
+          "target": "components/pi-chat/tool.tsx"
+        },
+        {
+          "path": "registry/pi-chat/utils.ts",
+          "type": "registry:component",
+          "target": "components/pi-chat/utils.ts"
+        }
+      ],
+      "css": {
+        "@layer base": {
+          ".pi-chat, .pi-chat *, .pi-chat *::before, .pi-chat *::after": {
+            "box-sizing": "border-box"
+          },
+          ".pi-chat :where(button, input, textarea)": {
+            "font": "inherit",
+            "color": "inherit",
+            "letter-spacing": "inherit"
+          },
+          ".pi-chat :where(button)": {
+            "background-color": "transparent",
+            "border": "0",
+            "padding": "0"
+          },
+          ".pi-chat :where(textarea, input)": {
+            "margin": "0"
+          },
+          ".pi-chat [hidden]": {
+            "display": "none"
+          }
+        },
+        "@layer components": {
+          ".pi-chat-shimmer": {
+            "background-image": "linear-gradient(100deg, var(--muted-foreground) 35%, var(--foreground) 50%, var(--muted-foreground) 65%)",
+            "background-size": "250% 100%",
+            "background-clip": "text",
+            "-webkit-background-clip": "text",
+            "color": "transparent",
+            "animation": "pi-chat-shimmer 2.2s linear infinite"
+          },
+          ".pi-chat [data-testid=\"message-text\"][data-streaming=\"true\"] > :last-child:not([data-testid=\"code-block\"])::after": {
+            "content": "\"\"",
+            "display": "inline-block",
+            "width": "0.45em",
+            "height": "1.05em",
+            "margin-inline-start": "0.2em",
+            "vertical-align": "-0.15em",
+            "border-radius": "2px",
+            "background": "color-mix(in oklab, var(--foreground) 60%, transparent)",
+            "animation": "pi-chat-caret 1s steps(2, jump-none) infinite"
+          }
+        },
+        "@keyframes pi-chat-shimmer": {
+          "from": {
+            "background-position": "100% 0"
+          },
+          "to": {
+            "background-position": "0 0"
+          }
+        },
+        "@keyframes pi-chat-caret": {
+          "0%": {
+            "opacity": "1"
+          },
+          "50%": {
+            "opacity": "0.15"
+          },
+          "100%": {
+            "opacity": "1"
+          }
+        }
+      }
+    },
+    {
+      "name": "pi-ambient",
+      "type": "registry:component",
+      "title": "Pi ambient agent",
+      "description": "AmbientChat, a compact floating agent bar that grows into a chat window over an existing page, and AgentNotifications, toasts for finished, failed and waiting tasks (with the one guarded browser Notification helper). A block over the pi-chat item; its in-window artifact panel uses the pi-workspace layout.",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "@earendil-works/pi-durable@1.0.1",
+        "@earendil-works/pi-ai@1.0.1",
+        "lucide-react@1.51.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/pi-chat",
+        "@boring-ui/pi-workspace"
+      ],
+      "files": [
+        {
+          "path": "registry/pi-ambient/ambient.tsx",
+          "type": "registry:component",
+          "target": "components/pi-ambient/ambient.tsx"
+        },
+        {
+          "path": "registry/pi-ambient/browser-notify.ts",
+          "type": "registry:component",
+          "target": "components/pi-ambient/browser-notify.ts"
+        },
+        {
+          "path": "registry/pi-ambient/notifications.tsx",
+          "type": "registry:component",
+          "target": "components/pi-ambient/notifications.tsx"
+        }
+      ],
+      "css": {
+        "@layer components": {
+          ".pi-chat.pi-ambient[data-variant=\"contrast\"]": {
+            "color-scheme": "dark",
+            "--background": "oklch(0.262 0.004 285)",
+            "--foreground": "oklch(0.975 0.002 286)",
+            "--card": "oklch(0.262 0.004 285)",
+            "--card-foreground": "oklch(0.975 0.002 286)",
+            "--popover": "oklch(0.3 0.005 285)",
+            "--popover-foreground": "oklch(0.975 0.002 286)",
+            "--primary": "oklch(0.985 0 0)",
+            "--primary-foreground": "oklch(0.21 0.006 285.885)",
+            "--secondary": "oklch(0.33 0.006 286)",
+            "--secondary-foreground": "oklch(0.985 0 0)",
+            "--muted": "oklch(0.315 0.005 286)",
+            "--muted-foreground": "oklch(0.7 0.01 286)",
+            "--accent": "oklch(0.35 0.006 286)",
+            "--accent-foreground": "oklch(0.985 0 0)",
+            "--destructive": "oklch(0.704 0.191 22.216)",
+            "--border": "oklch(1 0 0 / 9%)",
+            "--input": "oklch(1 0 0 / 14%)",
+            "--ring": "oklch(0.75 0.02 286)"
+          }
+        }
+      }
+    },
+    {
+      "name": "pi-workspace",
+      "type": "registry:component",
+      "title": "Pi workspace layout",
+      "description": "ArtifactWorkspace: the chat with a right-hand panel that slides in at full height, a resizable divider, full screen, a full-screen sheet on a phone and an opt-in float-when-narrow (the host swaps in AmbientChat from pi-ambient). Layout only; what is open is the host's. Pair it with the viewers item for the panel contents.",
+      "dependencies": [
+        "react@19.3.0",
+        "react-dom@19.3.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/pi-chat"
+      ],
+      "files": [
+        {
+          "path": "registry/pi-workspace/workspace.tsx",
+          "type": "registry:component",
+          "target": "components/pi-workspace/workspace.tsx"
+        }
+      ]
+    },
+    {
+      "name": "viewers",
+      "type": "registry:component",
+      "title": "Viewers",
+      "description": "The standard viewer top bar (title, status, viewer controls, Refresh, Share, Copy, Download, Open in new tab, Close, overflow menu) with Tailwind panes over it: the Markdown editor with a formatting toolbar and prose styling, the passive HTML preview and source editor, an image viewer with zoom and pan, and a PDF viewer. Owned, editable source over the borrowed controllers; no AI SDK.",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "@boring/files@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "marked@17.0.6",
+        "@tiptap/core@3.31.3",
+        "@tiptap/react@3.31.3",
+        "@tiptap/pm@3.31.3",
+        "@tiptap/starter-kit@3.31.3",
+        "@tiptap/markdown@3.31.3",
+        "@tiptap/extensions@3.31.3",
+        "@tiptap/extension-list@3.31.3",
+        "@tiptap/extension-table@3.31.3",
+        "@tiptap/extension-image@3.31.3",
+        "@tiptap/extension-highlight@3.31.3",
+        "@tiptap/extension-bubble-menu@3.31.3",
+        "@tiptap/extension-floating-menu@3.31.3",
+        "lucide-react@1.51.0",
+        "clsx@2.1.1",
+        "tailwind-merge@3.7.0"
+      ],
+      "files": [
+        {
+          "path": "registry/viewers/button.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/button.tsx"
+        },
+        {
+          "path": "registry/viewers/download.ts",
+          "type": "registry:component",
+          "target": "components/viewers/download.ts"
+        },
+        {
+          "path": "registry/viewers/html-pane.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/html-pane.tsx"
+        },
+        {
+          "path": "registry/viewers/image-pane.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/image-pane.tsx"
+        },
+        {
+          "path": "registry/viewers/interactive-html.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/interactive-html.tsx"
+        },
+        {
+          "path": "registry/viewers/markdown-pane.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/markdown-pane.tsx"
+        },
+        {
+          "path": "registry/viewers/media.ts",
+          "type": "registry:component",
+          "target": "components/viewers/media.ts"
+        },
+        {
+          "path": "registry/viewers/menu.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/menu.tsx"
+        },
+        {
+          "path": "registry/viewers/pdf-pane.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/pdf-pane.tsx"
+        },
+        {
+          "path": "registry/viewers/share.ts",
+          "type": "registry:component",
+          "target": "components/viewers/share.ts"
+        },
+        {
+          "path": "registry/viewers/utils.ts",
+          "type": "registry:component",
+          "target": "components/viewers/utils.ts"
+        },
+        {
+          "path": "registry/viewers/viewer-frame.tsx",
+          "type": "registry:component",
+          "target": "components/viewers/viewer-frame.tsx"
+        }
+      ],
+      "css": {
+        "@layer base": {
+          ".boring-viewer, .boring-viewer *, .boring-viewer *::before, .boring-viewer *::after": {
+            "box-sizing": "border-box"
+          },
+          ".boring-viewer :where(button, input, textarea)": {
+            "font": "inherit",
+            "color": "inherit",
+            "letter-spacing": "inherit"
+          },
+          ".boring-viewer :where(button)": {
+            "background-color": "transparent",
+            "border": "0",
+            "padding": "0"
+          },
+          ".boring-viewer :where(textarea, input)": {
+            "margin": "0"
+          },
+          ".boring-viewer [hidden]": {
+            "display": "none"
+          }
+        },
+        "@layer components": {
+          ".boring-viewer .boring-markdown-editor": {
+            "display": "flex",
+            "flex-direction": "column",
+            "flex": "1 1 auto",
+            "min-height": "0",
+            "min-width": "0",
+            "container-type": "inline-size"
+          },
+          ".boring-viewer .boring-markdown-surface": {
+            "flex": "1 1 auto",
+            "min-height": "0",
+            "overflow": "auto",
+            "scrollbar-width": "thin",
+            "scrollbar-color": "color-mix(in oklab, var(--foreground) 22%, transparent) transparent"
+          },
+          ".boring-viewer .boring-markdown-surface:focus-within": {
+            "box-shadow": "inset 0 0 0 1px color-mix(in oklab, var(--ring) 55%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-toolbar": {
+            "display": "flex",
+            "flex": "none",
+            "align-items": "center",
+            "gap": "0.125rem",
+            "padding": "0.375rem 0.75rem",
+            "border-bottom": "1px solid var(--border)",
+            "background": "var(--background)",
+            "overflow-x": "auto",
+            "scrollbar-width": "none"
+          },
+          ".boring-viewer .boring-markdown-toolbar::-webkit-scrollbar": {
+            "display": "none"
+          },
+          ".boring-viewer .boring-markdown-tool": {
+            "display": "inline-flex",
+            "flex": "none",
+            "align-items": "center",
+            "justify-content": "center",
+            "width": "2rem",
+            "height": "2rem",
+            "border-radius": "0.375rem",
+            "color": "var(--muted-foreground)",
+            "cursor": "pointer",
+            "transition": "background-color 0.12s, color 0.12s"
+          },
+          ".boring-viewer .boring-markdown-tool:hover:not(:disabled)": {
+            "background": "var(--muted)",
+            "color": "var(--foreground)"
+          },
+          ".boring-viewer .boring-markdown-tool[aria-pressed=\"true\"]": {
+            "background": "color-mix(in oklab, var(--primary) 12%, transparent)",
+            "color": "var(--foreground)",
+            "box-shadow": "inset 0 0 0 1px color-mix(in oklab, var(--primary) 22%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-tool:disabled": {
+            "opacity": "0.4",
+            "cursor": "not-allowed"
+          },
+          ".boring-viewer .boring-markdown-tool:focus-visible, .boring-viewer .boring-markdown-link button:focus-visible, .boring-viewer .boring-markdown-alert button:focus-visible, .boring-viewer .boring-markdown-proposal button:focus-visible": {
+            "outline": "2px solid color-mix(in oklab, var(--ring) 70%, transparent)",
+            "outline-offset": "1px"
+          },
+          ".boring-viewer .boring-markdown-separator": {
+            "flex": "none",
+            "width": "1px",
+            "height": "1rem",
+            "margin": "0 0.375rem",
+            "background": "var(--border)"
+          },
+          ".boring-viewer .boring-markdown-icon": {
+            "display": "block"
+          },
+          ".boring-viewer .boring-markdown-link": {
+            "display": "flex",
+            "flex": "none",
+            "flex-wrap": "wrap",
+            "align-items": "center",
+            "gap": "0.5rem",
+            "padding": "0.5rem 0.75rem",
+            "border-bottom": "1px solid var(--border)",
+            "background": "var(--muted)"
+          },
+          ".boring-viewer .boring-markdown-link input": {
+            "flex": "1 1 14rem",
+            "min-width": "0",
+            "height": "2rem",
+            "padding": "0 0.625rem",
+            "border": "1px solid var(--input)",
+            "border-radius": "0.375rem",
+            "background": "var(--background)",
+            "font-size": "0.875rem"
+          },
+          ".boring-viewer .boring-markdown-link input:focus-visible": {
+            "outline": "2px solid color-mix(in oklab, var(--ring) 70%, transparent)",
+            "outline-offset": "0"
+          },
+          ".boring-viewer .boring-markdown-link button, .boring-viewer .boring-markdown-alert button, .boring-viewer .boring-markdown-proposal > button": {
+            "height": "2rem",
+            "padding": "0 0.75rem",
+            "border": "1px solid var(--border)",
+            "border-radius": "0.375rem",
+            "background": "var(--background)",
+            "font-size": "0.8125rem",
+            "font-weight": "500",
+            "cursor": "pointer"
+          },
+          ".boring-viewer .boring-markdown-link button:hover:not(:disabled), .boring-viewer .boring-markdown-alert button:hover:not(:disabled), .boring-viewer .boring-markdown-proposal > button:hover:not(:disabled)": {
+            "background": "var(--muted)"
+          },
+          ".boring-viewer .boring-markdown-alert button:disabled, .boring-viewer .boring-markdown-proposal > button:disabled": {
+            "opacity": "0.45",
+            "cursor": "not-allowed"
+          },
+          ".boring-viewer .boring-markdown-notice, .boring-viewer .boring-markdown-alert, .boring-viewer .boring-markdown-proposal": {
+            "flex": "none",
+            "margin": "0.75rem 0.75rem 0",
+            "padding": "0.625rem 0.75rem",
+            "border": "1px solid var(--border)",
+            "border-radius": "0.5rem",
+            "background": "var(--muted)",
+            "font-size": "0.8125rem",
+            "line-height": "1.5"
+          },
+          ".boring-viewer .boring-markdown-notice": {
+            "border-left": "3px solid color-mix(in oklab, var(--primary) 55%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-alert": {
+            "display": "flex",
+            "flex-wrap": "wrap",
+            "align-items": "center",
+            "gap": "0.5rem",
+            "border-color": "color-mix(in oklab, var(--destructive) 40%, var(--border))",
+            "background": "color-mix(in oklab, var(--destructive) 8%, var(--background))"
+          },
+          ".boring-viewer .boring-markdown-proposal": {
+            "display": "flex",
+            "flex-wrap": "wrap",
+            "align-items": "center",
+            "gap": "0.5rem",
+            "background": "var(--background)"
+          },
+          ".boring-viewer .boring-markdown-proposal h3": {
+            "flex": "1 1 100%",
+            "margin": "0",
+            "font-size": "0.875rem"
+          },
+          ".boring-viewer .boring-markdown-proposal details": {
+            "flex": "1 1 100%",
+            "min-width": "0"
+          },
+          ".boring-viewer .boring-markdown-proposal summary": {
+            "cursor": "pointer",
+            "color": "var(--muted-foreground)"
+          },
+          ".boring-viewer .boring-markdown-proposal pre": {
+            "margin": "0.25rem 0",
+            "max-height": "12rem",
+            "overflow": "auto",
+            "padding": "0.5rem",
+            "border-radius": "0.375rem",
+            "background": "var(--muted)",
+            "font": "0.75rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+            "white-space": "pre-wrap"
+          },
+          ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"]": {
+            "display": "none"
+          },
+          "@container (min-width: 46rem)": {
+            ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"]": {
+              "display": "block",
+              "flex": "none",
+              "padding": "0.375rem 0.75rem",
+              "border-bottom": "1px solid var(--border)",
+              "overflow-x": "auto"
+            },
+            ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"] ol": {
+              "display": "flex",
+              "gap": "0.25rem",
+              "margin": "0",
+              "padding": "0",
+              "list-style": "none"
+            },
+            ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"] button": {
+              "max-width": "14rem",
+              "padding": "0.125rem 0.5rem",
+              "overflow": "hidden",
+              "border-radius": "999px",
+              "color": "var(--muted-foreground)",
+              "font-size": "0.75rem",
+              "text-overflow": "ellipsis",
+              "white-space": "nowrap",
+              "cursor": "pointer"
+            },
+            ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"] button:hover": {
+              "background": "var(--muted)",
+              "color": "var(--foreground)"
+            },
+            ".boring-viewer .boring-markdown-editor nav[aria-label=\"Document outline\"] [data-heading-level=\"1\"] button": {
+              "font-weight": "600"
+            }
+          },
+          ".boring-viewer .boring-markdown-source, .boring-viewer .boring-html-viewer__source": {
+            "display": "block",
+            "flex": "1 1 auto",
+            "width": "100%",
+            "min-height": "0",
+            "margin": "0",
+            "padding": "1rem 1.25rem",
+            "border": "0",
+            "border-radius": "0",
+            "outline": "none",
+            "resize": "none",
+            "background": "var(--background)",
+            "color": "var(--foreground)",
+            "font": "0.8125rem/1.65 ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace",
+            "tab-size": "2",
+            "caret-color": "var(--foreground)"
+          },
+          ".boring-viewer .boring-markdown-source:focus-visible, .boring-viewer .boring-html-viewer__source:focus-visible": {
+            "box-shadow": "inset 0 0 0 1px color-mix(in oklab, var(--ring) 55%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-source::selection, .boring-viewer .boring-html-viewer__source::selection, .boring-viewer .boring-markdown-content ::selection, .boring-viewer .boring-markdown-content::selection": {
+            "background": "color-mix(in oklab, var(--primary) 24%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-content": {
+            "max-width": "46rem",
+            "min-height": "100%",
+            "margin": "0 auto",
+            "padding": "1.25rem 1.25rem 3rem",
+            "outline": "none",
+            "color": "var(--foreground)",
+            "font-size": "0.9375rem",
+            "line-height": "1.7",
+            "letter-spacing": "-0.005em",
+            "overflow-wrap": "anywhere"
+          },
+          ".boring-viewer .boring-markdown-content > :first-child": {
+            "margin-top": "0"
+          },
+          ".boring-viewer .boring-markdown-content p": {
+            "margin": "0.75rem 0"
+          },
+          ".boring-viewer .boring-markdown-content p.is-editor-empty:first-child::before": {
+            "content": "attr(data-placeholder)",
+            "float": "left",
+            "height": "0",
+            "color": "var(--muted-foreground)",
+            "opacity": "0.8",
+            "pointer-events": "none"
+          },
+          ".boring-viewer .boring-markdown-content :is(h1, h2, h3, h4, h5, h6)": {
+            "color": "var(--foreground)",
+            "font-weight": "600",
+            "letter-spacing": "-0.02em",
+            "line-height": "1.25"
+          },
+          ".boring-viewer .boring-markdown-content h1": {
+            "margin": "1.75rem 0 0.75rem",
+            "font-size": "1.875rem"
+          },
+          ".boring-viewer .boring-markdown-content h2": {
+            "margin": "1.5rem 0 0.625rem",
+            "padding-bottom": "0.25rem",
+            "border-bottom": "1px solid color-mix(in oklab, var(--border) 70%, transparent)",
+            "font-size": "1.375rem"
+          },
+          ".boring-viewer .boring-markdown-content h3": {
+            "margin": "1.25rem 0 0.5rem",
+            "font-size": "1.125rem"
+          },
+          ".boring-viewer .boring-markdown-content :is(h4, h5, h6)": {
+            "margin": "1rem 0 0.4rem",
+            "font-size": "1rem"
+          },
+          ".boring-viewer .boring-markdown-content :is(ul, ol)": {
+            "margin": "0.75rem 0",
+            "padding-left": "1.5rem"
+          },
+          ".boring-viewer .boring-markdown-content ul": {
+            "list-style": "disc"
+          },
+          ".boring-viewer .boring-markdown-content ul ul": {
+            "list-style": "circle"
+          },
+          ".boring-viewer .boring-markdown-content ul ul ul": {
+            "list-style": "square"
+          },
+          ".boring-viewer .boring-markdown-content ol": {
+            "list-style": "decimal"
+          },
+          ".boring-viewer .boring-markdown-content ol ol": {
+            "list-style": "lower-alpha"
+          },
+          ".boring-viewer .boring-markdown-content ol ol ol": {
+            "list-style": "lower-roman"
+          },
+          ".boring-viewer .boring-markdown-content li": {
+            "margin": "0.25rem 0"
+          },
+          ".boring-viewer .boring-markdown-content li::marker": {
+            "color": "var(--muted-foreground)"
+          },
+          ".boring-viewer .boring-markdown-content li > p": {
+            "margin": "0"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"]": {
+            "padding-left": "0",
+            "list-style": "none"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li": {
+            "display": "flex",
+            "align-items": "flex-start",
+            "gap": "0.5rem"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li > label": {
+            "display": "inline-flex",
+            "flex": "none",
+            "align-items": "center",
+            "height": "1.7em",
+            "margin": "0",
+            "user-select": "none"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li > label input[type=\"checkbox\"]": {
+            "width": "1rem",
+            "height": "1rem",
+            "margin": "0",
+            "accent-color": "var(--primary)",
+            "cursor": "pointer"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li > div": {
+            "flex": "1 1 auto",
+            "min-width": "0"
+          },
+          ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li[data-checked=\"true\"] > div": {
+            "color": "var(--muted-foreground)",
+            "text-decoration": "line-through"
+          },
+          ".boring-viewer .boring-markdown-content strong": {
+            "font-weight": "600"
+          },
+          ".boring-viewer .boring-markdown-content code": {
+            "padding": "0.1em 0.35em",
+            "border-radius": "0.25rem",
+            "background": "color-mix(in oklab, var(--foreground) 7%, transparent)",
+            "font": "0.88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          },
+          ".boring-viewer .boring-markdown-content pre": {
+            "margin": "1rem 0",
+            "padding": "0.875rem 1rem",
+            "overflow-x": "auto",
+            "border": "1px solid color-mix(in oklab, var(--border) 80%, transparent)",
+            "border-radius": "0.5rem",
+            "background": "color-mix(in oklab, var(--foreground) 4%, transparent)",
+            "font": "0.8125rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          },
+          ".boring-viewer .boring-markdown-content pre code": {
+            "padding": "0",
+            "background": "transparent",
+            "font": "inherit"
+          },
+          ".boring-viewer .boring-markdown-content blockquote": {
+            "margin": "1rem 0",
+            "padding": "0.5rem 1rem",
+            "border-left": "3px solid color-mix(in oklab, var(--primary) 35%, transparent)",
+            "border-radius": "0 0.375rem 0.375rem 0",
+            "background": "color-mix(in oklab, var(--foreground) 4%, transparent)",
+            "color": "color-mix(in oklab, var(--foreground) 85%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-content blockquote > :first-child": {
+            "margin-top": "0"
+          },
+          ".boring-viewer .boring-markdown-content blockquote > :last-child": {
+            "margin-bottom": "0"
+          },
+          ".boring-viewer .boring-markdown-content a": {
+            "color": "var(--foreground)",
+            "text-decoration": "underline",
+            "text-decoration-thickness": "1px",
+            "text-underline-offset": "3px",
+            "text-decoration-color": "color-mix(in oklab, var(--foreground) 45%, transparent)",
+            "cursor": "text"
+          },
+          ".boring-viewer .boring-markdown-content hr": {
+            "margin": "1.5rem 0",
+            "border": "0",
+            "border-top": "1px solid color-mix(in oklab, var(--border) 85%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-content mark": {
+            "padding": "0 0.15em",
+            "border-radius": "0.2em",
+            "background": "color-mix(in oklab, #facc15 40%, transparent)",
+            "color": "inherit"
+          },
+          ".boring-viewer .boring-markdown-content .tableWrapper": {
+            "margin": "1rem 0",
+            "overflow-x": "auto"
+          },
+          ".boring-viewer .boring-markdown-content table": {
+            "width": "100%",
+            "border-collapse": "collapse",
+            "font-size": "0.875rem"
+          },
+          ".boring-viewer .boring-markdown-content :is(th, td)": {
+            "min-width": "4rem",
+            "padding": "0.5rem 0.75rem",
+            "border": "1px solid color-mix(in oklab, var(--border) 90%, transparent)",
+            "text-align": "left",
+            "vertical-align": "top"
+          },
+          ".boring-viewer .boring-markdown-content th": {
+            "background": "color-mix(in oklab, var(--foreground) 5%, transparent)",
+            "font-weight": "600"
+          },
+          ".boring-viewer .boring-markdown-content :is(th, td) > p": {
+            "margin": "0"
+          },
+          ".boring-viewer .boring-markdown-content .selectedCell": {
+            "background": "color-mix(in oklab, var(--primary) 12%, transparent)"
+          },
+          ".boring-viewer .boring-markdown-content img": {
+            "display": "block",
+            "max-width": "100%",
+            "height": "auto",
+            "margin": "1rem 0",
+            "border-radius": "0.5rem"
+          },
+          ".boring-viewer .boring-markdown-content .boring-markdown-image": {
+            "display": "inline-flex",
+            "align-items": "center",
+            "gap": "0.4rem",
+            "max-width": "100%",
+            "margin": "0.125rem 0",
+            "padding": "0.125rem 0.5rem",
+            "border": "1px dashed var(--border)",
+            "border-radius": "0.375rem",
+            "background": "var(--muted)",
+            "color": "var(--muted-foreground)",
+            "font-size": "0.85em",
+            "line-height": "1.5"
+          },
+          ".boring-viewer .boring-markdown-content .boring-markdown-image::before": {
+            "content": "\"\"",
+            "flex": "none",
+            "width": "0.85em",
+            "height": "0.85em",
+            "border": "1.5px solid currentColor",
+            "border-radius": "0.15em",
+            "opacity": "0.7"
+          },
+          ".boring-viewer .boring-markdown-content .ProseMirror-selectednode": {
+            "outline": "2px solid color-mix(in oklab, var(--ring) 70%, transparent)",
+            "outline-offset": "2px"
+          },
+          ".boring-viewer .boring-html-pane": {
+            "display": "flex",
+            "flex": "1 1 auto",
+            "flex-direction": "column",
+            "min-height": "0",
+            "min-width": "0"
+          },
+          ".boring-viewer .boring-html-viewer__preview": {
+            "display": "flex",
+            "flex": "1 1 auto",
+            "flex-direction": "column",
+            "min-height": "0",
+            "background": "var(--muted)"
+          },
+          ".boring-viewer .boring-html-viewer__preview > p": {
+            "flex": "none",
+            "margin": "0",
+            "padding": "0.375rem 0.75rem",
+            "border-bottom": "1px solid var(--border)",
+            "background": "var(--background)",
+            "color": "var(--muted-foreground)",
+            "font-size": "0.75rem"
+          },
+          ".boring-viewer .boring-html-viewer__preview > p[role=\"alert\"]": {
+            "color": "var(--destructive)"
+          },
+          ".boring-viewer .boring-html-viewer__preview > div": {
+            "display": "flex",
+            "flex": "1 1 auto",
+            "min-height": "0"
+          },
+          ".boring-viewer .boring-html-viewer__frame": {
+            "flex": "1 1 auto",
+            "width": "100%",
+            "height": "100%",
+            "min-height": "0",
+            "border": "0",
+            "background": "#fff",
+            "color-scheme": "light"
+          },
+          ".boring-viewer .boring-viewer-checker": {
+            "background-color": "#fff",
+            "background-image": "linear-gradient(45deg, #d4d4d8 25%, transparent 25%, transparent 75%, #d4d4d8 75%), linear-gradient(45deg, #d4d4d8 25%, transparent 25%, transparent 75%, #d4d4d8 75%)",
+            "background-position": "0 0, 8px 8px",
+            "background-size": "16px 16px"
+          },
+          ".boring-viewer .boring-viewer-stage": {
+            "background": "var(--muted)",
+            "scrollbar-width": "thin"
+          },
+          ".boring-viewer .boring-viewer-stage:focus-visible": {
+            "outline": "2px solid color-mix(in oklab, var(--ring) 60%, transparent)",
+            "outline-offset": "-2px"
+          },
+          "@media (pointer: coarse)": {
+            ".boring-viewer .boring-markdown-tool": {
+              "width": "2.75rem",
+              "height": "2.75rem"
+            },
+            ".boring-viewer .boring-markdown-link input, .boring-viewer .boring-markdown-link button, .boring-viewer .boring-markdown-alert button, .boring-viewer .boring-markdown-proposal > button": {
+              "height": "2.75rem"
+            },
+            ".boring-viewer .boring-markdown-link input, .boring-viewer .boring-markdown-source, .boring-viewer .boring-html-viewer__source": {
+              "font-size": "1rem"
+            },
+            ".boring-viewer .boring-markdown-content ul[data-type=\"taskList\"] li > label input[type=\"checkbox\"]": {
+              "width": "1.25rem",
+              "height": "1.25rem"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "provider-setup",
+      "type": "registry:component",
+      "title": "Provider setup",
+      "description": "A Tailwind popover for configuring model access: pick any registered Pi provider and model, save an API key (masked, shows \"saved\"), run a device-code subscription sign-in (code, link and status), set an optional gateway and see when a provider needs one. Transport-agnostic: props in, callbacks out, no fetch. Owned, editable source; fits the pi-chat controls slot.",
+      "dependencies": [
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "lucide-react@1.51.0",
+        "clsx@2.1.1",
+        "tailwind-merge@3.7.0"
+      ],
+      "files": [
+        {
+          "path": "registry/provider-setup/provider-setup.tsx",
+          "type": "registry:component",
+          "target": "components/provider-setup/provider-setup.tsx"
+        },
+        {
+          "path": "registry/provider-setup/utils.ts",
+          "type": "registry:component",
+          "target": "components/provider-setup/utils.ts"
+        }
+      ]
+    }
+  ]
+}

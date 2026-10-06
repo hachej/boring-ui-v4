@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "owner": "INVARIANTS.md",
+  "invariants": {
+    "BORING-PI-1": {
+      "appliesTo": ["agent", "execution", "browser"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Named shadow-kernel/reserved-kind and public/dependency import mutants. Structural evidence only, not semantic execution authority or native capability parity." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-native-state.test.mjs"], "reason": "The document-tool crash increment does not prove the complete native-state obligation. Prove native identities/checkpoints/usage and dynamic foreground/background graphs remain authoritative across restart. Host business obligations are distinct. Cancellation request/acknowledgement/unconfirmed termination cannot invent a terminal native outcome." }
+      ]
+    },
+    "BORING-PI-2": {
+      "appliesTo": ["agent"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Covered direct/aliased Harness construction outside the owned factory. Workspace/observer acquisition and arbitrary lifecycle effects remain unproved." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-harness-attachment.test.mjs"], "reason": "Attach/detach a real borrowed Harness without opening/closing/resetting/aborting/reconfiguring unrelated work. Extend composition evidence to shared workspaces/watchers/transports, partial acquisition rollback, safe release and verified reattachment. Closing a viewer does not stop background execution; setup closes only what it owns." }
+      ]
+    },
+    "BORING-PI-3": {
+      "appliesTo": ["agent", "execution", "browser"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Known reserved native task/doc declarations and alternate kernel-class mutants. Optional installation, locality and deliberate native overrides remain unproved." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-optional-extensions.test.mjs"], "reason": "Use plain Pi; install questions, validation/repair and delivery independently with native registration. Recover a pending question without another coordinator. Add/remove unrelated features without changing native defaults or existing work; preserve supported deliberate native overrides and fail accidental Boring collisions explicitly." }
+      ]
+    },
+    "BORING-PI-4": {
+      "appliesTo": ["files", "agent", "ui", "execution", "browser"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Private/unexported imports, covered mutation and fork/patch/version mutants. Semantic misuse and preservation of native provider capabilities require runtime proof/review." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-public-adapters.test.mjs"], "reason": "Use supported public APIs including native FileSystem/Shell/ExecutionEnv instead of duplicates. Prove host policy, truthful denial/unsupported outcomes and recovery. Missing strict admission/publication guarantees block that composition, not unrelated native features. No per-HTTP-attempt claim without a demonstrated seam." }
+      ]
+    },
+    "BORING-PI-5": {
+      "appliesTo": ["files", "agent", "ui", "execution", "browser"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Package/type-only direction and forbidden runtime imports. Additional composition-policy fixtures run in npm test. Neither establishes installability, bundle safety or independent runtime behavior." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-independent-surfaces.test.mjs"], "reason": "Prove the remote-coding, browser-absent background-app and assistant-sidecar recipes plus independent viewer/resource use. Reuse browser-safe resource types directly; no kernel/server FS in browser UI bundles (only an opt-in agent worker bundle may run the kernel) or mandatory heavy feature. Pure provider adapters need no agent startup; file-only tools need no dummy exec; swapping providers preserves required semantics or refuses qualification." }
+      ]
+    },
+    "BORING-PI-6": {
+      "appliesTo": ["files", "agent", "ui", "execution"],
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Dependency boundaries keep files separate from native process imports. Namespace/view coherence, paired acquisition and publication semantics remain unproved." },
+        { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/shared-workspace.test.mjs"], "reason": "Prove coherent same-view direct/native/Bash/Git access on one provider acquisition; distinct published and task-private views remain isolated. Wrong namespace/incarnation pairing fails. Shell/alias/.git writes cannot bypass grants. Working scratch writes need no false domain receipts; authoritative publication is separately conditional. Cleanup/restart cannot silently substitute workspaces or stop other consumers; no native fallback." }
+      ]
+    }
+  },
+  "features": {
+    "SELF-1": {
+      "owner": "packages/agent/README.md",
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/packages/agent.test.mjs"], "claim": "Prompt assembly with and without the option over the same workspace file: without selfEvolving the native instructions are last and nothing from .agent/ is shown; with it the per-workspace extension is selected." },
+        { "scope": "runtime", "kind": "journey", "command": ["npm", "run", "studio:journey:scripted"], "env": { "STUDIO_ONLY": "self-evolution" }, "claim": "A subagent (an agent without the option) over the same workspace, with .agent/AGENTS.md present, is offered no reload tool and receives no agent-written section." }
+      ]
+    },
+    "SELF-2": {
+      "owner": "packages/agent/README.md",
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "npm run check scans packages/ and examples/: no eval, Function or node:vm, and no import()/require() of a computed module; named mutants are refused. Bounded structural evidence, not data flow." },
+        { "scope": "runtime", "kind": "journey", "command": ["npm", "run", "studio:journey:scripted"], "env": { "STUDIO_ONLY": "self-evolution" }, "claim": "An agent-written tool that prints its environment runs through the virtual workspace exec and sees none of the studio process variables (a fictional secret set for the run)." }
+      ]
+    },
+    "SELF-3": {
+      "owner": "packages/agent/README.md",
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/packages/agent.test.mjs"], "claim": "Prompt assembly order: the host instructions are the first section and whole, the labelled, size-capped agent-written section is appended after them." },
+        { "scope": "runtime", "kind": "journey", "command": ["npm", "run", "studio:journey:scripted"], "env": { "STUDIO_ONLY": "self-evolution" }, "claim": "The system context the scripted model receives, and the native transcript, show the host instructions first and the labelled agent-written section last." }
+      ]
+    },
+    "SELF-4": {
+      "owner": "packages/agent/README.md",
+      "verifiers": [
+        { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "npm run check: the self-evolution module changes tools only through the native registry install/uninstall, with no registry of its own and no registry reads; named mutants are refused." },
+        { "scope": "runtime", "kind": "journey", "command": ["npm", "run", "studio:journey:scripted"], "env": { "STUDIO_ONLY": "self-evolution" }, "claim": "Write a tool, reload, the next turn is offered and calls it; broken JSON is reported while the other tool works; a full restart keeps it; deleting the files and reloading removes it; the person /reload gives the same report." }
+      ]
+    }
+  }
+}

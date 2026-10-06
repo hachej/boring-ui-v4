@@ -1,0 +1,135 @@
+// Chat basics: what any chat must do, with the one standard agent. Streaming, stop, queue and steer, reload during a live answer,
+// a full server restart, history. The long essays are there to keep the agent busy while the scenario acts on the chat.
+import assert from 'node:assert/strict';
+
+// A long answer that is never a document: the numbers from 1 to n in English words, one per line, in the reply itself.
+const essay = (n, _topic, ending) => `Without using tools or artifacts, write the numbers from 1 to ${n} in English words, one per line, directly in the chat.${ending ? ` Then end with the exact line: ${ending}.` : ''}`;
+
+export default [
+  {
+    id: 'chat-hello', smoke: true, group: 'Chat basics', title: 'Say hello', description: 'A plain streamed answer: no tool call, no panel.',
+    steps: [{ prompt: 'Reply with exactly: HELLO-STUDIO' }],
+    script: { 0: [{ reasoning: 'The person wants one fixed greeting.', text: 'HELLO-STUDIO' }] },
+    expect: [{ reply: /HELLO-STUDIO/ }, { noToolCalls: true }, { panelOpen: false }, { userMessages: 1 }],
+  },
+  {
+    id: 'chat-stop', group: 'Chat basics', title: 'Stop a long answer', description: 'Stop ends a live answer for good, the chat says it was interrupted, and it stays usable.',
+    steps: [{ prompt: essay(400, 'lantern festivals', 'LANTERN-END'), wait: false }, { action: 'streaming' }, { action: 'stop' },
+      { async run(t) { await t.browser.until('the interrupted state is shown', `!!${t.q('[data-testid=interrupted]')}`, 15000); } },
+      { prompt: 'Never mind the numbers. Reply with exactly: AFTER-STOP' }],
+    expect: [{ reply: /AFTER-STOP/ }, { replyNot: /LANTERN-END/ }],
+  },
+  {
+    id: 'chat-queue-steer', group: 'Chat basics', title: 'Queue and steer while it works', description: 'Messages sent while busy wait above the composer; edit, remove them, or steer the running answer.',
+    steps: [{ prompt: essay(250, 'tide tables'), wait: false }],
+    async verify(t) {
+      const { browser, say, idle, MESSAGE, logText, SUBMIT, q, qa, dark, pause, clear, button } = t;
+      const working = `${SUBMIT}?.dataset.state === 'stop'`;
+      const queued = `${qa('[data-testid=queue-item]')}.map(e => [e.dataset.mode, e.querySelector('[data-testid=queue-text]').textContent])`;
+      await browser.until('working', working, 30000);
+      assert.equal(await browser.evaluate(`!${q('[data-testid=when-busy]')} && !${q('[data-testid=queue]')}`), true, 'while busy the composer has no toggle and nothing is queued yet');
+      await say('Second message: reply with exactly: QUEUE-ONE');
+      await browser.until('first queued message is visible', `${queued}.length === 1`, 15000);
+      await say('Third message: reply with exactly: QUEUE-TWO');
+      await browser.until('both queued messages are visible', `${queued}.length === 2`, 15000);
+      assert.deepEqual(await browser.evaluate(queued), [['followUp', 'Second message: reply with exactly: QUEUE-ONE'], ['followUp', 'Third message: reply with exactly: QUEUE-TWO']]);
+      await browser.until('focus stays in the composer', `${MESSAGE}.value === '' && document.activeElement === ${MESSAGE}`, 5000);
+      // The choice is made on the queued message itself: steer now, edit or remove. The composer still has no toggle.
+      assert.deepEqual(await browser.evaluate(`${qa('[data-testid=queue-item]')}.map(e => ['queue-steer', 'queue-more', 'queue-cancel'].map(id => !!e.querySelector('[data-testid=' + id + ']')))`), [[true, true, true], [true, true, true]]);
+      assert.equal(await browser.evaluate(`!${q('[data-testid=when-busy]')}`), true, 'no toggle in the composer');
+      // The queue is a slim tab tucked behind the composer's top edge: inset from its sides, the composer overlapping its bottom, edit inside the "…" menu.
+      assert.equal(await browser.evaluate(`(() => { const t = ${q('[data-testid=queue]')}.getBoundingClientRect(), c = ${q('[data-testid=composer]')}.getBoundingClientRect(); return t.bottom > c.top && t.bottom - c.top < 20 && t.left > c.left && t.right < c.right && !${q('[data-testid=queue-edit]')}; })()`), true, 'the queue is a tab behind the composer');
+      await t.shots('chatui-queue');
+      // Edit takes the message back into the composer.
+      await browser.click(`${qa('[data-testid=queue-item]')}[1].querySelector('[data-testid=queue-more]')`);
+      await browser.until('the menu offers Edit', `!!${q('[data-testid=queue-edit]')}`, 3000);
+      await browser.click(q('[data-testid=queue-edit]'));
+      await browser.until('the edited message is back in the composer', `${queued}.length === 1 && ${MESSAGE}.value === 'Third message: reply with exactly: QUEUE-TWO'`, 15000);
+      await clear();
+      await say('Third message again: reply with exactly: QUEUE-TWO');
+      await browser.until('queued again', `${queued}.length === 2`, 15000);
+      await browser.click(`${qa('[data-testid=queue-item]')}[1].querySelector('[data-testid=queue-cancel]')`);
+      await browser.until('cancelled message left the queue', `${queued}.length === 1 && ${queued}[0][1].includes('QUEUE-ONE')`, 15000);
+      await browser.until('everything idle', `${idle} && ${queued}.length === 0`, 240000);
+      await browser.until('the queued message was answered', `/QUEUE-ONE/.test(${logText}.replace('reply with exactly: QUEUE-ONE', ''))`, 60000);
+      const users = await browser.evaluate(t.userMessages);
+      assert.ok(users.at(-1).includes('QUEUE-ONE') && !users.some(text => text.includes('QUEUE-TWO')), `the cancelled message never ran: ${users.join(' | ')}`);
+      assert.ok(users.some(text => text.includes('numbers from 1')), `the first message ran first: ${users.join(' | ')}`);
+
+      // Steer: "Steer now" on a queued message sends it into the running turn and leaves the person's own draft alone.
+      await say(essay(250, 'ferry timetables'));
+      await browser.until('working', working, 30000);
+      await say('Steer message: stop what you are doing now and reply with exactly: STEER-OK');
+      await browser.until('queued', `${queued}.length === 1 && ${queued}[0][0] === 'followUp'`, 15000);
+      await browser.type(MESSAGE, 'my own unsent draft');
+      await browser.click(`${qa('[data-testid=queue-item]')}[0].querySelector('[data-testid=queue-steer]')`);
+      await browser.until('the message left the queue (it is now part of the running turn)', `${queued}.length === 0 || ${queued}[0][0] === 'steer'`, 15000);
+      await browser.until('everything idle', `${idle} && ${queued}.length === 0`, 240000);
+      assert.equal(await browser.evaluate(`${MESSAGE}.value`), 'my own unsent draft', 'the unsent draft was put back');
+      const after = await browser.evaluate(t.userMessages);
+      assert.equal(after.filter(text => text.includes('STEER-OK')).length, 1, `the steered message ran exactly once: ${after.join(' | ')}`);
+      await browser.until('the steered message was answered', `/STEER-OK/.test(${logText}.replace('reply with exactly: STEER-OK', ''))`, 60000);
+      await clear();
+      void dark; void pause; void button;
+    },
+  },
+  {
+    id: 'chat-reload', group: 'Chat basics', title: 'Reload during an answer', description: 'Reloading the page mid-answer keeps the conversation and the answer finishes.',
+    steps: [{ prompt: `${essay(200, 'a lighthouse keeper named Placeholder', 'THE END')}`, wait: false }, { action: 'streaming' }, { action: 'reload' }, { action: 'idle' }],
+    expect: [{ reply: /THE END/ }, { userMessages: 1 }],
+  },
+  {
+    id: 'chat-restart', group: 'Chat basics', title: 'Restart the server', description: 'A full server restart keeps the transcript and the conversation keeps working.',
+    steps: [{ prompt: 'Reply with exactly: READY-AGAIN' }, { action: 'restart' }, { prompt: 'Reply with exactly: BACK-AFTER-RESTART' }],
+    expect: [{ reply: /READY-AGAIN/ }, { reply: /BACK-AFTER-RESTART/ }, { userMessages: 2 }],
+  },
+  {
+    id: 'chat-history', group: 'Chat basics', title: 'History of conversations', description: 'Past conversations with title and time, search, New, switching and the earlier records.',
+    steps: [{ prompt: 'Reply with exactly: ENTER-OK' }],
+    async verify(t) {
+      const { browser, logText, q, qa, pause, history, dark } = t;
+      const current = await history.current();
+      await history.open();
+      await browser.until('two or more conversations, the open one titled by its first message', `${qa('[data-testid=conversation-row]')}.length >= 2 && /ENTER-OK/.test(${q('[data-testid=conversation-row][data-active=true]')}?.innerText ?? '')`, 20000);
+      const rows = await history.rows();
+      assert.equal(rows.filter(row => row.active).length, 1, 'exactly one conversation is marked');
+      assert.equal(rows.find(row => row.active).id, current);
+      assert.equal(await browser.evaluate(`${q('[data-testid=conversation-row][data-active=true]')}.getAttribute('aria-current')`), 'true');
+      assert.match(rows.find(row => row.active).time, /Current/);
+      assert.ok(rows.filter(row => !row.active).every(row => row.time === '' || /^(now|\d+[mhd]|Yesterday|[A-Z][a-z]{2} \d+)$/.test(row.time)), `relative times: ${JSON.stringify(rows)}`);
+      await pause(300);
+      await t.shots('chatui-history');
+      void dark;
+      // Search narrows the list by title; no match says so.
+      await browser.type(q('[data-testid=conversation-search]'), 'enter-ok');
+      await browser.until('search filtered', `${qa('[data-testid=conversation-row]')}.length >= 1 && ${qa('[data-testid=conversation-row]')}.every(row => /ENTER-OK/i.test(row.innerText))`, 5000);
+      await browser.press('Escape');
+      await browser.until('Escape closes the list', `!${q('[data-testid=conversations]')}`, 5000);
+      await history.open();
+      await browser.type(q('[data-testid=conversation-search]'), 'zzzz-no-such');
+      await browser.until('no match message', `${q('[data-testid=conversations-empty]')}?.textContent.includes('No conversation matches')`, 5000);
+      await browser.screenshot('chatui-history-empty.png');
+      await history.close();
+      // Selecting another conversation switches the chat; the list marks it.
+      const other = (await (async () => { await history.open(); const list = await history.rows(); await history.close(); return list; })()).find(row => !row.active);
+      await history.select(other.id);
+      assert.equal(await history.current(), other.id);
+      await history.open();
+      assert.equal(await browser.evaluate(`${q('[data-testid=conversation-row][data-active=true]')}.dataset.conversationId`), other.id);
+      await history.close();
+      await history.select(current);
+      await browser.until('the earlier conversation is back', `/ENTER-OK/.test(${logText})`, 15000);
+      // New conversation from the list; the earlier one stays selectable.
+      const before = await history.count();
+      await history.create();
+      assert.equal(await history.count(), before + 1);
+      await history.select(current);
+      // The earlier records of the open conversation stay reachable from the list's footer.
+      await history.open();
+      await browser.click(q('[data-testid=history-earlier]'));
+      await browser.until('the read-only earlier records panel', `!!${q('[data-testid=history]')}`, 10000);
+      await browser.click(q('[aria-label="Return to active conversation"]'));
+      await browser.until('back to the transcript', `!${q('[data-testid=history]')}`, 5000);
+    },
+  },
+];

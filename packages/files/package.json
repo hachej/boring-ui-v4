@@ -1,0 +1,25 @@
+{
+  "name": "@boring/files", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
+  "description": "Versioned-resource contracts and the workspace provider over a Pi FileSystem (disk, virtual or SQLite).",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./contracts": { "types": "./dist/contracts.d.ts", "import": "./dist/contracts.js" },
+    "./text": { "types": "./dist/text.d.ts", "import": "./dist/text.js" },
+    "./platform": { "types": "./dist/platform.d.ts", "import": "./dist/platform.js" },
+    "./request-guard": { "types": "./dist/request-guard.d.ts", "import": "./dist/request-guard.js" },
+    "./publication": { "types": "./dist/publication-input.d.ts", "import": "./dist/publication-input.js" },
+    "./journal": { "types": "./dist/journal.d.ts", "import": "./dist/journal.js" },
+    "./workspace": { "types": "./dist/workspace.d.ts", "import": "./dist/workspace.js" },
+    "./sqlite": { "types": "./dist/sqlite.d.ts", "import": "./dist/sqlite.js" },
+    "./sqlite-filesystem": { "types": "./dist/sqlite-filesystem.d.ts", "import": "./dist/sqlite-filesystem.js" },
+    "./sqlite-durable-object": { "types": "./dist/sqlite-durable-object.d.ts", "import": "./dist/sqlite-durable-object.js" },
+    "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
+    "./remote": { "types": "./dist/remote.d.ts", "import": "./dist/remote.js" }
+  },
+  "peerDependencies": { "isomorphic-git": "1.42.6" },
+  "peerDependenciesMeta": { "isomorphic-git": { "optional": true } },
+  "engines": { "node": ">=22.19.0" }
+}

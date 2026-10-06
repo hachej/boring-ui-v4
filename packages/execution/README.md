@@ -1,0 +1,71 @@
+# @boring/execution
+
+Optional working environments use Pi's public `FileSystem`, `Shell` and `ExecutionEnv` contracts. `/native` re-exports those contracts. `/contracts` adds acquisition and lease identity without requiring recovery, a shell or a Boring resource reference.
+
+## Disposable virtual workspace
+
+`/virtual` provides `createVirtualWorkspace`. Install the exact optional peer `just-bash@3.6.0` alongside the declared native peers. Seed absolute paths, acquire a native environment with an absolute cwd, or create a public upstream Bash instance.
+
+```js
+import { createVirtualWorkspace } from '@boring/execution/virtual';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+
+const workspace = createVirtualWorkspace({
+  providerId: 'scratch',
+  files: { '/repo/note.txt': 'hello\n' },
+});
+const lease = await workspace.acquire({
+  operationId: 'open-scratch', input: { cwd: '/repo' },
+}, BACKGROUND_CONTEXT);
+console.log(await workspace.createBash({ cwd: '/repo' }).exec('cat note.txt'));
+await lease.release(BACKGROUND_CONTEXT);
+workspace.dispose();
+```
+
+One upstream `InMemoryFs` stores all bytes. Public mutation adapters resolve aliases consistently for native access, Bash and Git. Leases share namespace identity and have independent cwd and cleanup. Releasing a lease closes only its native facade. Disposing the workspace prevents new acquisitions/Bash instances and closes native facades. Already returned raw filesystem and Bash handles remain trusted host-owned handles; disposal does not revoke them or terminate their commands.
+
+Native read/write/append, directory access, symlinks and exclusive temporary files are exercised by public tests. Native rename, truncate and durable flush return `not_supported`. The backing refuses move and recursive directory copy. These refusals precede mutation. Hard links refuse with ENOTSUP. Virtual Bash refuses hard-link arguments before stock `ln -f` can remove an existing destination; symbolic links retain the stock command context. Concurrent structural changes to paths remain unqualified; this disposable adapter is not an authoritative publication provider or a POSIX filesystem qualification.
+
+The native shell runs Pi's stock bash tool with buffered output: `onOutput` receives the combined stdout and stderr once when the command ends (never as a live stream), spill thresholds are accepted but nothing is spilled to a file, and `timeout` (seconds) aborts the command and returns `timeout`. Use public Bash `exec` for separate buffered stdout/stderr. Host Bash options select upstream limits and explicit network/custom commands. No native executable fallback or network transport is added. Host callbacks are trusted code.
+
+## Optional local Git
+
+`/virtual-git` requires `isomorphic-git@1.42.6` and `@boring/files/git`. `createVirtualGitFs(workspace.filesystem)` supplies its public promise filesystem. The host creates one `createGitRepository({ fs, directory, author, authorize })`, then calls `installVirtualGitCommand({ bash, repository })`. Installation verifies the actual public `bash.fs` identity. Each command requires the selected root cwd. Native tools receive the same repository instance.
+
+The command supports local `init`, matrix `status`, single-path `add`, index-only `rm --cached`, `commit -m`, bounded `log`, `branch`, `checkout`, and binary-content JSON `diff` or `diff --cached`. Other argument forms return exit 126. [The files guide](../files/README.md) owns authorization, serialization and diff semantics. No remote transport, durable recovery or publication transaction is claimed. Raw `.git` writes remain subject to the selected filesystem's host policy.
+
+Run `node examples/virtual-workspace.mjs` after building for a fictional shared native/Bash/Git example. `test/packages/execution.test.mjs` exercises public output and actual native ToolTasks. `npm run test:virtual-consumer` installs the tarball and exact registry dependency closure outside the repository, checks declarations and repeats those tests. Set `npm_config_cache` to a writable cache containing the pinned archives.
+
+## Borrowed remote Shell
+
+`/remote-shell` exports paired `createRemoteShellHandler` and `createRemoteShellLease` Fetch adapters over native Pi `Shell`. This subpath needs only the pinned native peers. It does not load virtual Bash, Git, Boring files or an agent implementation. The host authenticates each POST, enforces origin/CSRF policy, selects an already acquired workspace, and provides its native Shell, Context, exact identity, revocation signal and command authorization callback. Authorization must return `true` and runs before execution and terminal disclosure. Abort the revocation signal when access or workspace identity changes, including during silent commands.
+
+The client takes that expected identity, a fixed HTTP(S) endpoint and an explicit authenticated Fetch function. The transport must honor `redirect: 'error'` and must not retry command requests. Both ends bind provider, instance, incarnation and selected view. The server checks identity before effects. The client checks identity before delivering output, validates ordered request-bound frames and requires exactly one terminal result followed by EOF. A lost or malformed acknowledgement returns native `ExecutionError('unknown')`; the client never replays the command. A request identifier correlates frames, not a durable idempotency or recovery record.
+
+Command strings, cwd, environment and native exit/error results pass through. Output callbacks receive live combined text and the caller's Context. Exit-only calls do not request output frames. Positive fractional timeout values use native **seconds**, with the provider responsible for its additional limits. Hosts explicitly qualify timeout and spill support; unsupported requested features refuse before execution. Spill paths remain in the remote workspace and need a separately authorized file capability to retrieve them. No dummy filesystem is supplied.
+
+Transport defaults are 64 KiB per request, 1 MiB per frame and 4 MiB of queued server frames. Oversized output or an overfull queue interrupts observation rather than reporting truncated success. These bounds do not cap native output production or Fetch/provider peak memory. Host native execution limits remain necessary. Local cancellation, callback failure or lease release requests remote cancellation and reports unconfirmed termination; prior effects can remain. Each borrowed lease owns only its active transports, and never calls the shared provider's cleanup.
+
+Run `node examples/remote-shell.mjs` for an actual native command through in-process Request/Response streaming. `npm run test:remote-shell-consumer` installs only the execution tarball and pinned native registry closure, checks strict declarations and repeats public native tests without the virtual/Git/Boring files/UI/agent peers. This establishes the paired Fetch protocol and selected native behavior. Socket deployment, vendor provisioning/reattachment, durable command admission/recovery, independent file grants, protected builds and process-tree termination remain separate qualifications.
+
+## Borrowed remote FileSystem
+
+`/remote-files` exports `createRemoteFileSystemHandler` and `createRemoteFileSystemLease` over native Pi `FileSystem`. Install the exact optional peer `zod@4.6.5` with the declared native peers. This entry does not require a shell, virtual Bash, Git, Boring files, UI or an agent implementation.
+
+The host authenticates each POST and selects an already acquired workspace. Its `bindFileSystem(cwd, context)` returns a `WorkspaceLease<FileSystem>` over that namespace with the requested cwd. The adapter checks the actual lease identity, native filesystem ID and cwd before execution and disclosure. Bind distinct facades for concurrent incompatible cwd values. Binding must not provision or silently recreate a workspace. The handler releases each bound lease after its operation, or after closing its native line reader. It never invokes shared provider cleanup.
+
+`authorize(call, cwd)` receives a discriminated native method/argument tuple and must return literal `true`. The handler checks authorization before and after each operation and stream read. Abort the host revocation signal when authorization or workspace identity changes, including while a reader is idle. Authentication, origin/CSRF policy, path and symlink confinement, deadlines and provider limits remain host responsibilities. Native temporary-file operations retain provider semantics, which can place files outside cwd. A cwd check alone is not a path grant.
+
+The client captures cwd and arguments for each invocation. Native path, binary, metadata, text and mutation results pass through validated request-bound envelopes. Native errors retain their code, message and optional path. A lost, malformed or post-dispatch cancelled acknowledgement returns `FileError('unknown')` and can follow prior effects. There is no automatic retry, rollback or durable deduplication. The request ID correlates the response only. Authoritative published resources use their separate conditional publication contract.
+
+`openTextLineReader` retains one streamed native reader. Frames preserve strict LF splitting and each line's `terminated` flag. A cancelled `readLine` wait leaves its pending frame available for the next call. Cancelling the original open context after successful opening does not close the reader. Concurrent reads refuse. Explicit close or lease release cancels local observation; server cleanup closes the reader before releasing its facade. Client close does not wait for a remote cleanup acknowledgement or prove remote termination.
+
+Defaults are 1 MiB per request, 4 MiB per normal JSON response and 1 MiB per stream frame. Binary values travel as canonical base64 text (protocol version 2; version 1 byte arrays are refused). Server backpressure queues at most one frame and reads on demand, with a read possibly in flight. These limits bound accepted transport data, not native reader allocation, JSON expansion, Fetch allocation or provider production. Oversized data refuses instead of reporting truncated success.
+
+Run `node examples/remote-files.mjs` after building to write and stream a fictional native file without a shell capability. `npm run test:remote-files-consumer` installs the execution tarball and pinned registry dependencies, checks strict declarations and exercises actual native files, a native ToolTask and reader lifetime races. Its pinned `buffer` fixture dependency keeps undici's bare type import inside the isolated installation when the temporary directory has a parent workspace. In-process Fetch evidence does not qualify deployed sockets, vendor lifecycle, acquisition recovery, protected builds or complete exposure policy.
+
+## Virtual repository saved in SQLite
+
+`createVirtualWorkspace({ providerId, fs })` keeps the files in a Pi `FileSystem` instead of memory, for example the SQLite workspace backend `openSqliteFileSystem` of `@boring/files/sqlite-filesystem`: the shell, isomorphic-git and the native environment then work on the very rows a workspace provider over the same `fs` reads and writes (one view, no copy). That backend has regular files and directories only: `ln` is refused, `chmod` changes nothing (files report 0644, directories 0755) and `touch` sets the modification time to now.
+
+`@boring/execution/virtual-sqlite` is a git repository on such a file system: `openVirtualRepository({ fs, root?, seed?, seedMessage?, author?, context, providerId? })` returns `{ root, env, repository, close() }`. `fs` is the SQLite file system over `openBrowserSqliteConnection` (`@boring/browser/sqlite`) in a browser tab, or over `openNodeConnection` (`@boring/files/sqlite`) in Node. It composes the pieces above and adds no file or shell API of its own (BORING-PI-6): read, list, write and run commands through `env`, Pi's native `ExecutionEnv`, whose `exec` shell has the `git` command bound to `repository` (`@boring/files/git`) on the same files (the stock virtual environment creates a shell without it). Every write lands in SQLite as it happens; there is nothing to save, and `close()` only releases the workspace. When `root` has no `.git` yet it is filled from `seed` (paths relative to `root`) and committed; otherwise the files and history are the stored ones.

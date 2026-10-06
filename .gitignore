@@ -1,0 +1,13 @@
+node_modules/
+.cache/
+.env
+.env.*
+*.log
+.DS_Store
+packages/*/dist/
+*.tsbuildinfo
+*.tgz
+.claude/worktrees/
+examples/cloudflare/public/
+.wrangler/
+.dev.vars

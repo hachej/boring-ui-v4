@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runCaptured } from './run-captured.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+const directory = mkdtempSync(join(tmpdir(), 'boring-question-consumer-'));
+const cache = process.env.npm_config_cache;
+assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+function run(command, args, env) {
+  const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
+  process.stdout.write(result.stdout); process.stderr.write(result.stderr);
+  assert.equal(result.status, 0, `${command} failed: ${result.error?.message ?? result.signal ?? result.status}`);
+  return result.stdout;
+}
+try {
+  const isolated = prepareConsumerIsolation(directory);
+  mkdirSync(join(directory, 'packs'));
+  const archives = [];
+  for (const name of ['agent']) {
+    const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
+    archives.push(join(directory, 'packs', packed.filename));
+  }
+  const agent = JSON.parse(readFileSync(join(root, 'packages/agent/package.json'), 'utf8'));
+  const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const dependencies = Object.fromEntries(Object.entries(agent.peerDependencies).filter(([name]) => !agent.peerDependenciesMeta?.[name]?.optional));
+  for (const name of ['typescript', '@types/node', '@modelcontextprotocol/sdk']) dependencies[name] = rootManifest.devDependencies[name];
+  const manifest = { name: 'isolated-question-consumer', version: '1.0.0', private: true, type: 'module', dependencies };
+  writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest));
+  const sourceLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
+  const packages = {};
+  const include = (name, parent = '') => {
+    let path = `${parent}/node_modules/${name}`.replace(/^\//, '');
+    while (!sourceLock.packages[path] && parent) {
+      const ancestor = parent.lastIndexOf('/node_modules/');
+      parent = ancestor === -1 ? '' : parent.slice(0, ancestor);
+      path = `${parent}/node_modules/${name}`.replace(/^\//, '');
+    }
+    if (packages[path]) return;
+    const entry = sourceLock.packages[path];
+    assert.ok(entry && !entry.link, `Missing registry lock entry: ${name}`);
+    packages[path] = entry;
+    for (const dependency of Object.keys(entry.dependencies ?? {})) include(dependency, path);
+    for (const dependency of Object.keys(entry.optionalDependencies ?? {})) {
+      if (sourceLock.packages[`node_modules/${dependency}`]) include(dependency, path);
+    }
+    for (const dependency of Object.keys(entry.peerDependencies ?? {})) if (!entry.peerDependenciesMeta?.[dependency]?.optional) include(dependency, path);
+  };
+  for (const name of Object.keys(dependencies)) include(name);
+  packages[''] = { name: manifest.name, version: manifest.version, dependencies };
+  writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
+  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
+  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
+  for (const name of ['@boring/files', '@boring/ui', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  writeFileSync(join(directory, 'consumer.ts'), `import { createQuestions } from '@boring/agent/questions';
+import { createQuestionResponseHandler } from '@boring/agent/question-response';
+import type { QuestionResponseAccess } from '@boring/agent/question-response';
+const questions = createQuestions({ runtimeId: 'fictional', authorize: () => undefined, isCurrent: () => false });
+declare const access: Omit<QuestionResponseAccess, 'questions'>;
+const handler = createQuestionResponseHandler({ authenticateHuman: async () => ({ ...access, questions }) });
+const result: Promise<Response> = handler(new Request('https://fictional.invalid'));
+`);
+  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: ['node'], lib: ['ES2023', 'DOM'] }, include: ['consumer.ts'] }));
+  assertConsumerTypeFiles(run(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--listFiles'], isolated), directory);
+  for (const path of ['test/packages']) mkdirSync(join(directory, path), { recursive: true });
+  for (const path of ['test/packages/agent-question-response.test.mjs']) copyFileSync(join(root, path), join(directory, path));
+  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/agent-question-response.test.mjs'], isolated);
+  console.log('PASS: packed agent questions, pinned registry dependencies, strict public declarations and original-runtime Fetch resolution; no files/UI/execution installed');
+} finally { rmSync(directory, { recursive: true, force: true }); }

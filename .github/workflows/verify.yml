@@ -1,0 +1,39 @@
+name: Specification and boundary evidence
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.1
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run verify
+      - name: Release gate distinguishes deferrals from passes
+        shell: bash
+        run: |
+          pending=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const r=JSON.parse(readFileSync("VERIFY.json")); console.log(Object.values(r.invariants).flatMap(x=>x.verifiers).filter(x=>x.kind==="pending").length)')
+          if node scripts/verify-invariants.mjs --release > "$RUNNER_TEMP/release-gate.log" 2>&1; then
+            test "$pending" -eq 0
+          else
+            test "$pending" -gt 0
+            grep -q "^Runtime verification INCOMPLETE: $pending deferred proofs" "$RUNNER_TEMP/release-gate.log"
+            if grep -q '^Evidence failed:' "$RUNNER_TEMP/release-gate.log"; then exit 1; fi
+            echo "::warning::$pending runtime proofs deferred; structural evidence is not runtime qualification"
+          fi
+      - name: Isolated shared VFS/Bash/Git feasibility (not runtime conformance)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/vfs-git" --ignore-scripts --no-audit --no-fund --save-exact just-bash@3.6.0 isomorphic-git@1.42.6
+          node scripts/probe-vfs-git.mjs "$RUNNER_TEMP/vfs-git"
