@@ -10,6 +10,7 @@
     "./text": { "types": "./dist/text.d.ts", "import": "./dist/text.js" },
     "./platform": { "types": "./dist/platform.d.ts", "import": "./dist/platform.js" },
     "./request-guard": { "types": "./dist/request-guard.d.ts", "import": "./dist/request-guard.js" },
+    "./node-http": { "types": "./dist/node-http.d.ts", "import": "./dist/node-http.js" },
     "./publication": { "types": "./dist/publication-input.d.ts", "import": "./dist/publication-input.js" },
     "./journal": { "types": "./dist/journal.d.ts", "import": "./dist/journal.js" },
     "./workspace": { "types": "./dist/workspace.d.ts", "import": "./dist/workspace.js" },

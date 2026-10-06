@@ -17,7 +17,7 @@ const api = async (path, init) => { const response = await authorized(new Reques
 function useChat() {
   const [chat, setChat] = useState({ status: 'connecting' });
   useEffect(() => {
-    let disposed = false, controller, timer;
+    let disposed = false, controller;
     (async () => {
       for (;;) {
         try {
@@ -30,7 +30,6 @@ function useChat() {
           if (typeof remote.answer === 'function') actions.answer = remote.answer;
           if (typeof remote.withdraw === 'function') actions.withdraw = remote.withdraw;
           setChat({ status: 'ready', controller, actions });
-          timer = setInterval(() => { const kind = controller.getSnapshot().connection.kind; if (kind === 'closed' || kind === 'error') controller.connect().catch(() => {}); }, 1000);
           return;
         } catch (error) {
           if (disposed) return;
@@ -39,7 +38,7 @@ function useChat() {
         }
       }
     })();
-    return () => { disposed = true; clearInterval(timer); controller?.dispose(); };
+    return () => { disposed = true; controller?.dispose(); };
   }, []);
   return chat;
 }

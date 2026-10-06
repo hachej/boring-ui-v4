@@ -64,6 +64,7 @@
         "isomorphic-git/http/web"
       ],
       "typeOnlyExternal": [
+        "node:http",
         "@earendil-works/pi-durable/env",
         "@earendil-works/pi-durable/storage/sqlite",
         "@earendil-works/chord",

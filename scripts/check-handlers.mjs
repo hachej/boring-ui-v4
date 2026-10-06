@@ -7,8 +7,10 @@
 // 2. In chat-transport.ts, `conversation.entries(` and `submissionByRequest(` appear exactly once each, inside `reads(...)`,
 //    the function that applies `access.project`; no other read op can return raw conversation data.
 // 3. Node servers under examples/ never pass `Readable.toWeb(` a live request: a handler that answers without reading the
-//    body cancels that stream while Node keeps writing to it, and the error kills the process. They use
-//    examples/shared/node-request.mjs, which reads the body first under a byte cap.
+//    body cancels that stream while Node keeps writing to it, and the error kills the process. They use `webRequest` from
+//    `@boring/files/node-http`, which reads the body first under a byte cap. They also never copy a web response body into a
+//    Node response by hand (`for await (... of response.body)` / `Object.fromEntries(response.headers)`): that ignores
+//    backpressure, merges `set-cookie` values and keeps streaming after the client left. They use `sendWebResponse`.
 // 4. Removed file APIs stay removed (files PR 8, "One place for files" in docs/architecture/FILES-GIT-EXEC.md): no tracked file
 //    names the old SQLite resource store (`openSqliteResources` and its types or tables), the old document and artifact tools
 //    (`read_document`, `save_document`, `patch_document`, `create_artifact`, `update_artifact`, `read_artifact`,
@@ -43,6 +45,7 @@ export function removedFileApis(root, files) {
   return found;
 }
 
+const INLINE_RESPONSE_COPY = /for await \(const \w+ of [\w.]+\.body\)|Object\.fromEntries\([\w.]+\.headers\)/;
 const factory = /export (?:async )?function (create\w*Handler)\b/g;
 const guardImport = /from '(?:@boring\/files\/request-guard|\.\/request-guard\.js)'/;
 const exempt = /\/\/ request-guard: exempt \(/;
@@ -83,8 +86,9 @@ export function checkHandlers(root) {
     return statSync(path).isDirectory() ? walk(path) : /\.(mjs|js|ts)$/.test(entry) ? [path] : [];
   });
   for (const path of walk(resolve(root, 'examples'))) {
-    if (path.endsWith('examples/shared/node-request.mjs')) continue;
-    if (readFileSync(path, 'utf8').includes('Readable.toWeb(')) errors.push(`BORING-HANDLER ${path.slice(root.length + 1)}: use examples/shared/node-request.mjs instead of Readable.toWeb( on a live request`);
+    const text = readFileSync(path, 'utf8'), shown = path.slice(root.length + 1);
+    if (text.includes('Readable.toWeb(')) errors.push(`BORING-HANDLER ${shown}: use webRequest from @boring/files/node-http instead of Readable.toWeb( on a live request`);
+    if (INLINE_RESPONSE_COPY.test(text)) errors.push(`BORING-HANDLER ${shown}: use sendWebResponse from @boring/files/node-http instead of copying a web response into a Node response by hand`);
   }
   for (const hit of removedFileApis(root)) errors.push(`BORING-HANDLER ${hit} is a removed file API (use the workspace provider, Pi's file tools and present)`);
   return { errors, handlers };
@@ -93,5 +97,5 @@ export function checkHandlers(root) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = checkHandlers(realpathSync(fileURLToPath(new URL('../', import.meta.url))));
   if (result.errors.length) { console.error(result.errors.join('\n')); process.exitCode = 1; }
-  else console.log(`ok: ${result.handlers} HTTP handler factories use the shared request guard; chat reads go through the projection chokepoint; no removed file API is named`);
+  else console.log(`ok: ${result.handlers} HTTP handler factories use the shared request guard; chat reads go through the projection chokepoint; no removed file API is named; example servers bridge Node through @boring/files/node-http`);
 }

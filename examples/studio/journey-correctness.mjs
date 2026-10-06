@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { startStudio } from './server.mjs';
 import { launch } from './driver.mjs';
 import { createCorrectnessFixture } from './correctness-fixture.mjs';
+import { startIdleProxy } from '../shared/idle-proxy.mjs';
 
 const evidence = process.env.STUDIO_EVIDENCE ?? '.cache/evidence/studio-correctness';
 mkdirSync(evidence, { recursive: true });
@@ -28,7 +29,9 @@ const step = async (name, run) => {
 const fixture = createCorrectnessFixture();
 const { models, model, transcripts } = fixture;
 const encode = text => new TextEncoder().encode(text);
-let app, browser;
+let app, browser, proxy;
+// The proxy step: an ALB-like idle timeout in front of the studio, and a chat heartbeat well under half of it.
+const proxyIdleMs = Number(process.env.STUDIO_PROXY_IDLE_MS ?? 5000), heartbeatMs = Number(process.env.STUDIO_HEARTBEAT_MS ?? 2000);
 const q = selector => `document.querySelector(${JSON.stringify(selector)})`;
 const button = text => `[...document.querySelectorAll('button')].find(element => element.textContent.trim() === ${JSON.stringify(text)})`;
 const source = q('[data-testid=workspace-panel] textarea');
@@ -59,7 +62,7 @@ try {
     assert.ok(process.env.CHROMIUM, 'Set CHROMIUM to a Chromium binary');
   });
   await step('launch isolated Studio and real Chromium', async () => {
-    app = await startStudio({ directory, modelsOverride: models, provider: model.provider, models: [{ modelId: model.id, label: model.name }], variants: ['local'], whatsapp: false });
+    app = await startStudio({ directory, modelsOverride: models, provider: model.provider, models: [{ modelId: model.id, label: model.name }], variants: ['local'], whatsapp: false, heartbeatMs });
     notes = app.host.variants.get('local').notes;
     const seeded = await app.files.publication.publish({ operationId: 'fictional-seed', atomicity: 'all-or-nothing', changes: [
       { kind: 'create', target: notes, expected: { kind: 'absent' }, bytes: encode('# Fictional notes\n'), mediaType: 'text/markdown' },
@@ -140,12 +143,44 @@ try {
     assert.deepEqual(browser.problems.filter(problem => problem.startsWith('exception:')), []);
     await browser.screenshot('correctness.png');
   });
+  await step('behind an idle-closing proxy the chat stays live on heartbeats, reconnects by itself after a drop and duplicates nothing', async () => {
+    assert.ok(heartbeatMs * 2 <= proxyIdleMs, 'the heartbeat must be at most half the proxy idle timeout');
+    proxy = await startIdleProxy({ target: app.url, idleMs: proxyIdleMs });
+    const connection = `${q('[data-testid=connection]')}?.dataset.state`;
+    const transcript = `(${q('[data-testid=transcript]')}?.innerText ?? '')`;
+    await browser.evaluate(`location.href = ${JSON.stringify(proxy.url)}`);
+    await browser.until('connected through the proxy', `location.port === '${proxy.port}' && ${connection} === 'connected'`);
+    // Idle for more than three proxy timeouts: the heartbeat keeps the one watch stream open, so it is never reopened.
+    const opened = app.watches.total, states = new Set(), deadline = Date.now() + 3 * proxyIdleMs + 1500;
+    while (Date.now() < deadline) { states.add(await browser.evaluate(connection)); await new Promise(resolve => setTimeout(resolve, 250)); }
+    assert.deepEqual([...states], ['connected'], 'the chat stays live while idle behind the proxy');
+    assert.equal(app.watches.total, opened, 'no watch was reopened while idle');
+    report.proxy = { idleMs: proxyIdleMs, heartbeatMs, idleWindowMs: 3 * proxyIdleMs + 1500 };
+    // The proxy drops every connection: the client notices and reopens the watch without a reload or a remount.
+    await browser.evaluate(`window.__states = []; new MutationObserver(() => { const state = ${connection}; if (state && window.__states.at(-1) !== state) window.__states.push(state); })
+      .observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-state'] })`);
+    const replies = await browser.evaluate(`${transcript}.split('Fictional plan complete.').length - 1`);
+    proxy.cut();
+    await browser.until('reopened after the drop', `${connection} === 'connected' && window.__states.includes('reconnecting')`);
+    assert.ok(app.watches.total > opened, 'a new watch stream was opened');
+    assert.deepEqual(await browser.evaluate('window.__states'), ['reconnecting', 'connected']);
+    // A later reply arrives once, and so does the message that asked for it.
+    await browser.type(q('[data-testid=composer-input]'), 'Still there behind the fictional proxy?');
+    await browser.click(q('[data-testid=composer-submit]'));
+    await browser.until('a reply after the reconnect', `${transcript}.split('Fictional plan complete.').length - 1 === ${replies + 1} && ${q('[data-testid=composer-submit]')}?.dataset.state === 'send'`);
+    await new Promise(resolve => setTimeout(resolve, 2 * heartbeatMs));
+    assert.equal(await browser.evaluate(`${transcript}.split('Fictional plan complete.').length - 1`), replies + 1, 'the reply is not duplicated');
+    assert.equal(await browser.evaluate(`${transcript}.split('Still there behind the fictional proxy?').length - 1`), 1, 'the message is not duplicated');
+    report.proxy = { ...report.proxy, ...proxy.stats, watchesOpened: app.watches.total - opened };
+    await browser.screenshot('correctness-proxy.png');
+  });
   report.status = 'passed';
 } catch (error) {
   report.status = !app ? 'blocked' : 'failed'; report.error = String(error); process.exitCode = 1;
 } finally {
   report.browserProblems = browser?.problems ?? [];
   try { await browser?.close(); } catch (error) { report.status = 'failed'; report.cleanupError = String(error); process.exitCode = 1; }
+  try { await proxy?.close(); } catch { /* the proxy holds no state */ }
   try { await app?.close(); } catch (error) { report.status = 'failed'; report.cleanupError = String(error); process.exitCode = 1; }
   rmSync(directory, { recursive: true, force: true });
   writeFileSync(join(evidence, 'journey.json'), JSON.stringify(report, null, 2));

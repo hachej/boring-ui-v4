@@ -34,7 +34,7 @@ import { parseSaveRequest, saveResponseOf } from '@boring/feedback/ui';
 import { createTicketSinks } from '@boring/feedback/tickets';
 import { answerBrowserPreview } from '@boring/feedback/agent';
 import { buildTailwind, registryCss } from '../studio/tailwind.mjs';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { builderAgent } from './builder.mjs';
 import { openFeedbackWorkspace } from './workspace.mjs';
 import { transcribeHandler, transcriptionFromEnv } from './transcribe-route.mjs';
@@ -272,9 +272,7 @@ export async function startFeedbackApp({ directory, port = 0, protection = 'prot
             : url.pathname.startsWith(`${GATEWAY_PATH}/`) ? await llm(request)
             : url.pathname === '/api/page' ? (byToken(request) ? Response.json(page.state()) : Response.json({ reason: 'authentication-required' }, { status: 401 }))
             : Response.json({ reason: 'not-found' }, { status: 404 });
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();
