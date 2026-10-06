@@ -17,11 +17,23 @@ export type VirtualFiles = IFileSystem & {
 const errno: Record<FileError['code'], string> = {
   not_found: 'ENOENT', not_directory: 'ENOTDIR', is_directory: 'EISDIR', permission_denied: 'EACCES', invalid: 'EINVAL', not_supported: 'ENOTSUP', aborted: 'ECANCELED', unknown: 'EIO',
 };
+/** Largest error text, in characters, that the shell, Git and the native environment of a virtual workspace pass on (into a tool result). */
+export const MAX_ERROR_CHARS = 2000;
+/**
+ * The one bound on error text leaving a virtual workspace: the message only, never a stack (stack frames are dropped even when a backing
+ * put them in its message), at most `MAX_ERROR_CHARS`. The whole error stays on `cause` for the host's own logs.
+ */
+export function boundedMessage(error: unknown): string {
+  const text = (error instanceof Error ? error.message : String(error)).replace(/\n[ \t]*at [^\n]*/g, '').trim() || 'Unknown error';
+  const note = ` [error truncated at ${MAX_ERROR_CHARS} characters]`;
+  return text.length > MAX_ERROR_CHARS ? `${text.slice(0, MAX_ERROR_CHARS - note.length)}${note}` : text;
+}
 async function value<Value>(pending: Promise<Result<Value, FileError>>): Promise<Value> {
   const result = await pending;
   if (result.ok) return result.value;
   // Shells and Git read the POSIX code from the start of the message.
-  throw new Error(/^E[A-Z]+\b/.test(result.error.message) ? result.error.message : `${errno[result.error.code]}: ${result.error.message}`, { cause: result.error });
+  const message = boundedMessage(result.error);
+  throw new Error(/^E[A-Z]+\b/.test(message) ? message : `${errno[result.error.code]}: ${message}`, { cause: result.error });
 }
 const encodingOf = (options?: ReadFileOptions | WriteFileOptions | BufferEncoding | null) => (typeof options === 'string' ? options : options?.encoding) ?? 'utf8';
 const latin1 = (bytes: Uint8Array) => Array.from(bytes, byte => String.fromCharCode(byte)).join('');

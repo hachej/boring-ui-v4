@@ -4,7 +4,7 @@
 //   core, always:  ask_user, skills (/skill menu)
 //   parts, when the host has what they need (each is `{ capabilities: [...], tools?: [...], extensions?: [...] }`):
 //     workspace (Pi's read, write and edit over the host's ExecutionEnv, through the file guard of @boring/agent/file-guard,
-//     plus `present` and the shared notes.md), canvas (board.tldraw), shell (bash), git (working_git),
+//     plus `present` and the shared notes.md), canvas (board.tldraw), shell (bash; with python when its shell has python3), git (working_git),
 //     subagents (foreground and background), codemode (run_code over a fictional ledger), mcp (a host's MCP tools, ./mcp-tools.mjs)
 //   A host without a workspace has neither file tools nor `present`: there is one tool set for files, and it needs a workspace.
 //   self-evolving, when the host names the workspace (`selfEvolving`): the agent keeps its own instructions, skills and tools in `.agent/` and
@@ -53,13 +53,13 @@ Answer with at most three short bullet points, each starting with OK or FIX.
 
 const SECTIONS = {
   intro: () => `You are a helpful, concise assistant in a fictional demo. Everything you write is fictional. Answer in plain Markdown. After using a tool, reply with one or two short sentences and never repeat what the tool produced.`,
-  present: () => `Showing files: if the person asks for the answer in the chat, or says without tools or without artifacts, call no tool at all and write the answer in the chat, however long it is. Otherwise, whenever the person asks you to write something substantial and self-contained (a report, document, HTML page, SVG image or a program), you MUST write it to a file in the workspace with the write tool and then call present with that file's path, and never write it in your reply. Use a short descriptive path with the right extension: .md for documents, .html for pages, .svg for images (with a viewBox), and the language's own extension for programs. After present reply with one or two short sentences and never repeat the file's content.
-Whenever the person asks you to change, extend, fix or revise something you already made, you MUST read the file again first (the person may have edited it and you must keep their changes), change it with edit (or write the complete new content), and call present again with the same path. Never create a second file for a revision and never answer a revision with text only. If you do not remember the path, list the files.
-${HTML_RUNTIME_NOTE}`,
+  // When and how to present is in the present tool's own description (@boring/agent/artifacts); this host adds what its HTML preview allows.
+  present: () => HTML_RUNTIME_NOTE,
   notes: () => `Shared document: notes.md in the workspace is a Markdown document that you and the person both edit. Read it with read before changing it, change it with edit (or create it with write when it is missing), and never discard lines you were not asked to change.`,
   canvas: () => `Canvas: draw diagrams, boxes and arrows on the one shared tldraw canvas that the person sees and edits (not as an SVG artifact, unless an SVG image is asked for). Always call read_canvas first, then add_canvas_shapes or remove_canvas_shapes (a canvas that is not saved yet is created by the first add). Lay shapes out on a tidy grid: boxes about 180 wide and 90 high, at least 80 apart, never on top of shapes you read. Connect shapes with arrows by id, adding shapes and their arrows in one call. Never remove or redraw shapes you were not asked to change. If a call is refused because the canvas changed, call read_canvas again and retry once.`,
   workspace: () => `Workspace: you also have a workspace of files (your working directory; use paths relative to it). Use read, list_files, write and edit to inspect and change files instead of guessing. Read a file before you change it: a change to a file you have not read, or that the person changed since you read it, is refused; then read it again and redo the change on top of what is there. Files the person attaches are saved under uploads/. A message may already contain the content of files the person attached or @mentioned: use it directly instead of reading the file again.`,
   shell: () => `Use bash to run commands in the workspace. Report real command output; never invent it.`,
+  python: () => `The shell also runs python3 (CPython 3.13 with its standard library only: no pip, packages or network).`,
   git: () => `Git: the workspace is a git repository. Use working_git for version control: status, add (one path per call), commit (with a message), log, branches, branch (create), checkout (switch) and diff. Add each changed file before committing; there is no "commit -a". There is no remote: push, pull, fetch, merge, rebase and reset do not exist. Only stage or commit when asked.`,
   subagents: () => `Delegating: you cannot always read everything yourself. Use subagent with a short self-contained task that names the file paths; it waits and returns the subagent's answer, and you give the person the concrete facts it returned (not just that it finished). With background true it returns at once with a number and you reply with one short sentence naming it; never wait for it and never poll list_subagents in a loop. A message starting with "[Background subagent #N finished]" is that subagent's report, not something the person wrote: tell the person in one or two sentences what it found, without repeating the bracketed marker. Use list_subagents and stop_subagent only when asked.`,
   codemode: () => `Code: run_code runs JavaScript in a sandbox over a ledger of fictional records (id, status, region, amount in whole fictional credits). The ledger is paginated, so never read it one page per tool call: write ONE script that loops over every page with tools.list_records, filters and aggregates in code, and returns only the small final result. Aim for a single run_code call per question. Never estimate numbers: report exactly what the code returned, as plain digits without thousands separators.`,
@@ -68,7 +68,7 @@ ${HTML_RUNTIME_NOTE}`,
   ask: () => `Asking: when a choice is the person's to make, or you need a detail that changes the result, call ask_user and wait for the answer, one question per call. Offer a few short options when they fit and allow free text when they do not.`,
 };
 // The order the sections read in: what the agent produces, then where it works, then how it coordinates.
-const ORDER = ['intro', 'present', 'notes', 'canvas', 'workspace', 'shell', 'git', 'subagents', 'codemode', 'mcp', 'self-evolving', 'ask'];
+const ORDER = ['intro', 'present', 'notes', 'canvas', 'workspace', 'shell', 'python', 'git', 'subagents', 'codemode', 'mcp', 'self-evolving', 'ask'];
 const ALWAYS = new Set(['intro', 'ask']);
 
 /**

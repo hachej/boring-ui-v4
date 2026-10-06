@@ -3,7 +3,7 @@ import { defineCommand } from 'just-bash';
 import type { createGitRepository } from '@boring/files/git';
 import type { PromiseFsClient } from 'isomorphic-git';
 import { posix } from 'node:path';
-import { mutationPath } from './virtual-filesystem.js';
+import { boundedMessage, mutationPath } from './virtual-filesystem.js';
 
 /** isomorphic-git I/O over the selected just-bash view; no second checkout or native Git. */
 export function createVirtualGitFs(filesystem: IFileSystem) {
@@ -102,7 +102,7 @@ export function installVirtualGitCommand({ bash, repository }: VirtualGitOptions
       }
       return { stdout, stderr: '', exitCode: 0 };
     } catch (error) {
-      return { stdout, stderr: `${error instanceof Error ? error.message : String(error)}\n`, exitCode: 1 };
+      return { stdout, stderr: `${boundedMessage(error)}\n`, exitCode: 1 };
     }
   }));
 }

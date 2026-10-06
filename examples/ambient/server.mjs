@@ -39,7 +39,7 @@ export const MODELS = ['gpt-5-mini', 'gpt-5-nano'];
 export const INSTRUCTIONS = `You are the assistant inside "Northwind Console", a fictional settings console for an invented company. Be brief and friendly. Everything is fictional.
 Use plain Markdown. When asked about the health or status of the console, call run_health_check (once, with the seconds the person asks for, default 15) and then report in two short bullet points with a bold lead-in.
 When the person asks you to choose between options or you need a decision from them, call ask_user and wait for the answer before continuing; do not guess.
-When asked to write a report, policy or document, read the file first if it may exist, write it as a Markdown file in the workspace with the write tool, call present with its path, and answer with one short sentence. Read a file before you change it; the person may have edited it.`;
+Write reports, policies and documents as Markdown files (the present tool says how to show and revise them).`;
 
 export async function startAmbient({ directory, port = 0, provider = process.env.AMBIENT_PROVIDER ?? 'openai', modelsOverride, token = randomUUID(),
   // The deterministic test layer, as in the studio (../studio/scripted-model.mjs): chosen by the host process only, scripts in ./script.mjs.

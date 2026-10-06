@@ -108,7 +108,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: offered.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
     const parts = [
       ...(capabilities.has('workspace') ? [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }] : []),
-      ...(capabilities.has('shell') ? [{ capabilities: ['shell'], extensions: [shell] }] : []),
+      ...(capabilities.has('shell') ? [{ capabilities: ['shell', ...(capabilities.has('python') ? ['python'] : [])], extensions: [shell] }] : []),
       ...(infra.repository ? [{ capabilities: ['git'], extensions: [defineExtension({ name: 'studio.git', tools: [createGitTool(infra.repository)] })] }] : []),
       { capabilities: ['canvas'], tools: createCanvasTools({ files, path: 'board.tldraw', access: agentAccess, namespace: `studio-${descriptor.id}-canvas-v1` }) },
       { capabilities: ['subagents'], tools: subagents.tools, extensions: subagents.extensions },

@@ -6,7 +6,6 @@
 // A variant supplies infrastructure only (see ./index.mjs): the agent, scenarios and UI are the same for every variant.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { ExecutionError, err, ok } from '@earendil-works/pi-durable/env';
 import { createGitRepository } from '@boring/files/git';
 import { createVirtualWorkspace } from '@boring/execution/virtual';
 import { createVirtualGitFs, installVirtualGitCommand } from '@boring/execution/virtual-git';
@@ -20,7 +19,7 @@ export default host => ({
   id: 'local', title: 'Local', order: 10,
   description: 'An in-memory just-bash workspace with git, snapshotted to the data directory. Needs nothing but a model key.',
   available: true,
-  capabilities: ['workspace', 'shell', 'git'],
+  capabilities: ['workspace', 'shell', 'git', 'python'],
   // The agent may write its own instructions, skills and tools in `.agent/`; its tools run in this virtual just-bash workspace.
   selfEvolving: true,
   // One fictional MCP server in this process: its read runs at once, its write asks for approval, its third tool is not allowed.
@@ -30,13 +29,16 @@ export default host => ({
     // Restore the previous snapshot (files, modes, mtimes and empty directories) or start from the seed.
     const snapshotPath = join(directory, 'local-workspace.json');
     const saved = existsSync(snapshotPath) ? JSON.parse(readFileSync(snapshotPath, 'utf8')) : null;
-    const workspace = createVirtualWorkspace({ providerId: 'studio', files: saved
+    // Every shell of the workspace, the native bash tool's included, gets the git command bound to the repository below, and python3
+    // (just-bash's CPython in WebAssembly, Node only; see packages/execution/README.md for its limits).
+    let repository;
+    const workspace = createVirtualWorkspace({ providerId: 'studio', python: true, onBash: bash => { if (repository) installVirtualGitCommand({ bash, repository }); }, files: saved
       ? Object.fromEntries(Object.entries(saved.files).map(([path, file]) => [path, { content: Uint8Array.from(Buffer.from(file.base64, 'base64')), mode: file.mode, mtime: new Date(file.mtime) }]))
       : SEED });
     const fs = workspace.filesystem;
     for (const path of saved?.directories ?? []) await fs.mkdir(path, { recursive: true });
     const lease = await workspace.acquire({ operationId: 'studio', input: { cwd: ROOT } }, context);
-    const repository = createGitRepository({ fs: createVirtualGitFs(fs), directory: ROOT, author: { name: 'Fictional Agent', email: 'agent@example.invalid' }, authorize: () => true });
+    repository = createGitRepository({ fs: createVirtualGitFs(fs), directory: ROOT, author: { name: 'Fictional Agent', email: 'agent@example.invalid' }, authorize: () => true });
     if (!saved) {
       await repository.init();
       for (const path of Object.keys(SEED)) await repository.add(posix.relative(ROOT, path));
@@ -66,27 +68,13 @@ export default host => ({
     // A snapshot taken in the middle of a git operation can be torn; the next tick and the one in close() replace it.
     const persisting = setInterval(() => { persist().catch(() => {}); }, 1000);
 
-    // The stock virtual environment refuses the native bash tool's live-output options and creates a shell without git.
-    // This environment buffers output for the tool and installs the git command bound to the same repository.
-    const env = { ...lease.environment, exec: async (command, options, ctx) => {
-      if (ctx.abortSignal?.aborted) return err(new ExecutionError('aborted', 'Command aborted'));
-      try {
-        const bash = workspace.createBash({ cwd: posix.resolve(ROOT, options?.cwd ?? '.') });
-        installVirtualGitCommand({ bash, repository });
-        const result = await bash.exec(command, { ...(options?.env === undefined ? {} : { env: options.env }), replaceEnv: options?.inheritEnv === false,
-          ...(ctx.abortSignal === undefined ? {} : { signal: ctx.abortSignal }) });
-        if (ctx.abortSignal?.aborted) return err(new ExecutionError('aborted', 'Command aborted; prior effects may remain'));
-        const output = `${result.stdout}${result.stderr}`;
-        if (output && options?.onOutput) await options.onOutput(output);
-        return ok({ exitCode: result.exitCode });
-      } catch (error) { return err(new ExecutionError('unknown', error instanceof Error ? error.message : String(error))); }
-    } };
+    const env = lease.environment;
 
     return {
       env, root: ROOT, repository,
       /** Commits seeded files so a scenario starts from a clean tree. */
       async commit(paths, message) { for (const path of paths) await repository.add(path); await repository.commit(message); },
-      routes: gitRoutes({ repository, fs, root: ROOT, walk, env: lease.environment, context }),
+      routes: gitRoutes({ repository, fs, root: ROOT, walk, env, context }),
       persist,
       close: async () => { clearInterval(persisting); await persist(); await lease.release(context); workspace.dispose(); },
     };

@@ -7,6 +7,8 @@ import { createSelfEvolution } from './self-evolving.js';
 import type { SelfEvolutionReport } from './self-evolving.js';
 
 export type { SelfEvolutionError, SelfEvolutionReport } from './self-evolving.js';
+export { jsonSchemaTool } from './json-schema-tool.js';
+export type { JsonObjectSchema, JsonSchemaToolOptions } from './json-schema-tool.js';
 
 /** Instructions the agent loads on demand: only name and description occupy the system prompt. */
 export interface Skill {
