@@ -8,6 +8,7 @@
     "@earendil-works/pi-codemode": "1.0.1",
     "@earendil-works/pi-mcp": "1.0.4",
     "@vercel/sandbox": "3.5.1",
+    "@aws-sdk/client-bedrock-agentcore": "3.1146.0",
     "agents": "0.26.0",
     "wrangler": "4.147.0",
     "@types/node": "22.19.0",
@@ -174,7 +175,9 @@
         "node:path",
         "isomorphic-git",
         "@earendil-works/chord/context",
-        "zod"
+        "zod",
+        "node:fs/promises",
+        "@aws-sdk/client-bedrock-agentcore"
       ],
       "typeOnlyExternal": [
         "@earendil-works/chord"

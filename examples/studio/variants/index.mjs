@@ -19,7 +19,7 @@
 //       persist?(), close?()
 //     }>                     // called only when available
 //   }
-// `aws` is specified, not built: it is listed as unavailable and links its recipe document.
+// `aws` runs only against the offline fake Code Interpreter (STUDIO_AWS=fake); its deployable recipe is examples/aws.
 import { readdirSync } from 'node:fs';
 
 export async function loadVariants(host, only) {
