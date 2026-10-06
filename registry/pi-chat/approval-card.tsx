@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { CheckIcon, ShieldAlertIcon, XIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import type { AnswerOutcome } from './question-card';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 // The strings `requireApproval` (`@boring/agent/approval`) asks with and puts at the start of a denial result.
 export const APPROVE = 'Approve';

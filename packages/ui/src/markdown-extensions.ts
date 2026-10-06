@@ -5,7 +5,7 @@ import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import Highlight from '@tiptap/extension-highlight';
-import type { Extensions } from '@tiptap/core';
+import type { Editor, Extensions, JSONContent } from '@tiptap/core';
 import { createMarkdownParser } from './markdown-parser.js';
 
 type TextEncoder = (text: string, node: { marks?: readonly unknown[] }, parent: { type?: string } | null) => string;
@@ -27,6 +27,41 @@ const PlainTextMarkdown = Markdown.extend({
     };
   },
 });
+
+type Schema = Editor['schema'];
+
+/**
+ * A GFM table keeps the exact text it was written in (unpadded `|a|b|`, `:---:` alignment rows, `_emphasis_`, escaped pipes, empty
+ * cells) while its content is unchanged: parsing records the source and the canonical JSON of the rows it produced, and rendering
+ * writes the source back when the rows are still identical. An edited table (a cell, a row, a column, an alignment) is rendered by
+ * the native serialiser, which writes padded GFM with the column alignments. The source is never rendered into the HTML, so a
+ * copied or pasted table is serialised normally.
+ */
+function createSourceTable(schema: () => Schema | undefined) {
+  return Table.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        markdownSource: { default: null, rendered: false, parseHTML: () => null },
+      };
+    },
+    parseMarkdown(token, helpers) {
+      const parsed = this.parent!(token, helpers) as JSONContent;
+      const current = schema();
+      const raw = typeof token.raw === 'string' ? token.raw.replace(/\n+$/, '') : '';
+      if (!current || !raw || Array.isArray(parsed)) return parsed;
+      try {
+        const rows = JSON.stringify(current.nodeFromJSON({ type: 'table', content: parsed.content ?? [] }).toJSON().content ?? []);
+        return { ...parsed, attrs: { ...parsed.attrs, markdownSource: { raw, rows } } };
+      } catch { return parsed; }
+    },
+    renderMarkdown(node, helpers, context) {
+      const source = node.attrs?.['markdownSource'] as { raw?: unknown; rows?: unknown } | null | undefined;
+      if (source && typeof source.raw === 'string' && source.rows === JSON.stringify(node.content ?? [])) return `\n${source.raw}\n`;
+      return this.parent!(node, helpers, context);
+    },
+  });
+}
 
 /** Maps an image address in the document to a URL the browser may load, or `undefined` to keep the image inert. */
 export type MarkdownImageResolver = (source: string) => string | undefined;
@@ -56,10 +91,14 @@ export function createMarkdownExtensions({ placeholder, images }: MarkdownExtens
         : ['span', { class: 'boring-markdown-image', 'data-boring-image': 'inert', role: 'img', 'aria-label': alt || 'Image', ...(title ? { title } : {}) }, alt || 'Image'];
     },
   });
+  let schema: Schema | undefined;
+  const SourceTable = createSourceTable(() => schema).extend({
+    onBeforeCreate() { (this.parent as (() => void) | undefined)?.(); schema = this.editor.schema; },
+  });
   return [
     StarterKit.configure({ link: { openOnClick: false, autolink: false, linkOnPaste: false }, underline: false }),
     TaskList, TaskItem.configure({ nested: true }),
-    Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
+    SourceTable.configure({ resizable: false }), TableRow, TableHeader, TableCell,
     InertImage.configure({ inline: false, allowBase64: true }),
     Highlight,
     Placeholder.configure({ placeholder: placeholder ?? 'Start writing' }),

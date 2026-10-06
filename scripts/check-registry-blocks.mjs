@@ -6,6 +6,10 @@
 //    (transitively) and lists the file. pi-chat declares none, so the chat never imports pi-ambient or pi-workspace, and
 //    pi-workspace never imports pi-ambient (the host swaps AmbientChat in when the chat floats).
 // 3. Declared registryDependencies name items of this registry.
+// 4. File types and targets: a `use*.ts` file is `registry:hook`, any other `.ts` is `registry:lib` (or a declared `registry:hook`), a
+//    `.tsx` is a component (`registry:ui` for a shared primitive such as the button); every file has the target
+//    `components/<item>/<file>`, so the installed folders mirror registry/ and the sibling imports above resolve.
+// 5. No file name is shipped by two items: a shared helper is one item (utils, button) that the others depend on.
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +30,19 @@ export function checkRegistryBlocks(root) {
     return seen;
   };
   let files = 0;
+  const owners = new Map();
   for (const item of items.values()) {
     for (const dependency of item.registryDependencies ?? []) if (!dependency.startsWith(namespace) || !items.has(local(dependency))) errors.push(`BORING-BLOCKS ${item.name}: registryDependencies must be ${namespace}<item of this registry> (found ${dependency})`);
+    for (const file of item.files ?? []) {
+      const base = posix.basename(file.path);
+      const where = `BORING-BLOCKS ${file.path}`;
+      if (file.target !== `components/${item.name}/${base}` || file.path !== `registry/${item.name}/${base}`) errors.push(`${where}: lives in registry/${item.name}/ and installs to components/${item.name}/${base} (target ${file.target ?? 'missing'})`);
+      if (/^use[A-Z-].*\.ts$/.test(base) && file.type !== 'registry:hook') errors.push(`${where}: a use*.ts file is registry:hook (found ${file.type})`);
+      else if (/\.ts$/.test(base) && file.type !== 'registry:lib' && file.type !== 'registry:hook') errors.push(`${where}: a .ts helper is registry:lib (found ${file.type})`);
+      else if (/\.tsx$/.test(base) && file.type !== 'registry:component' && file.type !== 'registry:ui') errors.push(`${where}: a .tsx file is registry:component or registry:ui (found ${file.type})`);
+      if (owners.has(base)) errors.push(`${where}: ${base} is also shipped by item ${owners.get(base)}; share one item instead`);
+      else owners.set(base, item.name);
+    }
   }
   for (const directory of readdirSync(resolve(root, 'registry'), { withFileTypes: true })) {
     if (!directory.isDirectory()) continue;
@@ -62,5 +77,5 @@ export function checkRegistryBlocks(root) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = checkRegistryBlocks(realpathSync(fileURLToPath(new URL('../', import.meta.url))));
   if (result.errors.length) { console.error(result.errors.join('\n')); process.exitCode = 1; }
-  else console.log(`ok: ${result.files} registry source files are listed in their item and import only items they depend on`);
+  else console.log(`ok: ${result.files} registry source files are listed in their item with their type and target, and import only items they depend on`);
 }

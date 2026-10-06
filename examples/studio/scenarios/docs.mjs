@@ -41,7 +41,8 @@ export default [
       await browser.until('Bold is off again', `${q(`${scope} [aria-label=Bold]`)}?.getAttribute('aria-pressed') === 'false'`);
       assert.equal(await browser.evaluate(`!${q(`${scope} [data-testid=viewer-status]`)}`), true, 'toggling formatting twice leaves the document clean (no status shown)');
 
-      // A rich-mode edit and Save keep the table, link, image line and task list in the saved file.
+      // A rich-mode edit and Save keep the tables (a padded one and an unpadded aligned one with code, emphasis, an escaped pipe and an
+      // empty cell), link, image line and task list in the saved file.
       const original = await readText('docs/picnic-plan.md');
       await caretAtStart(scope);
       await browser.send('Input.insertText', { text: 'EDITED ' });
@@ -51,7 +52,7 @@ export default [
       const after = await readText('docs/picnic-plan.md');
       assert.ok(after.includes('# EDITED Moon picnic plan'), `the edit reached the workspace file: ${JSON.stringify(after.slice(0, 200))}`);
       assert.equal(after.replace('EDITED ', ''), original, 'everything but the edited text is byte for byte unchanged');
-      for (const kept of ['| Item     | Quantity |', '| Blankets | 2        |', '![Moon badge](../media/moon-badge.png)', '[tide table](tide-times.html)', '- [x] Pick the pier', '- [ ] Pack the star map']) assert.ok(after.includes(kept), `kept: ${kept}`);
+      for (const kept of ['| Item     | Quantity |', '| Blankets | 2        |', '|Tide|Time|Height|\n|:--|:-:|--:|\n|Low|`19:40`|*0.4 m*|', '![Moon badge](../media/moon-badge.png)', '[tide table](tide-times.html)', '- [x] Pick the pier', '- [ ] Pack the star map']) assert.ok(after.includes(kept), `kept: ${kept}`);
 
       // A document with raw HTML, a footnote and front matter opens in source mode with rich editing disabled, and a source edit leaves them untouched.
       await openFile('docs/legacy-notes.md', 'markdown');

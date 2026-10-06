@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 // Items written in Tailwind, installed into their own folder, rather than recipes over a headless @boring/ui controller.
 const manifest = registrySchema.parse(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8')));
 // Tailwind items bring owned source with shadcn tokens: every rule is scoped to the item's root class and lives in the base or components layer.
-const TAILWIND = { 'pi-chat': { scope: '.pi-chat', keyframes: /^@keyframes pi-chat-/, folder: 'pi-chat' }, 'pi-ambient': { scope: '.pi-chat', keyframes: /^@keyframes pi-ambient-/, folder: 'pi-ambient' }, 'pi-workspace': { scope: '.pi-chat', keyframes: /^@keyframes pi-workspace-/, folder: 'pi-workspace' }, viewers: { scope: '.boring-viewer', keyframes: /^@keyframes boring-viewer-/, folder: 'viewers' }, 'provider-setup': { scope: '.provider-setup', keyframes: /^@keyframes provider-setup-/, folder: 'provider-setup' } };
+const TAILWIND = { button: { scope: '.pi-chat', keyframes: /^$/, folder: 'button' }, utils: { scope: '.pi-chat', keyframes: /^$/, folder: 'utils' }, 'pi-chat': { scope: '.pi-chat', keyframes: /^@keyframes pi-chat-/, folder: 'pi-chat' }, 'pi-ambient': { scope: '.pi-chat', keyframes: /^@keyframes pi-ambient-/, folder: 'pi-ambient' }, 'pi-workspace': { scope: '.pi-chat', keyframes: /^@keyframes pi-workspace-/, folder: 'pi-workspace' }, viewers: { scope: '.boring-viewer', keyframes: /^@keyframes boring-viewer-/, folder: 'viewers' }, 'provider-setup': { scope: '.provider-setup', keyframes: /^@keyframes provider-setup-/, folder: 'provider-setup' } };
 // The feedback item imports the package's browser entries directly (no copied validators), React and React DOM (a portal); nothing from store, agent or source.
 const FEEDBACK_IMPORTS = new Set(['react', 'react-dom', '@boring/feedback/format', '@boring/feedback/page', '@boring/feedback/ui', '@boring/feedback/preview']);
 
@@ -29,7 +29,7 @@ test('standard pinned CLI rebuilds the committed source registry artifact exactl
       const built = registryItemSchema.parse(JSON.parse(readFileSync(join(directory, item.name + '.json'), 'utf8')));
       const committed = JSON.parse(readFileSync(join(root, 'public/r', item.name + '.json'), 'utf8'));
       assert.deepEqual(built, registryItemSchema.parse(committed), 'Generated item is stale or differs from the real CLI');
-      for (const file of built.files) assert.equal(file.content, readFileSync(join(root, file.path), 'utf8'));
+      for (const file of built.files ?? []) assert.equal(file.content, readFileSync(join(root, file.path), 'utf8'));
     }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
@@ -41,8 +41,27 @@ test('registry dependency pins and scoped styles preserve the declared source di
   assert.equal(architecture.sourceDistribution.manifest, 'registry.json');
   assert.equal(architecture.sourceDistribution.format, 'shadcn@' + architecture.rootDevDependencies.shadcn);
   for (const item of manifest.items) {
+    if (item.name === 'theme') {
+      // The one theme: shadcn tokens for light and dark and their Tailwind bindings, no files and no packages. The CLI only adds the tokens a host lacks.
+      assert.equal(item.type, 'registry:theme');
+      assert.equal(item.files, undefined); assert.equal(item.dependencies, undefined); assert.equal(item.css, undefined);
+      const { theme, light, dark } = item.cssVars;
+      assert.deepEqual(Object.keys(dark).sort(), Object.keys(light).filter(name => name !== 'radius').sort(), 'dark redefines every color token');
+      for (const [name, value] of Object.entries(theme)) {
+        const used = /^var\(--([\w-]+)\)$/.exec(value)?.[1] ?? /var\(--([\w-]+)\)/.exec(value)?.[1];
+        assert.ok(used && used in light, `${name} binds a token of the theme`);
+      }
+      for (const token of ['background', 'foreground', 'muted', 'muted-foreground', 'border', 'ring', 'primary', 'primary-foreground', 'destructive', 'radius']) assert.ok(token in light, token);
+      continue;
+    }
+    // Every Tailwind item depends on the theme (directly or through pi-chat).
+    if (item.name in TAILWIND && item.name !== 'utils') {
+      const closure = new Set(), visit = name => { for (const dependency of manifest.items.find(entry => entry.name === name).registryDependencies ?? []) { const next = dependency.slice('@boring-ui/'.length); if (!closure.has(next)) { closure.add(next); visit(next); } } };
+      visit(item.name);
+      assert.ok(closure.has('theme'), `${item.name} depends on @boring-ui/theme`);
+    }
     const declared = new Set();
-    for (const dependency of item.dependencies) {
+    for (const dependency of item.dependencies ?? []) {
       const split = dependency.lastIndexOf('@'), name = dependency.slice(0, split), version = dependency.slice(split + 1);
       assert.match(version, /^\d+\.\d+\.\d+$/);
       declared.add(name);
@@ -72,7 +91,7 @@ test('registry dependency pins and scoped styles preserve the declared source di
         const source = readFileSync(join(root, file.path), 'utf8');
         for (const imported of [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(match => match[1])) {
           if (imported.startsWith('./')) { assert.ok([...names].some(name => name.replace(/\.tsx?$/, '') === imported.slice(2)), `${file.path} imports missing ${imported}`); continue; }
-          // A block imports the item it depends on by its installed sibling folder (`../pi-chat/utils`); scripts/check-registry-blocks.mjs enforces the direction.
+          // A block imports the item it depends on by its installed sibling folder (`../utils/utils`, `../pi-chat/rows`); scripts/check-registry-blocks.mjs enforces the direction.
           const sibling = /^\.\.\/([\w-]+)\/([\w-]+)$/.exec(imported);
           if (sibling) { const other = manifest.items.find(entry => entry.name === sibling[1]); assert.ok(other && (item.registryDependencies ?? []).includes('@boring-ui/' + other.name) && other.files.some(entry => entry.path.replace(/\.tsx?$/, '') === `registry/${other.name}/${sibling[2]}`), `${file.path} imports ${imported} outside its registryDependencies`); continue; }
           if (architecture.sourceDistribution.runtimeImports.includes(imported)) continue;
@@ -96,7 +115,7 @@ test('registry dependency pins and scoped styles preserve the declared source di
       assert.ok(declared.has('@boring/feedback'));
       const names = item.files.map(file => file.path.replace(/^registry\/feedback\//, '').replace(/\.tsx?$/, ''));
       for (const file of item.files) {
-        assert.match(file.target, /^components\/feedback\//, 'files install into their own folder');
+        assert.match(file.target, new RegExp('^components/' + item.name + '/'), 'files install into their own folder');
         const source = readFileSync(join(root, file.path), 'utf8');
         for (const imported of [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(match => match[1])) {
           if (imported.startsWith('./')) { assert.ok(names.includes(imported.slice(2)), `${file.path} imports missing ${imported}`); continue; }

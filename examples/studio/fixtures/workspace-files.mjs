@@ -23,6 +23,11 @@ A **fictional** plan for an invented evening. See the [tide table](tide-times.ht
 | Blankets | 2        |
 | Thermos  | 1        |
 
+|Tide|Time|Height|
+|:--|:-:|--:|
+|Low|\`19:40\`|*0.4 m*|
+|High||[pier \\| sign](tide-times.html)|
+
 ![Moon badge](../media/moon-badge.png)
 
 - [x] Pick the pier

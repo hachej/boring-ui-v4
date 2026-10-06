@@ -68,7 +68,8 @@ test('installed registry Markdown wrapper with real React/Tiptap/SQLite (DOM, no
   }
 
   await t.test('wrapper mount and mode changes preserve exact bytes and forward concrete editor props', async t => {
-    const source = '# Fictional heading\n\n*  original spacing\n\n';
+    // The rich switch needs a document rich editing keeps exactly (a `*  ` list marker would be rewritten, so it opens as source only).
+    const source = '# Fictional heading\n\n- original spacing\n\n';
     const f = await fixture(t, source, { props: { initialMode: 'source', className: 'host-custom' } });
     const root = f.container.querySelector('[data-boring="markdown-editor"]');
     assert.ok(root.classList.contains('boring-markdown-recipe')); assert.ok(root.classList.contains('host-custom'));

@@ -6,9 +6,9 @@ import { CodeXmlIcon, PencilLineIcon, SaveIcon } from 'lucide-react';
 import { MarkdownEditor } from '@boring/ui/markdown-editor';
 import type { MarkdownImageResolver, MarkdownMountedTools, MarkdownRichSafety } from '@boring/ui/markdown-editor';
 import type { MarkdownController } from '@boring/ui/markdown';
-import { IconButton } from './button';
+import { IconButton } from '../button/button';
 import { downloadFile, fileNameFor } from './download';
-import { copyText } from './utils';
+import { copyText } from '../utils/utils';
 import { ViewerFrame, ViewerToggle } from './viewer-frame';
 import type { ViewerShare, ViewerStatus } from './viewer-frame';
 

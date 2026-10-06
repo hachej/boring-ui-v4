@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckIcon, ChevronDownIcon, Loader2Icon } from 'lucide-react';
 import type { EffortConfig, ModelConfig, ModelRef } from './config';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 interface Choice { readonly section: 'model' | 'effort'; readonly value: string; readonly label: string; readonly detail?: string }
 

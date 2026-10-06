@@ -30,8 +30,7 @@ const BROWSER_ENTRIES = /^examples\/[\w-]+\/browser\.jsx$/;
 /** The only files allowed to touch a raw API, with the proof each must carry that it feature-detects first. */
 export const ALLOWLIST = {
   'packages/files/src/platform.ts': { rules: ['randomUUID', 'crypto.subtle', 'navigator.clipboard'], requires: [/typeof crypto\.randomUUID === 'function'/, /globalThis\.crypto\?\.subtle/, /globalThis\.navigator\?\.clipboard/, /execCommand/] },
-  'registry/viewers/utils.ts': { rules: ['navigator.clipboard'], requires: [/globalThis\.navigator\?\.clipboard/, /execCommand/] },
-  'registry/pi-chat/utils.ts': { rules: ['navigator.clipboard'], requires: [/globalThis\.navigator\?\.clipboard/, /execCommand/] },
+  'registry/utils/utils.ts': { rules: ['navigator.clipboard'], requires: [/globalThis\.navigator\?\.clipboard/, /execCommand/] },
   'registry/pi-ambient/browser-notify.ts': { rules: ['Notification'], requires: [/typeof candidate === 'function'/, /permission/, /requestPermission/] },
   'examples/ambient/mic.mjs': { rules: ['navigator.secure', 'getUserMedia'], requires: [/typeof globalThis\.navigator\?\.mediaDevices\?\.getUserMedia === 'function'/] },
   // Feedback voice: opens the microphone only from start() (the person's click), through an injectable getUserMedia whose default feature-detects.

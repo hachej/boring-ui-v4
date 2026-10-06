@@ -310,8 +310,8 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
   // CSS imported by a panel (for example a viewer's stylesheet) is bundled and served with the studio styles.
   const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
-  // Tailwind is compiled once here: the shadcn tokens (theme.css) and the utilities used by registry/pi-chat and this folder.
-  const tailwind = await buildTailwind({ themeCss: readFileSync(here('./theme.css'), 'utf8') });
+  // Tailwind is compiled once here: the shadcn tokens (the registry `theme` item) and the utilities used by the registry items and this folder.
+  const tailwind = await buildTailwind();
   const styles = [tailwind, ...bundle.outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text), readFileSync(here('./styles.css'), 'utf8')].join('\n');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><title>Boring studio (fictional)</title>
 <link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div>

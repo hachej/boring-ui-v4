@@ -237,9 +237,8 @@ export async function startFeedbackApp({ directory, port = 0, protection = 'prot
 
   const script = assets ? await buildBrowser({ source }) : '';
   const styles = assets ? await (async () => {
-    const theme = readFileSync(here('../studio/theme.css'), 'utf8');
     const item = JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8')).items.find(entry => entry.name === 'feedback');
-    return [await buildTailwind({ themeCss: theme }), registryCss(item), readFileSync(here('./host.css'), 'utf8')].join('\n');
+    return [await buildTailwind(), registryCss(item), readFileSync(here('./host.css'), 'utf8')].join('\n');
   })() : '';
   const html = (person, outside) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Fernhill Studio settings (fictional)</title><link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div>

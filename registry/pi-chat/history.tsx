@@ -5,10 +5,11 @@ import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { Message } from '@earendil-works/pi-ai';
 import type { ChatHistoryState } from '@boring/ui/native-chat';
 import { ArrowLeftIcon, CheckIcon, HistoryIcon, MessageSquareIcon, PlusIcon, SearchIcon, XIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import type { ConversationItem, ConversationsConfig } from './config';
 import { Markdown } from './markdown';
-import { cn, isFileBlock } from './utils';
+import { cn } from '../utils/utils';
+import { isFileBlock } from './rows';
 
 const DAY = 86_400_000;
 const toMs = (value: ConversationItem['updatedAt']): number | undefined => {

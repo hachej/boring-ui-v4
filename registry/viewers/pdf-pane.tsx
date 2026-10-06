@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { DownloadIcon, FileTextIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import { downloadFile } from './download';
 import { formatBytes, useMediaUrl } from './media';
 import type { MediaSource } from './media';
@@ -57,8 +57,8 @@ export function PdfPane({ name, bytes, blob, url: hostUrl, subtitle, status, tar
             <p className="m-0 text-sm font-medium">This browser cannot show PDFs inline.</p>
             <p className="m-0 text-xs text-muted-foreground">Download {downloadName} to read it in a PDF app{open ? ', or open it in a new tab' : ''}.</p>
             <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="default" data-testid={`${testId}-pdf-download`} onClick={download}><DownloadIcon className="size-3.5" aria-hidden="true" />Download</Button>
-              {open && <Button variant="outline" onClick={() => open()}>Open in new tab</Button>}
+              <Button variant="default" size="bar" data-testid={`${testId}-pdf-download`} onClick={download}><DownloadIcon className="size-3.5" aria-hidden="true" />Download</Button>
+              {open && <Button variant="outline" size="bar" onClick={() => open()}>Open in new tab</Button>}
             </div>
           </div>}
     </div>

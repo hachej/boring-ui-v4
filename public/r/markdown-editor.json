@@ -26,7 +26,8 @@
     {
       "path": "registry/markdown-editor/markdown-editor.tsx",
       "content": "'use client';\n\nimport { MarkdownEditor as RuntimeMarkdownEditor } from '@boring/ui/markdown-editor';\nimport type { MarkdownEditorProps } from '@boring/ui/markdown-editor';\n\nexport type { MarkdownEditorProps } from '@boring/ui/markdown-editor';\n\nexport function MarkdownEditor({ className, ...props }: MarkdownEditorProps) {\n  return <RuntimeMarkdownEditor {...props} className={['boring-markdown-recipe', className].filter(Boolean).join(' ')} />;\n}\n",
-      "type": "registry:component"
+      "type": "registry:component",
+      "target": "components/markdown-editor/markdown-editor.tsx"
     }
   ],
   "css": {
