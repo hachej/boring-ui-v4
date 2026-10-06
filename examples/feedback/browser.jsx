@@ -21,7 +21,7 @@ import { createRemoteChat } from '@boring/ui/remote-chat';
 import { createPreviewSession, pendingBrowserTasks } from '@boring/feedback/preview';
 import { GATEWAY_PROVIDER } from '@boring/agent/gateway-provider';
 import { PREVIEW_MODEL, previewModels } from './model-preview.mjs';
-import { PreviewBanner } from '../../registry/feedback/preview-banner.tsx';
+import { PreviewBanner } from '../../registry/feedback-preview/preview-banner.tsx';
 import { AmbientChat } from '../../registry/pi-ambient/ambient.tsx';
 import { feedbackRenderTool } from '../../registry/pi-chat/feedback-card.tsx';
 import { PointButton } from '../../registry/feedback/point-button.tsx';

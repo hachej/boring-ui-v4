@@ -242,11 +242,11 @@ try {
     await browser.send('Page.navigate', { url: pageUrl });
     await browser.until('the page and the Feedback button', `!!(${q('composer-feedback')} && !${q('composer-feedback')}.disabled && ${$(config.point)})`, 30000);
     const env = await browser.evaluate(`({ overlay: !!document.querySelector('[data-feedback-overlay]'), secure: window.isSecureContext, source: !!document.querySelector('[data-source]'), point: !!${q('feedback-point')} })`);
-    assert.ok(env.overlay, 'the page overlay is mounted');
+    // An app may create the overlay only when Feedback starts (step 2 checks it then); it is not required at load.
     assert.equal(env.point, false, 'one entry point: no Point button');
     summary.page = env;
     await shot('01-page');
-    return `page loaded, overlay mounted, ${env.source ? 'data-source stamps present' : 'no data-source stamps'}, ${env.secure ? 'secure' : 'insecure'} context`;
+    return `page loaded, overlay ${env.overlay ? 'mounted at load' : 'created on Feedback'}, ${env.source ? 'data-source stamps present' : 'no data-source stamps'}, ${env.secure ? 'secure' : 'insecure'} context`;
   });
 
   await step('2 Feedback, point and refine', async () => {

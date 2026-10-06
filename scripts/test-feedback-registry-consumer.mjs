@@ -13,7 +13,6 @@ import { consumerDependencies, localRegistryItem, packBoringDependencies, writeL
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const item = JSON.parse(readFileSync(join(root, 'public/r/feedback.json'), 'utf8'));
-// pi-ai is installed: PreviewBanner's preview subagent (`@boring/feedback/preview`) runs Pi models in the page.
 const excludedPackages = ['@boring/agent', '@earendil-works/pi-durable', '@earendil-works/chord', 'tldraw', '@tiptap/core', 'marked'];
 const directory = mkdtempSync(join(tmpdir(), 'boring-feedback-consumer-'));
 const cache = process.env.npm_config_cache;
