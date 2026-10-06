@@ -13,7 +13,9 @@ import type { ArtifactDescriptor, ArtifactsConfig } from './artifact';
  * This module turns a view into display rows with these semantics: tool calls are matched with tool results, expert mode hides successful tool details, the live
  * generation is appended as a streaming row whose key matches the row its committed message will take.
  */
-export interface ChatCard { readonly content: ReactNode; readonly required?: boolean }
+/** `required` pins the card above the transcript. `inline` (tool cards) keeps it in place in expert mode too, like the
+ * question and artifact cards; other custom tool cards show only in developer mode or on failure. */
+export interface ChatCard { readonly content: ReactNode; readonly required?: boolean; readonly inline?: boolean }
 export type Mode = 'expert' | 'developer';
 export type StreamPart = { readonly type: 'text'; readonly text: string } | { readonly type: 'thinking'; readonly thinking: string } | ToolCall;
 
@@ -144,7 +146,7 @@ export function derive(view: ConversationView | undefined, options: DeriveOption
     }
     const custom = committed ? renderTool?.(call, result) : undefined;
     if (custom?.required) { pinned.push({ key, content: custom.content }); return undefined; }
-    if (custom && (developer || result?.isError)) return { kind: 'tool', key, entry: { key, call, result, status: status(result), custom: custom.content } };
+    if (custom && (developer || result?.isError || custom.inline)) return { kind: 'tool', key, entry: { key, call, result, status: status(result), custom: custom.content } };
     // A host that folds only some calls (`groupTool`) keeps the rest as cards, which expert mode hides unless they failed.
     if (!developer && !result?.isError && options.groupTool && !(result && safe(options.groupTool, { key, call, result, status: status(result) }))) return undefined;
     return { kind: 'tool', key, entry: { key, call, result, status: status(result) } };

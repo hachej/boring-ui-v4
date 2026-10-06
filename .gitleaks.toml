@@ -8,5 +8,6 @@ regexTarget = "match"
 regexes = [
   '''LANTERN-7F3A9C21''',
   '''sk-fictional-0123456789''',
+  '''ghp_fictionalTokenNeverReal0000''',
   '''questions/validation/delivery''',
 ]

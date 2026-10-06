@@ -12,7 +12,7 @@ function fixture(t, complete = false) {
   const directory = mkdtempSync(join(tmpdir(), 'boring-verifier-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const write = (path, value) => { const full = join(directory, path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, value); };
-  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'docs/LAWS.md', 'package.json']) write(path, readFileSync(join(root, path)));
+  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'docs/LAWS.md', 'package.json', 'packages/feedback/INVARIANTS.md']) write(path, readFileSync(join(root, path)));
   // Feature laws (VERIFY.json `features`) have their own fixture in test/pi-boundary.test.mjs; this one covers the root slots.
   { const registry = JSON.parse(readFileSync(join(directory, 'VERIFY.json'))); delete registry.features; write('VERIFY.json', JSON.stringify(registry)); }
   // Synthetic runner fixtures only. These are deliberately not library conformance.
@@ -25,19 +25,20 @@ function fixture(t, complete = false) {
     }
     write('VERIFY.json', JSON.stringify(registry));
   }
-  write('test/pi-boundary.test.mjs', body);
+  for (const rule of Object.values(JSON.parse(readFileSync(join(directory, 'VERIFY.json'), 'utf8')).invariants)) for (const verifier of rule.verifiers) if (verifier.kind === 'command') for (const path of verifier.command.slice(2)) write(path, body);
   return { directory, write };
 }
 
 test('registered command is deduplicated across laws and executed as argv, not shell', (t) => {
-  const f = fixture(t); let calls = 0;
+  const f = fixture(t); const calls = [];
   const result = verifyInvariants(f.directory, { run: (command, args, options) => {
-    calls++; assert.equal(command, process.execPath); assert.deepEqual(args, ['--test', '--experimental-test-isolation=none', '--test-reporter=tap', 'test/pi-boundary.test.mjs']);
+    calls.push(args.at(-1)); assert.equal(command, process.execPath); assert.deepEqual(args.slice(0, -1), ['--test', '--experimental-test-isolation=none', '--test-reporter=tap']);
     assert.equal(options.cwd, f.directory); assert.equal(options.timeout, 60000); assert.ok(!options.shell); assert.equal(options.env.NODE_TEST_CONTEXT, undefined);
     return { status: 0, stdout: passing };
   } });
-  assert.equal(calls, 1); assert.equal(result.status, 0);
-  assert.equal(result.logs.filter((line) => line.startsWith('DEFERRED')).length, 6);
+  const registered = [...new Set(Object.values(JSON.parse(readFileSync(join(f.directory, 'VERIFY.json'), 'utf8')).invariants).flatMap((rule) => rule.verifiers.filter((v) => v.kind === 'command').map((v) => v.command[2])))];
+  assert.deepEqual([...calls].sort(), registered.sort()); assert.equal(new Set(calls).size, calls.length); assert.equal(result.status, 0); // each registered file runs once, however many laws cite it
+  assert.equal(result.logs.filter((line) => line.startsWith('DEFERRED')).length, 11); // six root and five feedback deferrals
   assert.ok(result.logs.some((line) => line.includes('INCOMPLETE')));
 });
 test('release rejects pending obligations even with no package source', (t) => {

@@ -117,6 +117,22 @@ export function loadBoundary(root) {
   const index = readFileSync(resolve(root, 'docs/LAWS.md'), 'utf8');
   const errors = [];
   errors.push(...checkFeatures(root, registry, index));
+  // Feature laws owned by one package (`VERIFY.json.packageLaws`): the same registry, index and runtime-slot rules as the
+  // root laws, defined once in `packages/<package>/INVARIANTS.md` under their own prefix. The root rule is unchanged.
+  const owners = new Map(); // owner path -> { prefix, package }
+  const lawPackage = new Map(); // law id -> owning package
+  if (registry.packageLaws !== undefined && !Array.isArray(registry.packageLaws)) errors.push('packageLaws must be a list');
+  for (const entry of Array.isArray(registry.packageLaws) ? registry.packageLaws : []) {
+    const valid = entry && typeof entry === 'object' && /^[A-Z][A-Z0-9]*$/.test(entry.prefix ?? '') && entry.prefix !== 'BORING'
+      && typeof entry.package === 'string' && Object.hasOwn(policy.packages, entry.package) && entry.owner === `packages/${entry.package}/INVARIANTS.md`;
+    if (!valid || owners.has(entry.owner) || [...owners.values()].some((o) => o.prefix === entry.prefix)) { errors.push(`invalid package law owner: ${JSON.stringify(entry)}`); continue; }
+    if (!existsSync(resolve(root, entry.owner))) { errors.push(`missing package law owner: ${entry.owner}`); continue; }
+    owners.set(entry.owner, { prefix: entry.prefix, package: entry.package });
+    for (const match of readFileSync(resolve(root, entry.owner), 'utf8').matchAll(new RegExp(`^## (${entry.prefix}-\\d+) — `, 'gm'))) {
+      laws.push(match[1]); lawPackage.set(match[1], entry.package);
+    }
+  }
+  const lawHeading = new RegExp(`^## ((?:BORING-PI${[...owners.values()].map((o) => `|${o.prefix}`).join('')})-\\d+) — `, 'gm');
   const packages = new Set();
   let sources = 0;
   let contracts = 0;
@@ -126,6 +142,7 @@ export function loadBoundary(root) {
     if (!index.includes(`| ${id} |`)) errors.push(`law is not indexed: ${id}`);
     const rule = registry.invariants[id];
     if (!rule?.appliesTo?.length || rule.appliesTo.some((p) => !policy.packages[p])) errors.push(`invalid package applicability: ${id}`);
+    else if (lawPackage.has(id) && !rule.appliesTo.includes(lawPackage.get(id))) errors.push(`package law does not apply to its owner: ${id}`);
     if (!rule?.verifiers?.length) { errors.push(`missing evidence: ${id}`); continue; }
     const runtime = rule.verifiers.filter((v) => v.scope === 'runtime');
     if (runtime.length !== 1 || JSON.stringify(runtime[0].command) !== JSON.stringify(['node', '--test', policy.runtimeProofs[id]])) errors.push(`missing/changed required runtime proof slot: ${id}`);
@@ -157,7 +174,7 @@ export function loadBoundary(root) {
       // A directory called src/dist still contains authored, inspected source.
       if (entry.isDirectory() && /^packages\/[^/]+\/(?:dist|node_modules)$/.test(file)) continue;
       if (entry.isDirectory()) { walk(path); continue; }
-      if (entry.name.endsWith('.md')) for (const match of readFileSync(path, 'utf8').matchAll(/^## (BORING-PI-\d+) — /gm)) errors.push(`project law defined twice: ${match[1]} in ${file}`);
+      if (entry.name.endsWith('.md') && !owners.has(file)) for (const match of readFileSync(path, 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${file}`);
       if (entry.name === 'package.json') errors.push(...checkManifest(readJson(path), /^packages\/([^/]+)/.exec(file)?.[1], policy));
       if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
         sources++;
@@ -174,7 +191,7 @@ export function loadBoundary(root) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = resolve(directory, entry.name);
       if (entry.isDirectory()) checkDocOwners(path);
-      else if (entry.isFile() && entry.name.endsWith('.md')) for (const match of readFileSync(path, 'utf8').matchAll(/^## (BORING-PI-\d+) — /gm)) errors.push(`project law defined twice: ${match[1]} in ${relative(root, path)}`);
+      else if (entry.isFile() && entry.name.endsWith('.md')) for (const match of readFileSync(path, 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${relative(root, path)}`);
     }
   };
   checkDocOwners(resolve(root, 'docs'));

@@ -83,7 +83,34 @@
         "@earendil-works/chord/*",
         "node:crypto"
       ],
-      "typeOnlyExternal": []
+      "typeOnlyExternal": [],
+      "pathRules": [
+        {
+          "prefix": "src/gateway-provider",
+          "forbidden": [
+            "node:*",
+            "@boring/*",
+            "@earendil-works/pi-durable*",
+            "@earendil-works/chord*"
+          ],
+          "forbiddenRelative": [
+            "src/"
+          ]
+        },
+        {
+          "prefix": "src/model-gateway",
+          "forbidden": [
+            "node:*",
+            "@earendil-works/*",
+            "@boring/ui*",
+            "@boring/feedback*",
+            "@boring/execution*"
+          ],
+          "forbiddenRelative": [
+            "src/"
+          ]
+        }
+      ]
     },
     "ui": {
       "dependsOn": [
@@ -187,6 +214,196 @@
           "@boring/files/request-guard"
         ]
       }
+    },
+    "feedback": {
+      "dependsOn": [
+        "ui",
+        "files",
+        "agent"
+      ],
+      "runtimePackageImports": {
+        "files": [
+          "@boring/files/platform"
+        ],
+        "ui": [],
+        "agent": [
+          "@boring/agent/browser-task"
+        ]
+      },
+      "typeOnlyDependsOn": [
+        "ui",
+        "files",
+        "agent"
+      ],
+      "external": [
+        "react",
+        "react/jsx-dev-runtime",
+        "@earendil-works/pi-durable",
+        "@earendil-works/pi-ai"
+      ],
+      "typeOnlyExternal": [
+        "esbuild",
+        "@earendil-works/pi-durable",
+        "@earendil-works/pi-ai",
+        "@earendil-works/chord"
+      ],
+      "pathRules": [
+        {
+          "prefix": "src/format/",
+          "forbidden": [
+            "@boring/agent*",
+            "@boring/files/platform",
+            "@earendil-works/*",
+            "node:*",
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/store/",
+            "src/agent/",
+            "src/page/",
+            "src/ui/",
+            "src/source/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/page/",
+          "forbidden": [
+            "@boring/agent*",
+            "@earendil-works/*",
+            "node:*"
+          ],
+          "forbiddenRelative": [
+            "src/store/",
+            "src/agent/",
+            "src/ui/",
+            "src/source/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/ui/",
+          "forbidden": [
+            "@boring/agent*",
+            "@earendil-works/*",
+            "node:*"
+          ],
+          "forbiddenRelative": [
+            "src/store/",
+            "src/agent/",
+            "src/source/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/store/",
+          "forbidden": [
+            "@boring/agent*",
+            "@earendil-works/*",
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/agent/",
+            "src/page/",
+            "src/ui/",
+            "src/source/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/agent/",
+          "forbidden": [
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/page/",
+            "src/ui/",
+            "src/source/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/source/",
+          "forbidden": [
+            "react",
+            "react/jsx-runtime",
+            "react-dom*",
+            "@boring/agent*",
+            "@earendil-works/*"
+          ],
+          "forbiddenRelative": [
+            "src/format/",
+            "src/store/",
+            "src/agent/",
+            "src/page/",
+            "src/ui/",
+            "src/tickets/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/tickets/",
+          "forbidden": [
+            "@boring/agent*",
+            "@boring/ui*",
+            "@earendil-works/*",
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/format/",
+            "src/store/",
+            "src/agent/",
+            "src/page/",
+            "src/ui/",
+            "src/source/",
+            "src/preview/"
+          ]
+        },
+        {
+          "prefix": "src/source/index",
+          "forbidden": [
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/source/jsx-dev-runtime"
+          ]
+        },
+        {
+          "prefix": "src/source/jsx-dev-runtime",
+          "forbidden": [
+            "node:*",
+            "esbuild*",
+            "@boring/*"
+          ],
+          "forbiddenRelative": [
+            "src/source/index"
+          ]
+        },
+        {
+          "prefix": "src/preview/",
+          "forbidden": [
+            "@boring/agent*",
+            "@boring/files*",
+            "@boring/ui*",
+            "@earendil-works/pi-durable*",
+            "@earendil-works/chord*",
+            "node:*",
+            "react*"
+          ],
+          "forbiddenRelative": [
+            "src/store/",
+            "src/agent/",
+            "src/ui/",
+            "src/source/",
+            "src/tickets/"
+          ]
+        }
+      ]
     }
   },
   "upstreamExports": {
@@ -234,7 +451,15 @@
     "BORING-PI-3": "test/contracts/pi-optional-extensions.test.mjs",
     "BORING-PI-4": "test/contracts/pi-public-adapters.test.mjs",
     "BORING-PI-5": "test/contracts/pi-independent-surfaces.test.mjs",
-    "BORING-PI-6": "test/contracts/shared-workspace.test.mjs"
+    "BORING-PI-6": "test/contracts/shared-workspace.test.mjs",
+    "FEEDBACK-1": "test/contracts/feedback-1.test.mjs",
+    "FEEDBACK-2": "test/contracts/feedback-2.test.mjs",
+    "FEEDBACK-3": "test/contracts/feedback-3.test.mjs",
+    "FEEDBACK-4": "test/contracts/feedback-4.test.mjs",
+    "FEEDBACK-5": "test/contracts/feedback-5.test.mjs",
+    "FEEDBACK-6": "test/contracts/feedback-6.test.mjs",
+    "FEEDBACK-7": "test/contracts/feedback-7.test.mjs",
+    "FEEDBACK-8": "test/contracts/feedback-8.test.mjs"
   },
   "harnessFactory": "packages/agent/src/setup/createAgent.ts",
   "sourceRoots": [

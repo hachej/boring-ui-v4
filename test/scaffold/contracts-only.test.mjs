@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured as spawnSync } from '../../scripts/run-captured.mjs';
 import test from 'node:test';
@@ -38,8 +38,15 @@ test('type scaffold does not discharge pending proofs; executable and ambient st
     writeFileSync(join(dir, 'VERIFY.json'), JSON.stringify(registry));
     mkdirSync(join(dir, 'docs'));
     cpSync(join(root, 'docs/LAWS.md'), join(dir, 'docs/LAWS.md'));
+    mkdirSync(join(dir, 'packages/feedback'), { recursive: true });
+    cpSync(join(root, 'packages/feedback/INVARIANTS.md'), join(dir, 'packages/feedback/INVARIANTS.md'));
     mkdirSync(join(dir, 'test'));
     cpSync(join(root, 'test/pi-boundary.test.mjs'), join(dir, 'test/pi-boundary.test.mjs'));
+    // Other registered structural tests import built packages this fixture lacks; a declared stub stands in for them.
+    for (const law of Object.values(registry.invariants)) for (const proof of law.verifiers) if (proof.kind === 'command') for (const path of proof.command.slice(2)) if (path !== 'test/pi-boundary.test.mjs') {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), 'import test from "node:test"; test("structural fixture stub", () => {});');
+    }
     mkdirSync(join(dir, 'packages/files/src'), { recursive: true });
     const source = join(dir, 'packages/files/src/example.ts');
     writeFileSync(source, 'export interface Example { readonly id: string }');

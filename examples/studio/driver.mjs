@@ -7,10 +7,11 @@ import { join } from 'node:path';
 /** A name the browser resolves to the local server but treats as an insecure context (plain HTTP, not localhost): no crypto.randomUUID, crypto.subtle, navigator.clipboard or navigator.share. */
 export const insecureUrl = url => url.replace('127.0.0.1', 'insecure.test');
 
-export async function launch(url, { chromium = process.env.CHROMIUM, evidence = '.' } = {}) {
+/** `args`: extra Chromium flags (for example `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream` for a fake microphone). */
+export async function launch(url, { chromium = process.env.CHROMIUM, evidence = '.', args = [] } = {}) {
   if (!chromium) throw new Error('Set CHROMIUM to a Chromium or chrome-headless-shell binary');
   const profile = mkdtempSync(join(tmpdir(), 'boring-studio-profile-'));
-  const child = spawn(chromium, ['--headless', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1500,950', '--host-resolver-rules=MAP insecure.test 127.0.0.1', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(chromium, ['--headless', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--window-size=1500,950', '--host-resolver-rules=MAP insecure.test 127.0.0.1', ...args, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   const endpoint = await new Promise((resolve, reject) => {
     let text = '';
     child.stderr.on('data', chunk => { text += chunk; const found = /DevTools listening on (ws:\/\/\S+)/.exec(text); if (found) resolve(found[1]); });

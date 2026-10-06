@@ -8,12 +8,15 @@ import { createRequire } from 'node:module';
 import { registrySchema, registryItemSchema } from 'shadcn/schema';
 import { runCaptured } from '../../scripts/run-captured.mjs';
 import { viewersCss } from '../../registry/viewers/build-css.mjs';
+import { feedbackCss } from '../../scripts/build-feedback-css.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 // Items written in Tailwind, installed into their own folder, rather than recipes over a headless @boring/ui controller.
 const manifest = registrySchema.parse(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8')));
 // Tailwind items bring owned source with shadcn tokens: every rule is scoped to the item's root class and lives in the base or components layer.
 const TAILWIND = { 'pi-chat': { scope: '.pi-chat', keyframes: /^@keyframes pi-chat-/, folder: 'pi-chat' }, 'pi-ambient': { scope: '.pi-chat', keyframes: /^@keyframes pi-ambient-/, folder: 'pi-ambient' }, 'pi-workspace': { scope: '.pi-chat', keyframes: /^@keyframes pi-workspace-/, folder: 'pi-workspace' }, viewers: { scope: '.boring-viewer', keyframes: /^@keyframes boring-viewer-/, folder: 'viewers' }, 'provider-setup': { scope: '.provider-setup', keyframes: /^@keyframes provider-setup-/, folder: 'provider-setup' } };
+// The feedback item imports the package's browser entries directly (no copied validators), React and React DOM (a portal); nothing from store, agent or source.
+const FEEDBACK_IMPORTS = new Set(['react', 'react-dom', '@boring/feedback/format', '@boring/feedback/page', '@boring/feedback/ui', '@boring/feedback/preview']);
 
 test('standard pinned CLI rebuilds the committed source registry artifact exactly', () => {
   const directory = mkdtempSync(join(tmpdir(), 'boring-registry-build-'));
@@ -34,6 +37,7 @@ test('standard pinned CLI rebuilds the committed source registry artifact exactl
 test('registry dependency pins and scoped styles preserve the declared source distribution boundary', () => {
   const architecture = JSON.parse(readFileSync(join(root, 'ARCHITECTURE.json'), 'utf8'));
   const ui = JSON.parse(readFileSync(join(root, 'packages/ui/package.json'), 'utf8'));
+  const boringVersion = name => JSON.parse(readFileSync(join(root, 'packages', name.slice('@boring/'.length), 'package.json'), 'utf8')).version;
   assert.equal(architecture.sourceDistribution.manifest, 'registry.json');
   assert.equal(architecture.sourceDistribution.format, 'shadcn@' + architecture.rootDevDependencies.shadcn);
   for (const item of manifest.items) {
@@ -43,7 +47,7 @@ test('registry dependency pins and scoped styles preserve the declared source di
       assert.match(version, /^\d+\.\d+\.\d+$/);
       declared.add(name);
       // Items that bring their own Tailwind source pin extra packages exactly as the repository's root tooling does.
-      const expected = name === '@boring/ui' ? ui.version : name === '@modelcontextprotocol/sdk' || item.name in TAILWIND && architecture.rootDevDependencies[name] ? architecture.rootDevDependencies[name] : ui.peerDependencies[name];
+      const expected = name.startsWith('@boring/') ? boringVersion(name) : name === '@modelcontextprotocol/sdk' || item.name in TAILWIND && architecture.rootDevDependencies[name] ? architecture.rootDevDependencies[name] : ui.peerDependencies[name];
       assert.equal(version, expected, dependency);
     }
     // Blocks may depend only on other items of this registry (pi-ambient and pi-workspace build on pi-chat); nothing from a remote registry.
@@ -77,6 +81,28 @@ test('registry dependency pins and scoped styles preserve the declared source di
           assert.ok(!/^(ai|@ai-sdk\/.*)$/.test(pkg), 'No AI SDK');
         }
         assert.doesNotMatch(source, /dangerouslySetInnerHTML|eval\s*\(|new Function|<script\b/);
+      }
+      continue;
+    }
+    if (item.name === 'feedback') {
+      assert.deepEqual(item.css, feedbackCss(), 'registry.json css differs from registry/feedback/feedback.css: run node scripts/build-feedback-css.mjs');
+      const scoped = (rules, where) => { for (const [key, value] of Object.entries(rules)) {
+        if (/^@(media|container|supports)\b/.test(key)) { scoped(value, where + ' ' + key); continue; }
+        for (const part of key.split(/,(?![^(]*\))/)) assert.ok(part.trim().startsWith('[data-boring="feedback"]'), where + ': ' + key);
+      } };
+      scoped(item.css, 'feedback');
+      assert.ok(declared.has('@boring/feedback'));
+      const names = item.files.map(file => file.path.replace(/^registry\/feedback\//, '').replace(/\.tsx?$/, ''));
+      for (const file of item.files) {
+        assert.match(file.target, /^components\/feedback\//, 'files install into their own folder');
+        const source = readFileSync(join(root, file.path), 'utf8');
+        for (const imported of [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(match => match[1])) {
+          if (imported.startsWith('./')) { assert.ok(names.includes(imported.slice(2)), `${file.path} imports missing ${imported}`); continue; }
+          assert.ok(FEEDBACK_IMPORTS.has(imported), `${file.path} imports ${imported}: only React, React DOM and @boring/feedback/format, /page, /ui and /preview`);
+        }
+        // Masking, picking, anchoring and placement stay in the package: no copied serializer, policy or resolver.
+        assert.doesNotMatch(source, /function\s+(parseFeedback|checkFeedback|serializePage|createPrivacyPolicy|anchorOf|resolveAppElement|maskText)\b|elementsFromPoint|getAttribute\(/);
+        assert.doesNotMatch(source, /dangerouslySetInnerHTML|innerHTML|eval\s*\(|new Function|<script\b/);
       }
       continue;
     }

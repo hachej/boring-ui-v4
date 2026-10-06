@@ -13,14 +13,14 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'boring-development-evidence-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const write = (path, text) => { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text); };
-  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'package.json', 'docs/LAWS.md']) write(path, readFileSync(join(repository, path)));
+  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'package.json', 'docs/LAWS.md', 'packages/feedback/INVARIANTS.md']) write(path, readFileSync(join(repository, path)));
   // Fixture controls evidence status independently of later real implementations.
   const registry = JSON.parse(readFileSync(join(root, 'VERIFY.json'), 'utf8'));
   for (const law of Object.values(registry.invariants)) for (const proof of law.verifiers) if (proof.scope === 'runtime') { proof.kind = 'pending'; proof.reason = 'deliberately unqualified fixture'; }
   // Feature laws (VERIFY.json `features`) have their own fixture in test/pi-boundary.test.mjs; this one covers the root slots.
   delete registry.features;
   write('VERIFY.json', JSON.stringify(registry));
-  write('test/pi-boundary.test.mjs', 'import test from "node:test"; import assert from "node:assert/strict"; test("structural fixture", () => assert.equal(1, 1));');
+  for (const law of Object.values(registry.invariants)) for (const proof of law.verifiers) if (proof.kind === 'command') for (const path of proof.command.slice(2)) write(path, 'import test from "node:test"; import assert from "node:assert/strict"; test("structural fixture", () => assert.equal(1, 1));');
   write('packages/files/package.json', JSON.stringify({ name: '@boring/files', version: '0.0.0', type: 'module', exports: './src/index.mjs' }));
   write('packages/files/src/index.mjs', 'export const projectLabel = value => value.trim();');
   mkdirSync(join(root, 'node_modules/@boring'), { recursive: true });
@@ -35,13 +35,13 @@ test('implemented package needs its own tests, not unrelated completed runtime p
   f.write('test/packages/files.test.mjs', packageTest);
   const boundary = loadBoundary(f.root);
   assert.deepEqual(boundary.errors, []);
-  assert.equal(boundary.pending.length, 6);
+  assert.equal(boundary.pending.length, 14); // six root and eight feedback deferrals
   assert.deepEqual(boundary.implementationProofs.map(p => p.package), ['files']);
   const dev = verifyInvariants(f.root);
   assert.equal(dev.status, 0, dev.logs.join('\n'));
   const release = verifyInvariants(f.root, { release: true });
   assert.equal(release.status, 1);
-  assert.ok(release.logs.some(line => line.includes('6 deferred proofs')));
+  assert.ok(release.logs.some(line => line.includes('14 deferred proofs')));
 });
 
 test('a real package regression fails development verification', t => {
@@ -66,7 +66,7 @@ test('a test of a surrogate without importing the implementation is insufficient
 
 test('package evidence cannot escape through symlinks', t => {
   const f = fixture(t); f.write('other.mjs', packageTest);
-  mkdirSync(join(f.root, 'test/packages'));
+  mkdirSync(join(f.root, 'test/packages'), { recursive: true });
   symlinkSync(join(f.root, 'other.mjs'), join(f.root, 'test/packages/files.test.mjs'));
   assert.ok(loadBoundary(f.root).errors.some(error => error.includes('evidence symlink')));
 });
