@@ -75,7 +75,7 @@
     "@tiptap/starter-kit": "3.31.3",
     "@tldraw/editor": "5.5.0",
     "@tldraw/store": "5.5.0",
-    "@types/node": "22.19.0",
+    "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vercel/sandbox": "3.5.1",
