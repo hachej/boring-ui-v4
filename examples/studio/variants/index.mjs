@@ -7,6 +7,7 @@
 //     id, title, description, order?,
 //     available: true | { reason },          // { reason } lists the variant as unavailable in the selector, with the reason
 //     capabilities: ['workspace', 'shell', 'git', 'sandbox'],   // what its environment gives the agent, beyond the core
+//     mcp?: { servers: [{ id, allow, readOnly?, transport() }] },   // MCP tools through Pi's client (../../shared/mcp-tools.mjs); off when absent
 //     selfEvolving?: true,                   // the agent keeps its own instructions, skills and tools in the workspace's `.agent/` (they run through `exec`)
 //     open(): Promise<{
 //       env,                 // the native Pi ExecutionEnv every tool call uses (Pi's own FileSystem/Shell contract)

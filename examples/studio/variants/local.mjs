@@ -11,6 +11,7 @@ import { createGitRepository } from '@boring/files/git';
 import { createVirtualWorkspace } from '@boring/execution/virtual';
 import { createVirtualGitFs, installVirtualGitCommand } from '@boring/execution/virtual-git';
 import { gitRoutes } from './_git-routes.mjs';
+import { fictionalHarbourServer } from '../fixtures/mcp-server.mjs';
 
 const ROOT = '/workspace';
 const SEED = { [`${ROOT}/README.md`]: '# Fictional workspace\n\nEverything here is invented demo content.\n' };
@@ -22,6 +23,8 @@ export default host => ({
   capabilities: ['workspace', 'shell', 'git'],
   // The agent may write its own instructions, skills and tools in `.agent/`; its tools run in this virtual just-bash workspace.
   selfEvolving: true,
+  // One fictional MCP server in this process: its read runs at once, its write asks for approval, its third tool is not allowed.
+  mcp: { servers: [{ id: 'harbour', allow: ['tide_times', 'book_mooring'], readOnly: ['tide_times'], transport: () => fictionalHarbourServer().transport }] },
   async open() {
     const { context, directory } = host;
     // Restore the previous snapshot (files, modes, mtimes and empty directories) or start from the seed.

@@ -20,13 +20,22 @@ async function waitSettled(t, answers, { timeout = 300000 } = {}) {
   const queue = [...answers];
   const deadline = Date.now() + timeout;
   for (;;) {
-    const state = await browser.evaluate(`({ idle: ${t.idle}, pending: ${qa('[data-testid=question-card][data-state=pending]')}.length })`);
+    const state = await browser.evaluate(`({ idle: ${t.idle}, pending: ${qa('[data-testid=question-card][data-state=pending], [data-testid=approval-card][data-state=pending]')}.length })`);
     if (state.pending && queue.length) {
       assert.equal(await browser.evaluate(`${t.SUBMIT}.dataset.state`), 'stop', 'the run is waiting on the person');
       if (!t.answered.length) await browser.screenshot('chatui-question.png');
       const answer = queue.shift();
-      const pending = `${qa('[data-testid=question-card][data-state=pending]')}.length`;
+      const pending = `${qa('[data-testid=question-card][data-state=pending], [data-testid=approval-card][data-state=pending]')}.length`;
       const before = await browser.evaluate(pending);
+      if (answer === 'approve' || answer === 'deny') {
+        // An approval card (requireApproval): its own Approve or Deny button.
+        t.answered.push(answer);
+        const decide = q(`[data-testid=approval-card][data-state=pending] [data-testid=approval-${answer}]`);
+        await browser.until('the approval can be answered', `${decide} && !${decide}.disabled`, 30000);
+        await browser.click(decide);
+        await browser.until('the approval was sent', `${pending} < ${before}`, 30000);
+        continue;
+      }
       if (/^option:\d+$/.test(answer)) {
         const option = `${qa('[data-testid=question-card][data-state=pending] [data-testid=question-option]')}[${Number(answer.slice(7))}]`;
         t.answered.push(await browser.evaluate(`${option}.dataset.option`));
