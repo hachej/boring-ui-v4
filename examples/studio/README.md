@@ -214,6 +214,11 @@ more to show: Git (variants with git, with a count of changes), Tasks (once the 
 Attachments and `@path` mentions: the server passes `createMentionResolver` (`@boring/agent/mentions`) as `prepareInput`, so the workspace file
 reaches the model whether or not it has a file tool. Limits: 100 KB per file, 300 KB per message, text and images only; the rest become a short note.
 
+Conversations: the History list is `@boring/agent/conversations` behind `/api/variants/:id/conversations` (owner: the variant's agent), so
+titles, last messages, archive and delete marks live in Pi's `session.sqlite` with the transcripts. Rows offer rename, archive (an Archived
+filter shows them again) and delete; a settled reply has a Fork button. Data from earlier versions (`conversations.json`,
+`conversation-activity.json`) is adopted once at start and renamed to `*.migrated`.
+
 ## WhatsApp
 
 Set these and start the studio; each allow-listed WhatsApp sender then talks to the agent in their own conversation, which also shows in the

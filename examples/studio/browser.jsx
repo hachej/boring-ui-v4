@@ -29,9 +29,10 @@ const api = async (path, init) => { const response = await authorized(new Reques
 const remember = (key, value) => { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* optional convenience */ } };
 const recall = key => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; } };
 
-/** The History list: the variant's conversations with a title (the first message) and when each last had activity. */
+/** The History list: the variant's conversations with a title (named, or the first message), a preview of the last message and when each last had activity. */
 function useConversations(variantId, conversationId) {
   const [items, setItems] = useState(null);
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     if (!variantId) return;
     let off = false;
@@ -39,9 +40,12 @@ function useConversations(variantId, conversationId) {
     load();
     const timer = setInterval(load, 4000);
     return () => { off = true; clearInterval(timer); };
-  }, [variantId, conversationId]);
-  return items;
+  }, [variantId, conversationId, version]);
+  return { items, reload: () => setVersion(value => value + 1) };
 }
+const conversationItem = item => ({ id: String(item.id), title: item.title ?? undefined, updatedAt: item.updatedAt ?? undefined, lastMessage: item.lastMessage, archived: item.archived });
+/** One operation of the History list on the server (`@boring/agent/conversations` behind /api/variants/:id/conversations). */
+const conversationOp = (variantId, op, body) => api(`/api/variants/${variantId}/conversations?op=${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 // Host commands the `/` menu offers next to the agent's skills.
 // `/reload` exists only for a self-evolving agent: the same reload as the agent's tool, run by the host for the person.
@@ -113,7 +117,7 @@ function App() {
   const chat = useChat(conversationId, authorized, identity);
   setStudioContext({ variant: variant?.id, conversation: conversationId });
   async function newConversation() {
-    const { conversationId: created } = await api(`/api/variants/${variant.id}/conversations`, { method: 'POST' });
+    const { conversationId: created } = await conversationOp(variant.id, 'create', {});
     await refresh();
     setSelected({ variant: variant.id, conversation: created });
   }
@@ -170,8 +174,19 @@ function App() {
   if (!studio) return <p className="studio-loading">Loading…</p>;
   if (!variant) return <p className="studio-loading" role="alert">The studio server is unreachable, or no variant is available.</p>;
   const known = active ? newestOf(artifactKey(active.descriptor)) : [];
-  const conversations = conversationItems ? { items: conversationItems.map(item => ({ id: String(item.id), title: item.title ?? undefined, updatedAt: item.updatedAt ?? undefined })),
-    activeId: String(conversationId), onSelect: id => setSelected({ variant: variant.id, conversation: Number(id) }), onNew: () => { newConversation().catch(() => {}); } } : undefined;
+  // Every change is the server's; the list reloads after it, and a fork or a deleted open conversation changes what is open.
+  const changed = async () => { conversationItems.reload(); await refresh(); };
+  const conversations = conversationItems.items ? { items: conversationItems.items.map(conversationItem),
+    activeId: String(conversationId), onSelect: id => setSelected({ variant: variant.id, conversation: Number(id) }), onNew: () => { newConversation().catch(() => {}); },
+    search: async (query, { archived }, signal) => (await api(`/api/variants/${variant.id}/conversations?q=${encodeURIComponent(query)}${archived ? '&archived=1' : ''}`, { signal })).conversations.map(conversationItem),
+    rename: async (id, title) => { await conversationOp(variant.id, 'rename', { conversationId: Number(id), title }); await changed(); },
+    archive: async (id, archived) => { await conversationOp(variant.id, 'archive', { conversationId: Number(id), archived }); await changed(); },
+    remove: async id => { await conversationOp(variant.id, 'delete', { conversationId: Number(id) }); await changed(); },
+    fork: async at => {
+      const { conversationId: forked } = await conversationOp(variant.id, 'fork', { conversationId: conversationId, at: Number(at) });
+      await changed();
+      setSelected({ variant: variant.id, conversation: forked });
+    } } : undefined;
   const openFile = path => setOpened({ kind: 'file', path });
   const openWorkspace = () => setOpened({ kind: 'workspace', tab: 'files' });
   const shared = chat.status === 'ready' ? { controller: chat.controller, title: 'Assistant', mode, actions: chat.actions, artifacts, conversations, ...composer,

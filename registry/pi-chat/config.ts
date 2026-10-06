@@ -56,6 +56,9 @@ export interface ConversationItem {
   readonly id: string;
   readonly title?: string | undefined;
   readonly updatedAt?: number | string | Date | undefined;
+  /** A preview of the last message (the row's tooltip). */
+  readonly lastMessage?: string | null | undefined;
+  readonly archived?: boolean | undefined;
 }
 /** The host's conversations. Give it to `PiChat` and the header's History button opens a list of them instead of the earlier records of this one. */
 export interface ConversationsConfig {
@@ -65,6 +68,18 @@ export interface ConversationsConfig {
   readonly onSelect: (id: string) => void;
   readonly onNew?: (() => void) | undefined;
   readonly loading?: boolean | undefined;
+  /**
+   * Server-side search: with it, a typed query (or the Archived filter) lists what this returns instead of filtering `items`
+   * by title. Abort `signal` when the query changes.
+   */
+  readonly search?: ((query: string, options: { readonly archived: boolean }, signal: AbortSignal) => Promise<readonly ConversationItem[]>) | undefined;
+  /** Each action below adds its button to the rows; the host refreshes `items` when it resolves. */
+  readonly rename?: ((id: string, title: string) => Promise<void>) | undefined;
+  /** Archive (`true`) or restore (`false`). With it, the list also offers an Archived filter (which needs `search`). */
+  readonly archive?: ((id: string, archived: boolean) => Promise<void>) | undefined;
+  readonly remove?: ((id: string) => Promise<void>) | undefined;
+  /** Fork the open conversation after the entry of a settled reply: the reply's Fork button. */
+  readonly fork?: ((atEntryId: string) => Promise<void>) | undefined;
 }
 
 export interface ModelRef { readonly provider: string; readonly modelId: string }

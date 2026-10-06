@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
@@ -77,8 +77,12 @@ function PiChatSession({ controller, title = 'Conversation', mode = 'expert', cl
   const [browsingHistory, setBrowsingHistory] = useState(false);
   const [pickingConversation, setPickingConversation] = useState(false);
   const scrollToBottom = useRef<() => void>(() => {});
+  // A reply's Fork button calls the host's latest `fork`; the row context changes only when forking is switched on or off.
+  const fork = useRef(conversations?.fork); fork.current = conversations?.fork;
+  const canFork = Boolean(conversations?.fork);
+  const rowExtras = useMemo(() => canFork ? { onFork: (entryId: string) => { void fork.current?.(entryId).catch(() => {}); } } : undefined, [canFork]);
   const session = useChatSession({ controller, activeController: active, mode, actions, renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept,
-    slash, mentions, attachments, model, effort, artifacts, afterSend: () => scrollToBottom.current(), feedback });
+    slash, mentions, attachments, model, effort, artifacts, afterSend: () => scrollToBottom.current(), feedback, rowExtras });
   const { state, derived, queued, queueActions, working, waitingForAnswer, connected, error, act, textarea, rowContext, composer, empty, loading, developer } = session;
   const { rows, pinned, retry } = derived;
   const transcript = useTranscript(rows, PAGE, MORE);
