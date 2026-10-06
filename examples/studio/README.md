@@ -155,7 +155,7 @@ section per capability, so an agent without a shell is never told about bash.
 | `local` (default) | just-bash virtual workspace + isomorphic-git, snapshotted to the data directory; self-evolving (agent-written tools run in just-bash) | the workspace provider's journal in the data directory | always |
 | `vercel` | Vercel Sandbox microVM (Pi's `ExecutionEnv` over `@vercel/sandbox`); no virtual git | the same journal | when `VERCEL_TOKEN`, `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` are set |
 | `cloudflare` | a separate deployment, `examples/cloudflare`, running the SAME agent and scenarios on Workers | SQLite in a Durable Object | listed, not hosted here |
-| `aws` | specified, not built: [HOST-RECIPE-AWS.md](../../docs/architecture/HOST-RECIPE-AWS.md) | | listed as unavailable |
+| `aws` | commands in an AgentCore Code Interpreter session (`@boring/execution/aws-code-interpreter`), files on the user's EFS folder mounted here and in the session; here only against the offline fake Code Interpreter behind the real AWS SDK (scenario `aws-shared-folder`). The deployable recipe is [`examples/aws`](../aws/README.md) | a directory in the data directory standing for EFS, the same journal | when `STUDIO_AWS=fake` |
 
 ### Adding a variant
 
