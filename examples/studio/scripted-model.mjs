@@ -10,6 +10,7 @@
 //         starts turn 0, and every tool result starts the next turn. A turn is
 //           'text'                                   a final answer
 //           { text, reasoning, tools, delay, hold }  text and/or reasoning, then tool calls [{ name, args }]; `delay` waits first, `hold` keeps the turn open after the calls (ms)
+//           { ..., usage: { input, output } }        the token counts this turn reports (default: about four characters per token of the request and the answer)
 //           { text: { chunks: [...], ms } }          streamed in chunks, `ms` apart (abortable: Stop works on it)
 //           ctx => turn                              decided from what happened so far: ctx.user, ctx.input (the native message), ctx.results (name, args, text, json, isError, details), ctx.last, ctx.history,
 //                                                    ctx.tools (the tool names this request offers), ctx.system (its system prompt)
@@ -23,6 +24,9 @@ import { getCurrentSystemPrompt, getCurrentTools } from '@earendil-works/pi-ai/u
 import { createFixtureModels, assistantMessage } from './correctness-fixture.mjs';
 
 const MODELS = [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }, { id: 'gpt-5-nano', name: 'GPT-5 nano' }];
+/** Fictional rates (USD per million tokens) and token counting, so a metered host has usage to charge. */
+const RATES = { input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 };
+const tokens = text => Math.max(1, Math.ceil(text.length / 4));
 /** Pace of a streamed essay line: long enough for the journey to act while it works, short enough to keep the run fast. */
 const LINE_MS = 130;
 
@@ -82,7 +86,7 @@ export const misses = [];
 /** `sources`: `[{ name, entries: [{ match, turns }] }]`; the studio's scenario and journey scripts when absent. */
 export async function createScriptedModels({ sources = undefined } = {}) {
   sources ??= await loadSources();
-  const model = ({ id, name }) => ({ id, name, provider: 'openai', api: 'scripted', baseUrl: 'https://fictional.invalid', input: ['text', 'image'], reasoning: false, contextWindow: 128000, maxTokens: 4096, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+  const model = ({ id, name }) => ({ id, name, provider: 'openai', api: 'scripted', baseUrl: 'https://fictional.invalid', input: ['text', 'image'], reasoning: false, contextWindow: 128000, maxTokens: 4096, cost: RATES });
   let calls = 0;
 
   /**
@@ -173,6 +177,10 @@ export async function createScriptedModels({ sources = undefined } = {}) {
       if (turn.hold) await sleep(turn.hold, signal); // the call is on screen, running, before the turn ends
       if (signal?.aborted) return abort();
       message.stopReason = turn.tools?.length ? 'toolUse' : 'stop';
+      // Token usage priced like a provider would (the rates above): what a metered host charges for this turn.
+      const input = turn.usage?.input ?? tokens(JSON.stringify(messages)), output = turn.usage?.output ?? tokens(JSON.stringify(message.content));
+      const cost = { input: RATES.input * input / 1e6, output: RATES.output * output / 1e6, cacheRead: 0, cacheWrite: 0 };
+      message.usage = { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output, cost: { ...cost, total: cost.input + cost.output } };
       finished = true;
       events.push({ type: 'done', reason: message.stopReason, message }); events.end(message);
     };

@@ -255,6 +255,10 @@ export function createChatTransportHandler(options: ChatTransportOptions): (requ
       }
     } catch (error) {
       if (error instanceof RequestGuardError) return failure(error.status, error.status === 413 ? 'request-too-large' : error.status === 415 ? 'unsupported-media-type' : 'invalid-request');
+      // A host admission refused the input before it reached the conversation (for example `MeteringRefused` from `@boring/agent/metering`).
+      if (error instanceof Error && (error as { code?: unknown }).code === 'submission-refused') {
+        return Response.json({ schema: CHAT_TRANSPORT.schema, version: CHAT_TRANSPORT.version, reason: 'submission-refused', message: error.message.slice(0, 500) }, { status: 402, headers });
+      }
       return failure(503, error instanceof Error && error.message ? `source-unavailable: ${error.message.slice(0, 200)}` : 'source-unavailable');
     }
     return failure(404, 'unknown-operation');

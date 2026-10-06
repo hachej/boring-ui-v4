@@ -446,3 +446,111 @@ test('self-evolution prompt assembly (SELF-3): the host instructions first and w
   assert.ok(native.trimEnd().endsWith('<instructions>\nHOST BASE PROMPT\n</instructions>'), native.slice(-120));
   assert.ok(!native.includes('agent-written') && !native.includes('Always answer in one line'));
 });
+
+// ---- @boring/agent/metering: reserve before the native submit, usage from the durable transcript, exactly one settle or release.
+test('metering: reserve, record and settle a run; replays never charge twice; a stop without usage releases; a refusal never calls the model', { timeout: 20000 }, async t => {
+  const { createMeter, createMemoryLedger, createSqliteLedger, MeteringRefused } = await import('@boring/agent/metering');
+  const { createChatTransportHandler } = await import('@boring/agent/chat-transport');
+  const { createFakeChatModel } = await import('../fixtures/fake-chat-model.mjs');
+  const fake = createFakeChatModel({ cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } });
+  const connection = openNodeConnection(':memory:');
+  const harness = await Harness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);
+  t.after(async () => { await harness.close(context); connection.close(); });
+  for (const [name, ledger] of [['memory', createMemoryLedger({ holdMicros: 5000 })], ['sqlite', createSqliteLedger({ connection, holdMicros: 5000 })]]) {
+    const account = `fictional-${name}`;
+    await ledger.grant(account, 10_000, 'signup'); await ledger.grant(account, 10_000, 'signup');
+    const calls = [];
+    let outage = false;
+    const sink = { ...ledger, ...Object.fromEntries(['reserveRun', 'recordUsage', 'settleRun', 'releaseRun'].map(key => [key, async input => {
+      calls.push([key, input.usageId ?? input.reason ?? input.status ?? '']);
+      if (outage && key === 'recordUsage') throw new Error('fictional ledger outage');
+      return ledger[key](input);
+    }])) };
+    const meter = createMeter({ sink, context, models: fake.models, markup: 1.5, onError: () => {} });
+    const native = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { model: fake.model } }, context);
+    const conversation = meter.conversation(native, account);
+    // reserve -> record -> settle: 1000 input + 500 output tokens at $1/$2 per million = 2000 micro-dollars, times the 1.5 markup.
+    const submitted = await conversation.submit({ type: 'input', requestId: 'first', content: 'Fictional question' }, context);
+    assert.equal((await ledger.balance(account)).heldMicros, 5000, `${name}: the hold is placed before the model runs`);
+    (await fake.nextCall()).respond('Fictional answer', { input: 1000, output: 500 });
+    await submitted.wait(context); await meter.flush();
+    assert.deepEqual(await ledger.balance(account), { balanceMicros: 7000, heldMicros: 0, availableMicros: 7000 }, name);
+    const entryId = (await native.commit(tx => tx.submissionByRequest(native.id, 'first'), context)).answer;
+    assert.deepEqual(calls, [['reserveRun', ''], ['recordUsage', `entry:${native.id}:${entryId}`], ['settleRun', 'done']], name);
+    // A client retry of the same request ID: same submission, same reservation, the usage replayed under its key, no second charge.
+    const retried = await conversation.submit({ type: 'input', requestId: 'first', content: 'Fictional question' }, context);
+    assert.equal(retried.id, submitted.id); await meter.flush();
+    const replay = { account, conversationId: Number(native.id), requestId: 'first', runId: `run:${native.id}:first`, usageId: `entry:${native.id}:${entryId}`, bucket: 'x', usage: {}, amountMicros: 999_999 };
+    assert.equal((await ledger.recordUsage(replay)).billedMicros, 3000);
+    assert.equal((await ledger.balance(account)).balanceMicros, 7000, `${name}: replays never charge twice`);
+    // A person's stop before any usage: the hold is freed, nothing charged.
+    calls.length = 0;
+    const stopped = await conversation.submit({ type: 'input', requestId: 'second', content: 'Fictional long question' }, context);
+    (await fake.nextCall()).append('partial words');
+    await native.abort(context);
+    await stopped.wait(context); await meter.flush();
+    assert.deepEqual(calls.map(([key, detail]) => key === 'recordUsage' ? key : `${key}:${detail}`), ['reserveRun:', 'releaseRun:cancelled'], name);
+    assert.deepEqual(await ledger.balance(account), { balanceMicros: 7000, heldMicros: 0, availableMicros: 7000 }, name);
+    // A usage report the ledger keeps refusing: the run cannot close free, so its hold is charged instead.
+    calls.length = 0; outage = true;
+    const lost = await conversation.submit({ type: 'input', requestId: 'lost', content: 'Fictional question again' }, context);
+    (await fake.nextCall()).respond('Fictional answer', { input: 1000, output: 500 });
+    await lost.wait(context); await meter.flush(); outage = false;
+    assert.deepEqual([...new Set(calls.map(([key, detail]) => key === 'recordUsage' ? key : `${key}:${detail}`))], ['reserveRun:', 'recordUsage', 'releaseRun:usage-write-failed'], name);
+    assert.deepEqual(await ledger.balance(account), { balanceMicros: 2000, heldMicros: 0, availableMicros: 2000 }, name);
+    // Exhausted: a refused reservation throws before the native submit; the model is never called and nothing is recorded.
+    await ledger.grant(account, -1000, 'fictional-spend');
+    const modelCalls = fake.calls.length;
+    await assert.rejects(conversation.submit({ type: 'input', requestId: 'third', content: 'One more' }, context), error => error instanceof MeteringRefused && /Not enough credits/.test(error.message));
+    // Through the chat transport the refusal is a 402 carrying the ledger's words, and still nothing reaches the conversation.
+    const handler = createChatTransportHandler({ authenticate: async () => ({ conversation, context }) });
+    const response = await handler(new Request('http://fixture.invalid/chat?op=submit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId: 'fourth', content: 'And another' }) }));
+    assert.equal(response.status, 402);
+    const refused = await response.json();
+    assert.equal(refused.reason, 'submission-refused'); assert.match(refused.message, /Not enough credits/);
+    assert.equal(fake.calls.length, modelCalls, `${name}: a refused run never calls the model`);
+    assert.equal(await native.commit(tx => tx.submissionByRequest(native.id, 'third'), context), undefined);
+    assert.deepEqual(await ledger.openRuns(), []);
+    await meter.close();
+  }
+});
+
+for (const phase of ['interrupt', 'settle']) test(`metering: a run killed ${phase === 'interrupt' ? 'mid-generation is charged its hold (unknown usage)' : 'between record and settle is settled once'} after a restart`, { timeout: 30000 }, async t => {
+  const { spawn } = await import('node:child_process');
+  const directory = mkdtempSync(join(tmpdir(), 'boring-metering-crash-'));
+  const script = new URL('../fixtures/metering-crash-child.mjs', import.meta.url).pathname;
+  const children = [];
+  const start = name => {
+    const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+    const child = spawn(process.execPath, [script, directory, name], { env, stdio: ['ignore', 'inherit', 'inherit'] });
+    const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
+    children.push(child); return { child, exited };
+  };
+  t.after(() => { for (const child of children) child.kill('SIGKILL'); rmSync(directory, { recursive: true, force: true }); });
+  const first = start(phase);
+  if (phase === 'interrupt') {
+    const until = Date.now() + 15000;
+    while (!existsSync(join(directory, 'ready.json'))) { assert.ok(Date.now() < until, 'the partial was not committed'); await new Promise(resolve => setTimeout(resolve, 20)); }
+    const ready = JSON.parse(readFileSync(join(directory, 'ready.json'), 'utf8'));
+    assert.equal(ready.open.length, 1);
+    assert.equal(ready.balance.heldMicros, 5000);
+    first.child.kill('SIGKILL');
+  }
+  assert.deepEqual(await first.exited, { code: null, signal: 'SIGKILL' });
+  assert.deepEqual(await start('recover').exited, { code: 0, signal: null });
+  const result = JSON.parse(readFileSync(join(directory, 'recovered.json'), 'utf8'));
+  assert.equal(result.before.open.length, 1, 'the run was still open in the ledger after the crash');
+  assert.equal(result.record.status, 'done');
+  if (phase === 'interrupt') {
+    // The lost attempt's usage is unknown (an aborted partial): the run is charged its hold, which covers the retried answer's 2000.
+    assert.deepEqual(result.runs.map(run => [run.state, run.reason]), [['charged', 'fallback-charge']]);
+    assert.equal(result.charges.reduce((sum, charge) => sum + charge.amount, 0), 5000);
+    assert.equal(result.calls, 1, 'the model answered once after recovery');
+  } else {
+    assert.deepEqual(result.runs.map(run => [run.state, run.reason]), [['settled', 'done']]);
+    assert.equal(result.charges.length, 1, 'the recorded usage was replayed under its key, not charged again');
+    assert.equal(result.calls, 0, 'nothing ran again');
+  }
+  const left = phase === 'interrupt' ? 95_000 : 98_000;
+  assert.deepEqual(result.balance, { balanceMicros: left, heldMicros: 0, availableMicros: left });
+});

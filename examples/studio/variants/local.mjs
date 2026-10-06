@@ -22,6 +22,8 @@ export default host => ({
   capabilities: ['workspace', 'shell', 'git', 'python'],
   // The agent may write its own instructions, skills and tools in `.agent/`; its tools run in this virtual just-bash workspace.
   selfEvolving: true,
+  // Messages spend fictional credits (examples/studio/server.mjs, CREDITS): an exhausted balance refuses the next message.
+  credits: true,
   // One fictional MCP server in this process: its read runs at once, its write asks for approval, its third tool is not allowed.
   mcp: { servers: [{ id: 'harbour', allow: ['tide_times', 'book_mooring'], readOnly: ['tide_times'], transport: () => fictionalHarbourServer().transport }] },
   async open() {
