@@ -1,4 +1,4 @@
-import { copyText } from './utils';
+import { copyText } from '../utils/utils';
 
 /** What the frame hands the host when the person presses Share. `target` and `revision` are the host's own identifiers for what is shown. */
 export interface ViewerShareRequest {

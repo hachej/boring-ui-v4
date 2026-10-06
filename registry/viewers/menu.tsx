@@ -3,8 +3,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { CheckIcon, HistoryIcon } from 'lucide-react';
-import { cn } from './utils';
-import { IconButton as ViewerIconButton } from './button';
+import { cn } from '../utils/utils';
+import { IconButton as ViewerIconButton } from '../button/button';
 
 /** One row of a viewer menu. With `checked` set (true or false) the row is a radio choice, otherwise a plain action. */
 export interface ViewerMenuItem {

@@ -6,8 +6,9 @@ import type { Context } from '@earendil-works/chord';
 import { FileError, ExecutionError, ok, err } from '@earendil-works/pi-durable/env';
 import type { ExecutionEnv, FileInfo, FileSystem, Result, TextLineReader } from '@earendil-works/pi-durable/env';
 import type { WorkspaceProvider, WorkspaceIdentity } from './contracts.js';
-import { FileSystemView, VirtualFileSystem } from './virtual-filesystem.js';
+import { FileSystemView, VirtualFileSystem, boundedMessage } from './virtual-filesystem.js';
 import type { VirtualFiles } from './virtual-filesystem.js';
+export { MAX_ERROR_CHARS } from './virtual-filesystem.js';
 
 export interface VirtualWorkspaceOptions {
   readonly providerId: string;
@@ -18,7 +19,12 @@ export interface VirtualWorkspaceOptions {
    * environment and a workspace provider over the same `fs` then see the same files. Not combined with `files` or `storage`.
    */
   readonly fs?: FileSystem;
-  readonly bash?: Omit<BashOptions, 'fs' | 'files' | 'cwd'>;
+  readonly bash?: Omit<BashOptions, 'fs' | 'files' | 'cwd' | 'python'>;
+  /**
+   * Offer `python3` and `python` in the shell: just-bash's CPython compiled to WebAssembly. Off by default. Node only (refused elsewhere,
+   * for example in a browser worker); it loads a ~10 MB runtime on first use and its memory is not contained like the shell's limits.
+   */
+  readonly python?: boolean;
   /** Called with every shell this workspace creates, the native `exec`'s included, for example to install `git` bound to it. */
   readonly onBash?: (bash: Bash) => void;
 }
@@ -26,16 +32,17 @@ export interface VirtualWorkspaceOptions {
 export interface VirtualWorkspace extends WorkspaceProvider<{ readonly cwd: string }, ExecutionEnv> {
   /** Trusted host access. Raw upstream handles remain owned by the host. */
   readonly filesystem: IFileSystem;
-  readonly createBash: (options: Omit<BashOptions, 'fs' | 'files'>) => Bash;
+  readonly createBash: (options: Omit<BashOptions, 'fs' | 'files' | 'python'>) => Bash;
   readonly dispose: () => void;
 }
 
 function fileError(error: unknown, path: string): FileError {
   if (error instanceof FileError) return error;
   const cause = error instanceof Error ? error : new Error(String(error));
-  const code = /\b(ENOENT|ENOTDIR|EISDIR|EACCES|EPERM|EEXIST|EINVAL|ENOTEMPTY)\b/.exec(cause.message)?.[1];
+  const message = boundedMessage(cause);
+  const code = /\b(ENOENT|ENOTDIR|EISDIR|EACCES|EPERM|EEXIST|EINVAL|ENOTEMPTY)\b/.exec(message)?.[1];
   return new FileError(code === 'ENOENT' ? 'not_found' : code === 'ENOTDIR' ? 'not_directory' : code === 'EISDIR' ? 'is_directory'
-    : code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : code === 'EEXIST' || code === 'EINVAL' || code === 'ENOTEMPTY' ? 'invalid' : 'unknown', cause.message, path, cause);
+    : code === 'EACCES' || code === 'EPERM' ? 'permission_denied' : code === 'EEXIST' || code === 'EINVAL' || code === 'ENOTEMPTY' ? 'invalid' : 'unknown', message, path, cause);
 }
 
 /** Working storage: in memory (ephemeral), or the given `fs`. No publication receipts, host fallback or restart recovery. */
@@ -45,6 +52,9 @@ export function createVirtualWorkspace(options: VirtualWorkspaceOptions): Virtua
   const files: InitialFiles = Object.fromEntries(Object.entries(options.files ?? {}).map(([path, file]) => [path,
     typeof file === 'function' ? async () => capture(await file()) : typeof file === 'string' || file instanceof Uint8Array ? capture(file)
       : { ...file, content: capture(file.content), ...(file.mtime === undefined ? {} : { mtime: new Date(file.mtime) }) }]));
+  if (options.python === true && typeof (globalThis as { process?: { versions?: { node?: unknown } } }).process?.versions?.node !== 'string') {
+    throw new TypeError('Python needs Node: just-bash runs CPython only under Node, not in a browser or its workers');
+  }
   if (options.fs && (options.files || options.storage)) throw new TypeError('A virtual workspace over a file system takes no initial files or storage');
   const filesystem: VirtualFiles = options.fs ? new FileSystemView(options.fs) : new VirtualFileSystem(files, options.storage);
   const identity: WorkspaceIdentity = Object.freeze({ providerId: options.providerId, instanceId: randomUUID(), incarnation: randomUUID(), viewId: randomUUID() });
@@ -53,7 +63,8 @@ export function createVirtualWorkspace(options: VirtualWorkspaceOptions): Virtua
   const createBash: VirtualWorkspace['createBash'] = input => {
     if (disposed) throw new FileError('invalid', 'Virtual workspace is disposed');
     const limits = options.bash?.executionLimits || input.executionLimits ? { executionLimits: { ...options.bash?.executionLimits, ...input.executionLimits } } : {};
-    const selected = { ...options.bash, ...input, ...limits, fs: filesystem };
+    // Python only when the workspace option says so, whatever a caller's shell options carry.
+    const selected = { ...options.bash, ...input, ...limits, fs: filesystem, python: options.python === true };
     const commands = selected.customCommands ?? [];
     const includeLinks = selected.commands === undefined || selected.commands.includes('ln');
     const bash = new Bash({ ...selected, customCommands: includeLinks && !commands.some(command => command.name === 'ln')
@@ -214,10 +225,10 @@ function nativeEnvironment(fs: VirtualFiles, id: string, cwd: string, closed: ()
         if (timer.signal.aborted || options?.timeout !== undefined && result.exitCode !== 0 && Date.now() - started >= options.timeout * 1000) return err(new ExecutionError('timeout', 'Command timed out; prior effects may remain'));
         if (options?.onOutput) {
           const output = `${result.stdout}${result.stderr}`;
-          if (output) { try { options.onOutput(output, context); } catch (error) { return err(new ExecutionError('callback_error', error instanceof Error ? error.message : String(error))); } }
+          if (output) { try { options.onOutput(output, context); } catch (error) { return err(new ExecutionError('callback_error', boundedMessage(error), error instanceof Error ? error : undefined)); } }
         }
         return ok({ exitCode: result.exitCode });
-      } catch (error) { return err(new ExecutionError('unknown', error instanceof Error ? error.message : String(error))); }
+      } catch (error) { return err(new ExecutionError('unknown', boundedMessage(error), error instanceof Error ? error : undefined)); }
       finally { clearTimeout(timeout); }
     },
     cleanup: release,

@@ -1,4 +1,4 @@
-/* Tokens (shadcn, light and dark) live in theme.css and are compiled with Tailwind by tailwind.mjs. */
+/* Tokens (shadcn, light and dark) are the registry `theme` item (registry.json), compiled with Tailwind by tailwind.mjs. */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 @supports (height: 100dvh) { .studio { height: 100dvh; } }

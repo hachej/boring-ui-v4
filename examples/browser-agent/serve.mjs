@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { readBody } from '../shared/node-request.mjs';
+import { readBody, sendWebResponse } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { buildTailwind } from '../studio/tailwind.mjs';
 import { buildBrowserAgent } from './build.mjs';
@@ -18,7 +18,7 @@ const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=
 
 export async function buildSite({ minify = false } = {}) {
   const files = await buildBrowserAgent({ minify });
-  const css = [await buildTailwind({ themeCss: readFileSync(here('../studio/theme.css'), 'utf8'), extraDirectories: ['registry/provider-setup'] }), files['/app-bundle.css'], readFileSync(here('./page/app.css'), 'utf8')].join('\n');
+  const css = [await buildTailwind({ extraDirectories: ['registry/provider-setup'] }), files['/app-bundle.css'], readFileSync(here('./page/app.css'), 'utf8')].join('\n');
   delete files['/app-bundle.css'];
   files['/styles.css'] = css;
   files['/index.html'] = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Browser agent (fictional)</title>
@@ -69,9 +69,7 @@ async function gateway(incoming, outgoing, url) {
   if (hasBody && body === undefined) return void outgoing.writeHead(413, ISOLATION).end();
   const upstream = await fetch(`https://${host}/${rest.join('/')}${url.search}`, { method: incoming.method, headers, ...(hasBody ? { body } : {}) });
   const out = { ...ISOLATION, 'content-type': upstream.headers.get('content-type') ?? 'application/octet-stream', 'cache-control': 'no-store' };
-  outgoing.writeHead(upstream.status, out);
-  if (upstream.body) for await (const chunk of upstream.body) outgoing.write(chunk);
-  outgoing.end();
+  await sendWebResponse(new Response(upstream.body, { status: upstream.status, headers: out }), outgoing);
 }
 
 export async function serveBrowserAgent({ port = 0, withGateway = true } = {}) {

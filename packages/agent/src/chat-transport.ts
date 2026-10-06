@@ -3,7 +3,7 @@ import { RequestGuardError, hasJsonContentType, readJsonBody } from '@boring/fil
 import type { Conversation, ConversationView, ConversationWatch, Cursor, EntryRecord, InputSubmissionDraft, SubmissionId, SubmissionRecord, WatchEnd } from '@earendil-works/pi-durable';
 
 /** Wire protocol shared with the browser client in `@boring/ui/remote-chat`. */
-export const CHAT_TRANSPORT = Object.freeze({ schema: 'boring.chat-transport', version: 1, maxRequestBytes: 8_388_608, maxHistoryPage: 200, maxPendingFrames: 100 });
+export const CHAT_TRANSPORT = Object.freeze({ schema: 'boring.chat-transport', version: 1, maxRequestBytes: 8_388_608, maxHistoryPage: 200, maxPendingFrames: 100, heartbeatMs: 15_000 });
 
 /** The agent change a browser may ask for. Names only: the host maps it to a native `AgentChange`. */
 export interface ChatConfigureChange {
@@ -52,9 +52,17 @@ export interface ChatTransportOptions {
    * cannot send without a preflight.
    */
   readonly authenticate: (request: Request) => Promise<ChatTransportAccess | null>;
+  /**
+   * While the watch stream has nothing to send, write `{"kind":"heartbeat","intervalMs":N}` every N milliseconds (default
+   * `CHAT_TRANSPORT.heartbeatMs`, 15 s; 0 turns it off). Proxies and load balancers close a response that stays silent past
+   * their idle timeout (an AWS ALB after 60 s by default); the browser client ignores the frame for the transcript and treats a
+   * stream silent for 2.5 intervals as lost, then reopens it. The first heartbeat follows the first view, announcing the interval.
+   */
+  readonly heartbeatMs?: number;
 }
 
-const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
+/** `no-transform` keeps proxies from compressing or rewriting responses; the watch stream adds `x-accel-buffering: no` so nginx does not buffer it. */
+const headers = { 'cache-control': 'no-store, no-transform', 'x-content-type-options': 'nosniff' };
 const failure = (status: number, reason: string): Response => Response.json({ schema: CHAT_TRANSPORT.schema, version: CHAT_TRANSPORT.version, reason }, { status, headers });
 const json = (value: unknown): Response => Response.json(value, { headers });
 const encoder = new TextEncoder();
@@ -103,11 +111,16 @@ function reads(conversation: Conversation, context: Context, project: ((view: Co
  * replayed in the browser with `@earendil-works/chord/delta`. With `project`, raw operations never leave the host:
  * the viewer receives complete projected views, and a slow reader gets the latest one rather than a backlog.
  */
-function stream(watch: ConversationWatch, project: ((view: ConversationView) => ConversationView) | undefined, signal: AbortSignal): Response {
+function stream(watch: ConversationWatch, project: ((view: ConversationView) => ConversationView) | undefined, signal: AbortSignal, heartbeatMs: number): Response {
   type Pending = { readonly kind: 'view'; readonly view: ConversationView } | { readonly kind: 'ops'; readonly ops: readonly unknown[] };
   let pending: Pending[] = [{ kind: 'view', view: watch.value }], wake: (() => void) | undefined, end: WatchEnd | undefined, finished = false;
+  // `beat` asks the next pull for a heartbeat. The timer restarts after every frame, so it fires only on an idle stream, and it is
+  // cleared when the stream finishes or is cancelled: nothing outlives the response.
+  let beat = false, timer: ReturnType<typeof setTimeout> | undefined;
   const notify = () => { const resume = wake; wake = undefined; resume?.(); };
-  const stop = () => { pending = []; notify(); void watch.stop(); };
+  const idle = () => { clearTimeout(timer); timer = undefined; if (heartbeatMs > 0 && !finished) timer = setTimeout(() => { beat = true; notify(); }, heartbeatMs); };
+  const heartbeat = () => encoder.encode(JSON.stringify({ kind: 'heartbeat', intervalMs: heartbeatMs }) + '\n');
+  const stop = () => { pending = []; clearTimeout(timer); notify(); void watch.stop(); };
   signal.addEventListener('abort', stop, { once: true });
   watch.start(async (view, ops) => {
     if (signal.aborted) return;
@@ -116,12 +129,13 @@ function stream(watch: ConversationWatch, project: ((view: ConversationView) => 
     notify();
   });
   void watch.closed.then(result => { end = result; signal.removeEventListener('abort', stop); notify(); });
+  let started = false;
   const frames = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      while (pending.length === 0 && end === undefined && !signal.aborted) await new Promise<void>(resolve => { wake = resolve; });
+      while (pending.length === 0 && !beat && end === undefined && !signal.aborted) await new Promise<void>(resolve => { wake = resolve; });
       if (finished) return;
       const close = (reason: string) => {
-        finished = true;
+        finished = true; clearTimeout(timer);
         controller.enqueue(encoder.encode(JSON.stringify({ kind: 'end', reason }) + '\n'));
         controller.close();
       };
@@ -133,15 +147,19 @@ function stream(watch: ConversationWatch, project: ((view: ConversationView) => 
         catch { finished = true; stop(); controller.enqueue(encoder.encode(JSON.stringify({ kind: 'end', reason: 'projection_failed' }) + '\n')); controller.close(); return; }
         if (signal.aborted) { close('revoked'); return; }
         controller.enqueue(encoder.encode(line + '\n'));
+        // The first frame is followed by a heartbeat at once, so the client learns the interval before any idle period.
+        if (!started && heartbeatMs > 0) { started = true; controller.enqueue(heartbeat()); }
+        beat = false; idle();
         return;
       }
-      finished = true;
+      if (beat && end === undefined) { beat = false; controller.enqueue(heartbeat()); idle(); return; }
+      finished = true; clearTimeout(timer);
       controller.enqueue(encoder.encode(JSON.stringify({ kind: 'end', reason: end!.reason }) + '\n'));
       controller.close();
     },
-    cancel() { stop(); },
+    cancel() { finished = true; stop(); },
   });
-  return new Response(frames, { headers: { ...headers, 'content-type': 'application/x-ndjson; charset=utf-8' } });
+  return new Response(frames, { headers: { ...headers, 'content-type': 'application/x-ndjson; charset=utf-8', 'x-accel-buffering': 'no' } });
 }
 
 /**
@@ -170,7 +188,7 @@ export function createChatTransportHandler(options: ChatTransportOptions): (requ
         const signal = access.revoked ? AbortSignal.any([request.signal, access.revoked]) : request.signal;
         const watch = await conversation.watch(context);
         if (signal.aborted) { await watch.stop(); return failure(403, 'not-authorized'); }
-        return stream(watch, access.project, signal);
+        return stream(watch, access.project, signal, options.heartbeatMs ?? CHAT_TRANSPORT.heartbeatMs);
       }
       if (request.method === 'GET' && operation === 'submission') {
         const requestId = params.get('requestId');

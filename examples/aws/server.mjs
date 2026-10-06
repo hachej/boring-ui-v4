@@ -32,7 +32,7 @@ import { createCodeInterpreterEnv, efsUserLayout } from '@boring/execution/aws-c
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
 import { readFiles, shell, writeFiles } from '../shared/workspace-tools.mjs';
 import { configureOffered } from '../shared/conversation-host.mjs';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { createJwtVerifier } from './jwt.mjs';
 
 const READS = new Set(['watch', 'entries', 'submission']), EFFECTS = new Set(['submit', 'abort', 'answer', 'configure', 'withdraw']);
@@ -172,9 +172,7 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
         const request = await webRequest(incoming, url, { signal: closed.signal, maxBytes: 8 * 1024 * 1024 });
         response = request ? await invocations(request) : json({ reason: 'too-large' }, 413);
       } else response = json({ reason: 'not-found' }, 404);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();

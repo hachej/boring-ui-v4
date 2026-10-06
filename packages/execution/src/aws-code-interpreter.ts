@@ -6,6 +6,7 @@ import type { Context } from '@earendil-works/chord';
 import { ExecutionError, FileError, err, ok } from '@earendil-works/pi-durable/env';
 import type { ExecutionEnv, FileInfo, Result, ShellExecOptions, ShellExecResult } from '@earendil-works/pi-durable/env';
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';
+import { boundedMessage } from './bounded-error.js';
 
 /** What the adapter sends: the host's own `BedrockAgentCoreClient` (it owns region, credentials and retries). */
 export type CodeInterpreterClient = Pick<BedrockAgentCoreClient, 'send'>;
@@ -56,14 +57,12 @@ export interface CodeInterpreterEnv {
   stop(context: Context): Promise<void>;
 }
 
-const MESSAGE_LIMIT = 300;
-const bounded = (text: string): string => text.length > MESSAGE_LIMIT ? `${text.slice(0, MESSAGE_LIMIT - 1)}…` : text;
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 const MOUNT_PATH = /^\/mnt\/[A-Za-z0-9._-]+$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const within = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`);
 const errorName = (error: unknown): string => typeof error === 'object' && error !== null && typeof (error as { name?: unknown }).name === 'string' ? (error as { name: string }).name : 'Error';
-const errorText = (error: unknown): string => bounded(error instanceof Error ? error.message : String(error));
+const errorText = (error: unknown): string => boundedMessage(error);
 const sleep = (ms: number, signal: AbortSignal | undefined): Promise<void> => new Promise(resolve => {
   if (signal?.aborted) return resolve();
   const timer = setTimeout(done, ms);
@@ -146,10 +145,10 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
   const failure = (error: unknown, fallback: ExecutionError['code']): ExecutionError => {
     const name = errorName(error);
     if (name === 'SessionLost' || name === 'SessionStopped' || name === 'SessionMissing' || name === 'ResourceNotFoundException' || name === 'AccessDeniedException') {
-      return new ExecutionError('shell_unavailable', bounded(`${name}: ${errorText(error)}`));
+      return new ExecutionError('shell_unavailable', boundedMessage(`${name}: ${errorText(error)}`));
     }
     if (name === 'AbortError') return new ExecutionError('aborted', 'Command aborted');
-    return new ExecutionError(fallback, bounded(`${name}: ${errorText(error)}`));
+    return new ExecutionError(fallback, boundedMessage(`${name}: ${errorText(error)}`));
   };
   const text = (result: CodeInterpreterResult): string => (result.content ?? []).map(block => block.text ?? '').join('');
 
@@ -162,7 +161,7 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
     const directory = posix.resolve(env.cwd, execOptions?.cwd ?? '.');
     const variables = Object.entries(execOptions?.env ?? {});
     const invalid = variables.find(([name]) => !ENV_NAME.test(name));
-    if (invalid) return err(new ExecutionError('spawn_error', bounded(`Invalid environment variable name: ${invalid[0]}`)));
+    if (invalid) return err(new ExecutionError('spawn_error', boundedMessage(`Invalid environment variable name: ${invalid[0]}`)));
     const assignments = variables.map(([name, value]) => `${name}=${quote(value)}`).join(' ');
     // The task API takes one command string: cwd, environment and umask become part of it.
     const runner = execOptions?.inheritEnv === false ? `env -i ${assignments} bash -c` : `${assignments ? `env ${assignments} ` : ''}bash -c`;
@@ -171,7 +170,7 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
     try {
       const started = await invoke('startCommandExecution', { command: script }, context);
       taskId = started.structuredContent?.taskId;
-      if (!taskId) return err(new ExecutionError('spawn_error', bounded(`Code Interpreter did not start the command: ${text(started) || 'no task id'}`)));
+      if (!taskId) return err(new ExecutionError('spawn_error', boundedMessage(`Code Interpreter did not start the command: ${text(started) || 'no task id'}`)));
     } catch (error) { return err(failure(error, 'spawn_error')); }
 
     const deadline = execOptions?.timeout && execOptions.timeout > 0 ? Date.now() + execOptions.timeout * 1000 : undefined;
@@ -191,8 +190,8 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
         const polled = await invoke('getTask', { taskId }, context);
         status = polled.structuredContent;
         try { deliver('stdout', status?.stdout); deliver('stderr', status?.stderr); }
-        catch (error) { await stopTask(taskId); return err(new ExecutionError('callback_error', bounded(`Output callback failed: ${errorText(error)}`))); }
-        if (!status?.taskStatus) return err(new ExecutionError('unknown', bounded(`getTask returned no task status: ${text(polled)}`)));
+        catch (error) { await stopTask(taskId); return err(new ExecutionError('callback_error', boundedMessage(`Output callback failed: ${errorText(error)}`))); }
+        if (!status?.taskStatus) return err(new ExecutionError('unknown', boundedMessage(`getTask returned no task status: ${text(polled)}`)));
       } catch (error) {
         if (context.abortSignal?.aborted) continue;
         return err(failure(error, 'unknown'));
@@ -212,7 +211,7 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
     return within(absolute, mountPath) ? posix.join(root, absolute.slice(mountPath.length)) : undefined;
   };
   const fromLocal = (path: string, base = root): string => within(path, base) ? posix.join(mountPath, path.slice(base.length)) : mountPath;
-  const outside = (path: string): FileError => new FileError('permission_denied', bounded(`Outside the workspace: ${namespace(path)}`), namespace(path));
+  const outside = (path: string): FileError => new FileError('permission_denied', boundedMessage(`Outside the workspace: ${namespace(path)}`), namespace(path));
   /** Whether `local` stays in the folder; `follow` also resolves a final symbolic link (dangling ones included). */
   async function confined(local: string, follow: boolean): Promise<boolean> {
     const base = await (realRoot ??= realpath(root));
@@ -234,7 +233,8 @@ export function createCodeInterpreterEnv(options: CodeInterpreterEnvOptions): Co
     }
     return false;
   }
-  const mapError = (error: FileError): FileError => error.path === undefined || !within(error.path, root) ? error : new FileError(error.code, error.message.split(root).join(mountPath), fromLocal(error.path));
+  const mapError = (error: FileError): FileError => new FileError(error.code, boundedMessage(error.message.split(root).join(mountPath)),
+    error.path !== undefined && within(error.path, root) ? fromLocal(error.path) : error.path, error);
   const mapInfo = (info: FileInfo): FileInfo => ({ ...info, path: fromLocal(info.path) });
   async function guarded<T>(paths: readonly (readonly [string, boolean])[], run: (...locals: string[]) => Promise<Result<T, FileError>>): Promise<Result<T, FileError>> {
     const locals: string[] = [];

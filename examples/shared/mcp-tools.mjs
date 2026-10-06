@@ -8,6 +8,7 @@
 // The tools are ordinary native tool registrations: a host passes them to its agent like any other (a standard-agent part).
 import { McpClient, toLlmContent } from '@earendil-works/pi-mcp';
 import { requireApproval } from '@boring/agent/approval';
+import { jsonSchemaTool } from '@boring/agent/agents';
 
 export const MAX_MCP_RESULT = 20_000;
 
@@ -30,18 +31,19 @@ export async function connectMcpTools({ id, transport, allow, readOnly = [], max
   await client.connect(transport);
   const reads = new Set(readOnly);
   const tools = (await client.listTools()).filter(tool => allow.includes(tool.name)).map(tool => {
-    const native = {
+    // The server's input schema as Pi's parameters: the Harness validates every call against it before anything reaches the server.
+    const native = jsonSchemaTool({
       name: `${id}_${tool.name}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64),
       description: tool.description ?? tool.name,
-      // Providers require an object schema, and some reject one without `properties`.
-      parameters: { ...tool.inputSchema, type: 'object', properties: tool.inputSchema.properties ?? {} },
+      // Providers require an object schema (jsonSchemaTool adds an empty `properties` when the server lists none).
+      parameters: { ...tool.inputSchema, type: 'object' },
       replay: reads.has(tool.name) ? 'safe' : 'unsafe',
       execute: async (args, _api, context) => {
         const result = await client.callTool(tool.name, args ?? {}, context.abortSignal ? { signal: context.abortSignal } : {});
         // MCP reports a tool's own failure in the result, not as a protocol error.
         return { content: capped(toLlmContent(result), maxResult), isError: result.isError === true };
       },
-    };
+    });
     return reads.has(tool.name) ? native : requireApproval(native, { summarize: args => `${id}: ${tool.name} ${JSON.stringify(args)}` });
   });
   return { tools, close: () => client.close() };

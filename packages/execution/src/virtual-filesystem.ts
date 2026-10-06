@@ -7,6 +7,8 @@ type WriteFileOptions = Exclude<Parameters<IFileSystem['writeFile']>[2], string 
 type DirentEntry = Awaited<ReturnType<NonNullable<IFileSystem['readdirWithFileTypes']>>>[number];
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { FileError, FileSystem, Result } from '@earendil-works/pi-durable/env';
+import { boundedMessage } from './bounded-error.js';
+export { MAX_ERROR_CHARS, boundedMessage } from './bounded-error.js';
 
 /** What the shell and the native environment need from the files under them: just-bash's interface plus an atomic file replace. */
 export type VirtualFiles = IFileSystem & {
@@ -21,7 +23,8 @@ async function value<Value>(pending: Promise<Result<Value, FileError>>): Promise
   const result = await pending;
   if (result.ok) return result.value;
   // Shells and Git read the POSIX code from the start of the message.
-  throw new Error(/^E[A-Z]+\b/.test(result.error.message) ? result.error.message : `${errno[result.error.code]}: ${result.error.message}`, { cause: result.error });
+  const message = boundedMessage(result.error);
+  throw new Error(/^E[A-Z]+\b/.test(message) ? message : `${errno[result.error.code]}: ${message}`, { cause: result.error });
 }
 const encodingOf = (options?: ReadFileOptions | WriteFileOptions | BufferEncoding | null) => (typeof options === 'string' ? options : options?.encoding) ?? 'utf8';
 const latin1 = (bytes: Uint8Array) => Array.from(bytes, byte => String.fromCharCode(byte)).join('');

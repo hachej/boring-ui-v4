@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { InboxItem } from '@earendil-works/pi-durable';
 import { CornerDownRightIcon, EllipsisIcon, ListEndIcon, PencilIcon, RouteIcon, Trash2Icon } from 'lucide-react';
-import { isFileBlock } from './utils';
+import { isFileBlock } from './rows';
 
 export type QueuedMessage = Extract<InboxItem, { readonly mode: 'steer' | 'followUp' }>;
 

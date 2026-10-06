@@ -9,6 +9,8 @@ import { openSqliteFileSystem } from '@boring/files/sqlite-filesystem';
 import { applyTextEdits, parseTextEdits } from '@boring/files/text';
 import { publicationDigest } from '@boring/files/publication';
 import { DatabaseSync } from 'node:sqlite';
+import { createServer, request as httpRequest } from 'node:http';
+import { readBody, sendWebResponse, webRequest } from '@boring/files/node-http';
 import { createHash } from 'node:crypto';
 import { createVirtualWorkspace } from '@boring/execution/virtual';
 import { createWorkspaceJournal } from '@boring/files/journal';
@@ -591,4 +593,41 @@ test('the provider\'s temporary names are never resources', async t => {
   assert.equal((await publish(wsCreate('reserved', name, 'x'))).kind, 'unavailable');
   assert.deepEqual(await provider.poll([name]), []);
   assert.equal(readFileSync(join(root, '.boring-mine.tmp'), 'utf8'), 'user file');
+});
+
+test('node-http bridges Node requests and streams web responses with backpressure, flushed headers and disconnect', async t => {
+  let pulls = 0, cancelled = false, sent;
+  const server = createServer(async (incoming, outgoing) => {
+    if (incoming.url === '/echo') {
+      const request = await webRequest(incoming, 'http://fixture.invalid/echo', { maxBytes: 8 });
+      if (!request) return void outgoing.writeHead(413).end();
+      const headers = new Headers({ 'content-type': 'text/plain' });
+      headers.append('set-cookie', 'a=1'); headers.append('set-cookie', 'b=2');
+      return void sendWebResponse(new Response(await request.text(), { headers }), outgoing);
+    }
+    // An endless body: without backpressure it would be pulled as fast as memory allows while the client reads nothing.
+    const chunk = new Uint8Array(64 * 1024);
+    const body = new ReadableStream({ pull: controller => { pulls++; controller.enqueue(chunk); }, cancel: () => { cancelled = true; } }, { highWaterMark: 0 });
+    sent = sendWebResponse(new Response(body), outgoing);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const { port } = server.address();
+  const call = (path, body) => new Promise((resolve, reject) => {
+    httpRequest({ port, host: '127.0.0.1', path, method: body ? 'POST' : 'GET' }, resolve).on('error', reject).end(body);
+  });
+  const refused = await call('/echo', 'fictional');
+  assert.equal(refused.statusCode, 413, 'a body over the cap is refused');
+  refused.resume();
+  const small = await call('/echo', 'short');
+  assert.deepEqual(small.headers['set-cookie'], ['a=1', 'b=2'], 'each set-cookie value is kept');
+  assert.equal(new TextDecoder().decode(await readBody(small)), 'short');
+  const endless = await call('/stream');
+  assert.equal(endless.statusCode, 200, 'headers arrive before the body ends');
+  endless.pause();
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.ok(pulls < 200, `a client that reads nothing stops the producer (pulled ${pulls} chunks)`);
+  endless.destroy();
+  await sent;
+  assert.equal(cancelled, true, 'a disconnect cancels the web body');
 });

@@ -21,6 +21,7 @@ const counted = suffix => ctx => `word_count counted ${ctx.last.text.trim()} wor
 const PROMPTS = {
   write: 'Give yourself a word_count tool: write .agent/tools/word-count.sh (it reads the JSON arguments on standard input and prints the number of words in "text") and .agent/tools/word-count.json, then call reload and tell me what it reported.',
   use: 'Use your word_count tool on: the quick brown fox jumps over the lazy dog',
+  invalid: 'Call word_count without any text.',
   broken: 'Write a broken tool description .agent/tools/broken.json, call reload, then use word_count on: still counting fine',
   instructions: 'Write standing instructions for yourself in .agent/AGENTS.md: end every answer with "-- Tidewater desk". Then tell me in which order your system prompt shows the host instructions and yours.',
   env: 'Give yourself a show_env tool (.agent/tools/show-env.json running printenv) that prints the environment where your tools run, call reload, and run it.',
@@ -49,6 +50,8 @@ export default {
     { run: () => { process.env[SECRET_NAME] = SECRET; } },
     { prompt: PROMPTS.write },
     { prompt: PROMPTS.use },
+    // Arguments that do not match the agent-written schema are refused by Pi before `run` starts.
+    { prompt: PROMPTS.invalid },
     { prompt: PROMPTS.broken },
     { prompt: PROMPTS.instructions },
     { async run(t) {
@@ -92,6 +95,7 @@ export default {
       ctx => `reload reported:\n${ctx.last.text}`,
     ],
     [PROMPTS.use]: [countWith('the quick brown fox jumps over the lazy dog'), counted('')],
+    [PROMPTS.invalid]: [ctx => ctx.tools.includes('word_count') ? call('word_count', {}) : 'word_count is not offered', ctx => `word_count refused: ${ctx.last.isError ? 'error' : 'ok'}: ${ctx.last.text}`],
     [PROMPTS.broken]: [
       call('write', { path: '.agent/tools/broken.json', content: '{ "name": "broken", ' }),
       call('reload', {}),
@@ -127,6 +131,7 @@ export default {
     // SELF-4: write, reload, next turn uses it.
     { toolResult: /Tools added: word_count\. Changed: none\. Removed: none\. Now: word_count\./ },
     { reply: /word_count counted 9 words\./ },
+    { reply: /word_count refused: error: [^]*Validation failed for tool "word_count"[^]*text: must have required properties text/ },
     // A broken description is reported; the other tool keeps working.
     { toolResult: /Errors \(1\):\n- \.agent\/tools\/broken\.json: invalid JSON/ },
     { reply: /word_count counted 3 words after the broken reload\./ },

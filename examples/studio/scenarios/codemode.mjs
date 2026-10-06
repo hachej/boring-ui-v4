@@ -1,7 +1,7 @@
 // Code mode (upstream pi-codemode): an aggregate question over a paginated fictional ledger is answered exactly, through one or two
 // sandboxed code executions instead of one tool call per page. The expected numbers are computed here from the same dataset.
 import assert from 'node:assert/strict';
-import { PAGE_SIZE, RECORDS, STATUSES, runCode } from '../../shared/codemode-tools.mjs';
+import { LIMITS, PAGE_SIZE, RECORDS, STATUSES, runCode } from '../../shared/codemode-tools.mjs';
 import { call } from './_script.mjs';
 
 const counts = Object.fromEntries(STATUSES.map(status => [status, RECORDS.filter(record => record.status === status).length]));
@@ -49,6 +49,14 @@ return { seen, imported, tools: Object.keys(tools).sort(), first: (await tools.g
       const denied = await runCode(code);
       assert.equal(denied.isError, true, code);
       assert.match(denied.text, /^script: .*(not defined|not a function)/, code);
+    }
+    // A deep throw and a host tool's failure come back as the bounded message: no stack frames, at most the output cap.
+    for (const code of ['function down(n) { if (!n) throw new Error(`deep ${"x".repeat(20000)}`); return down(n - 1); } down(500)', `await tools.get_record({ id: 'REC-NONE' })`]) {
+      const failed = await runCode(code);
+      assert.equal(failed.isError, true, code);
+      assert.match(failed.text, /^script: Error: (deep|No record REC-NONE)/, failed.text.slice(0, 200));
+      assert.doesNotMatch(failed.text, /^\s+at /m, 'no stack frames reach the transcript');
+      assert.ok(failed.text.length <= LIMITS.outputChars + 100, `bounded: ${failed.text.length}`);
     }
     const spinning = await runCode('while (true) {}', AbortSignal.timeout(300));
     assert.equal(spinning.isError, true);

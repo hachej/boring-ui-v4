@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EFFORTS, configureOffered, firstMessageTitle } from '../shared/conversation-host.mjs';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Harness, createRegistry, defineExtension } from '@earendil-works/pi-durable';
@@ -50,7 +50,9 @@ const VIRTUAL_ROOT = '/workspace';
 
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
-  scripted = process.env.STUDIO_MODEL === 'scripted' } = {}) {
+  scripted = process.env.STUDIO_MODEL === 'scripted',
+  // Idle heartbeat of the chat watch stream (default 15 s). Behind a proxy or load balancer keep it under half the idle timeout.
+  heartbeatMs = process.env.STUDIO_HEARTBEAT_MS ? Number(process.env.STUDIO_HEARTBEAT_MS) : undefined } = {}) {
   if (!directory) throw new Error('A data directory is required');
   mkdirSync(directory, { recursive: true });
   let models = modelsOverride, scriptMisses = [];
@@ -108,7 +110,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: offered.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
     const parts = [
       ...(capabilities.has('workspace') ? [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }] : []),
-      ...(capabilities.has('shell') ? [{ capabilities: ['shell'], extensions: [shell] }] : []),
+      ...(capabilities.has('shell') ? [{ capabilities: ['shell', ...(capabilities.has('python') ? ['python'] : [])], extensions: [shell] }] : []),
       ...(infra.repository ? [{ capabilities: ['git'], extensions: [defineExtension({ name: 'studio.git', tools: [createGitTool(infra.repository)] })] }] : []),
       { capabilities: ['canvas'], tools: createCanvasTools({ files, path: 'board.tldraw', access: agentAccess, namespace: `studio-${descriptor.id}-canvas-v1` }) },
       { capabilities: ['subagents'], tools: subagents.tools, extensions: subagents.extensions },
@@ -202,7 +204,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
 
   function authenticated(request) { return request.headers.get('authorization') === `Bearer ${token}`; }
   const ownerOf = conversation => entries.find(variant => (index[variant.agent.id] ?? []).some(id => String(id) === String(conversation.id)));
-  const chat = createChatTransportHandler({ authenticate: async request => {
+  const chat = createChatTransportHandler({ ...(heartbeatMs === undefined ? {} : { heartbeatMs }), authenticate: async request => {
     const conversation = conversations.get(new URL(request.url).searchParams.get('conversation') ?? '');
     if (!authenticated(request) || !conversation) return null;
     if (request.method === 'POST') touch(conversation.id);
@@ -308,8 +310,8 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
   // CSS imported by a panel (for example a viewer's stylesheet) is bundled and served with the studio styles.
   const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
-  // Tailwind is compiled once here: the shadcn tokens (theme.css) and the utilities used by registry/pi-chat and this folder.
-  const tailwind = await buildTailwind({ themeCss: readFileSync(here('./theme.css'), 'utf8') });
+  // Tailwind is compiled once here: the shadcn tokens (the registry `theme` item) and the utilities used by the registry items and this folder.
+  const tailwind = await buildTailwind();
   const styles = [tailwind, ...bundle.outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text), readFileSync(here('./styles.css'), 'utf8')].join('\n');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><title>Boring studio (fictional)</title>
 <link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div>
@@ -317,13 +319,13 @@ export async function startStudio({ directory, port = 0, provider = process.env.
 <script type="module" src="/app.js"></script></body></html>`;
   const statics = { '/': ['text/html; charset=utf-8', page], '/app.js': ['text/javascript; charset=utf-8', script], '/styles.css': ['text/css; charset=utf-8', styles] };
 
-  const watches = { open: 0, peak: 0 };
+  const watches = { open: 0, peak: 0, total: 0 };
   const server = createServer(async (incoming, outgoing) => {
     const url = new URL(incoming.url, `http://${incoming.headers.host}`);
     const closed = new AbortController();
     outgoing.on('close', () => closed.abort());
     // Debug counter for journeys (not a route): concurrent chat watch streams, which share the browser's per-host connection pool.
-    if (url.pathname === '/api/chat' && url.searchParams.get('op') === 'watch') { watches.open++; watches.peak = Math.max(watches.peak, watches.open); outgoing.on('close', () => { watches.open--; }); }
+    if (url.pathname === '/api/chat' && url.searchParams.get('op') === 'watch') { watches.open++; watches.total++; watches.peak = Math.max(watches.peak, watches.open); outgoing.on('close', () => { watches.open--; }); }
     try {
       const fixed = incoming.method === 'GET' && statics[url.pathname];
       if (fixed) return void outgoing.writeHead(200, { 'content-type': fixed[0], 'cache-control': 'no-store' }).end(fixed[1]);
@@ -332,9 +334,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const channel = channels && Object.hasOwn(channels.routes, url.pathname) ? channels.routes[url.pathname] : undefined;
       const response = channel ? await channel(request) : url.pathname === '/api/chat' ? await chat(request)
         : url.pathname === '/api/resources' ? await variantOf(request).resourceHandler(request) : await api(request, url);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();

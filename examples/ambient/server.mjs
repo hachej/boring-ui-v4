@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configureOffered, firstMessageTitle } from '../shared/conversation-host.mjs';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Harness, createRegistry, defineTool } from '@earendil-works/pi-durable';
@@ -39,7 +39,7 @@ export const MODELS = ['gpt-5-mini', 'gpt-5-nano'];
 export const INSTRUCTIONS = `You are the assistant inside "Northwind Console", a fictional settings console for an invented company. Be brief and friendly. Everything is fictional.
 Use plain Markdown. When asked about the health or status of the console, call run_health_check (once, with the seconds the person asks for, default 15) and then report in two short bullet points with a bold lead-in.
 When the person asks you to choose between options or you need a decision from them, call ask_user and wait for the answer before continuing; do not guess.
-When asked to write a report, policy or document, read the file first if it may exist, write it as a Markdown file in the workspace with the write tool, call present with its path, and answer with one short sentence. Read a file before you change it; the person may have edited it.`;
+Write reports, policies and documents as Markdown files (the present tool says how to show and revise them).`;
 
 export async function startAmbient({ directory, port = 0, provider = process.env.AMBIENT_PROVIDER ?? 'openai', modelsOverride, token = randomUUID(),
   // The deterministic test layer, as in the studio (../studio/scripted-model.mjs): chosen by the host process only, scripts in ./script.mjs.
@@ -127,8 +127,7 @@ export async function startAmbient({ directory, port = 0, provider = process.env
   const bundle = await build({ entryPoints: [here('./browser.jsx')], bundle: true, write: false, outdir: here('./out'), format: 'esm', platform: 'browser', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
   const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
-  const theme = readFileSync(fileURLToPath(new URL('../studio/theme.css', import.meta.url)), 'utf8');
-  const styles = [await buildTailwind({ themeCss: theme }), readFileSync(here('./host.css'), 'utf8')].join('\n');
+  const styles = [await buildTailwind(), readFileSync(here('./host.css'), 'utf8')].join('\n');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><title>Northwind Console (fictional)</title>
 <link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div>
 <script>window.__AMBIENT__=${JSON.stringify({ token, identity: { runtimeId: 'ambient', ...human } })}</script>
@@ -145,9 +144,7 @@ export async function startAmbient({ directory, port = 0, provider = process.env
       const request = await webRequest(incoming, url, { signal: closed.signal });
       if (!request) return void outgoing.writeHead(413).end();
       const response = url.pathname === '/api/chat' ? await chat(request) : url.pathname === '/api/resources' ? await resourceHandler(request) : await api(request, url);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();

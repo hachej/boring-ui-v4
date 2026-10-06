@@ -3,11 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { CheckIcon, CopyIcon, DownloadIcon, EllipsisIcon, ExternalLinkIcon, Maximize2Icon, Minimize2Icon, PictureInPicture2Icon, RefreshCwIcon, Share2Icon, XIcon } from 'lucide-react';
-import { Button, IconButton } from './button';
+import { Button, IconButton } from '../button/button';
 import { ViewerMenu } from './menu';
 import type { ViewerMenuItem } from './menu';
-import { cn } from './utils';
-import type { ManualCopyError } from './utils';
+import { cn } from '../utils/utils';
+import type { ManualCopyError } from '../utils/utils';
 import type { ViewerShare } from './share';
 
 export type { ViewerShare, ViewerShareRequest, ViewerShareResult } from './share';
@@ -117,7 +117,7 @@ function ManualCopy({ testId, what, text, onClose }: { readonly testId: string; 
     <p id={labelId} className="m-0 text-xs font-medium">This browser blocked automatic copying. Copy the {what} below.</p>
     <textarea ref={field} readOnly rows={Math.min(6, Math.max(2, Math.ceil(text.length / 48)))} value={text} data-testid={`${testId}-manual-copy-text`} onFocus={event => event.currentTarget.select()}
       className="w-full resize-none rounded-md border border-border bg-background p-2 font-mono text-xs break-all outline-none focus-visible:ring-2 focus-visible:ring-ring/60" />
-    <div className="flex justify-end"><Button size="sm" data-testid={`${testId}-manual-copy-close`} onClick={onClose}>Done</Button></div>
+    <div className="flex justify-end"><Button variant="quiet" size="bar" data-testid={`${testId}-manual-copy-close`} onClick={onClose}>Done</Button></div>
   </div>;
 }
 

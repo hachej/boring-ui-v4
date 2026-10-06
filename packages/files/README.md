@@ -18,6 +18,10 @@ Receipts are scoped by workspace identity, principal, scope and initiator. Ident
 
 See [scaffold guide](../../docs/contracts/SCAFFOLD.md) and [resource design](../../docs/architecture/FILES-GIT-EXEC.md).
 
+## Node hosts
+
+`@boring/files/node-http` bridges `node:http` to the Fetch handlers of these packages: `webRequest(incoming, url, { signal, maxBytes })` reads the body first under a byte cap (never `Readable.toWeb` on a live request, whose cancellation kills the process) and `sendWebResponse(response, outgoing, { signal })` flushes the headers at once, keeps each `set-cookie`, waits for `drain` when the socket is full and cancels the web body when the client disconnects. The example servers use it; `npm run check` refuses hand-written response copies under `examples/`.
+
 ## Optional authenticated resource transport
 
 `@boring/files/remote` exports `createResourceClient` and `createResourceHandler`. Both are Fetch adapters over the existing resource contracts. They import no Pi runtime, filesystem or database. The client implements `ResourceClient`; `publication: true` and `reconciliation: true` independently select its optional methods. The handler borrows a reader, optional publisher and optional lookup. It never closes them.

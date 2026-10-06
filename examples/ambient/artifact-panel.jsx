@@ -12,7 +12,7 @@ import { HtmlPane } from '../../registry/viewers/html-pane.tsx';
 import { MarkdownPane } from '../../registry/viewers/markdown-pane.tsx';
 import { ViewerFrame, ViewerWindowProvider } from '../../registry/viewers/viewer-frame.tsx';
 import { downloadFile } from '../../registry/viewers/download.ts';
-import { copyText } from '../../registry/viewers/utils.ts';
+import { copyText } from '../../registry/utils/utils.ts';
 import { randomUUID } from '@boring/files/platform';
 import { savedLabel, useSaved } from '../studio/saved-resource.mjs';
 

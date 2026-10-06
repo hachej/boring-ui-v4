@@ -29,7 +29,8 @@ export type ChatSendState = { readonly kind: 'idle' }
   | { readonly kind: 'blocked'; readonly reason: string }
   | { readonly kind: 'submitting' | 'unknown'; readonly attempt: ChatAttempt }
   | { readonly kind: 'admitted'; readonly attempt: ChatAttempt; readonly submissionId: Submission['id']; readonly record?: SubmissionRecord };
-export type ChatConnection = { readonly kind: 'idle' | 'connecting' | 'connected' }
+/** `reconnecting`: the watch is still owned but its remote stream was lost and is being reopened (see `ChatLink`). */
+export type ChatConnection = { readonly kind: 'idle' | 'connecting' | 'connected' | 'reconnecting' }
   | { readonly kind: 'closed'; readonly end?: WatchEnd }
   | { readonly kind: 'error'; readonly error: unknown };
 /**
@@ -44,6 +45,14 @@ export interface ChatConversation {
   readonly entries: Conversation['entries'];
   /** Only `tx.submissionByRequest` is used, to reconcile an unconfirmed send. */
   readonly commit: <T>(change: (tx: Pick<Tx, 'submissionByRequest'>) => T | Promise<T>, context: Context) => Promise<T>;
+}
+/**
+ * A remote source's link to its host, for example `link` from `@boring/ui/remote-chat`. While it reports reconnecting, the
+ * controller's watch stays open (it receives a complete view when the stream is back) and the connection reads `reconnecting`.
+ */
+export interface ChatLink {
+  readonly reconnecting: () => boolean;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 export interface NativeChatHistorySource {
   readonly id: Conversation['id'];
@@ -68,6 +77,7 @@ export interface NativeChatOptions {
   readonly conversation: ChatConversation;
   readonly context: Context;
   readonly source?: ChatSource;
+  readonly link?: ChatLink;
   readonly history?: NativeChatHistorySource | false;
   /** Validate the exact selected draft before any native admission. */
   readonly beforeSubmit?: (draft: ChatDraft) => Promise<string | undefined>;
@@ -106,6 +116,13 @@ export function createNativeChatController(options: NativeChatOptions) {
     }
   };
   snapshot = Object.freeze({ ...snapshot, send: Object.freeze(snapshot.send), connection: Object.freeze(snapshot.connection) });
+  const live = (): ChatConnection => ({ kind: options.link?.reconnecting() ? 'reconnecting' : 'connected' });
+  const open = () => snapshot.connection.kind === 'connected' || snapshot.connection.kind === 'reconnecting';
+  const unlink = options.link?.subscribe(() => {
+    if (snapshot.disposed || !watch || !open()) return;
+    const next = live();
+    if (next.kind !== snapshot.connection.kind) publish({ connection: next });
+  });
   let stopping: Promise<void> | undefined, retrying: Promise<Submission | undefined> | undefined;
   let historyGeneration = 0, historyPending: Promise<void> | undefined;
   let historyScan: { readonly maxEntryId: EntryId; readonly cursor?: Cursor; readonly lastId?: EntryId } | undefined;
@@ -157,7 +174,7 @@ export function createNativeChatController(options: NativeChatOptions) {
     loadEarlier: (): Promise<void> => {
       active();
       if (!readHistory) throw new Error('Conversation history is not enabled');
-      if (snapshot.connection.kind !== 'connected') throw new Error('Connect before loading conversation history');
+      if (!open()) throw new Error('Connect before loading conversation history');
       if (historyPending) return historyPending;
       const previous = snapshot.history;
       if (previous.kind === 'ready' && !previous.hasMore) return Promise.resolve();
@@ -169,7 +186,7 @@ export function createNativeChatController(options: NativeChatOptions) {
       }
       const scan = historyScan, generation = historyGeneration;
       const entries = 'entries' in previous ? previous.entries : Object.freeze([]);
-      const current = () => !snapshot.disposed && historyGeneration === generation && snapshot.connection.kind === 'connected';
+      const current = () => !snapshot.disposed && historyGeneration === generation && open();
       const pending = Promise.resolve().then(async () => {
         try {
           if (!current()) return;
@@ -204,7 +221,7 @@ export function createNativeChatController(options: NativeChatOptions) {
           if (snapshot.disposed) { await acquired.stop(); return; }
           if (acquired.value.conversation.id !== conversation.id) { await acquired.stop(); throw new Error('Chat source returned another conversation'); }
           watch = acquired;
-          publish({ connection: { kind: 'connected' }, view: acquired.value });
+          publish({ connection: live(), view: acquired.value });
           acquired.start(async view => {
             if (snapshot.disposed || watch !== acquired) return;
             if (view.conversation.id !== conversation.id) throw new Error('Chat source changed conversation identity');
@@ -282,6 +299,7 @@ export function createNativeChatController(options: NativeChatOptions) {
     dispose: (): Promise<WatchEnd | undefined> => {
       if (disposing) return disposing;
       disposing = Promise.resolve().then(async () => { await opening; const owned = watch; watch = undefined; return owned?.stop(); });
+      unlink?.();
       publish({ disposed: true, connection: { kind: 'closed' }, history: invalidateHistory() }); listeners.clear();
       return disposing;
     },

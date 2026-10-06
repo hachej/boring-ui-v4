@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, CircleDashedIcon, Loader2Icon, WrenchIcon } from 'lucide-react';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 export type ToolStatus = 'running' | 'completed' | 'failed' | 'unfinished';
 export interface ToolEntry { readonly key: string; readonly call: ToolCall; readonly result: ToolResultMessage | undefined; readonly status: ToolStatus; readonly custom?: ReactNode }

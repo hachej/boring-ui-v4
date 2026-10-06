@@ -14,9 +14,8 @@ import type { RowContext } from './message';
 import type { QueueActions, QueuedMessage } from './queue';
 import type { AnswerOutcome } from './question-card';
 import type { ArtifactsConfig } from './artifact';
-import { derive, object, queuedMessages } from './rows';
+import { derive, isFileBlock, object, queuedMessages } from './rows';
 import type { ChatCard, Mode } from './rows';
-import { isFileBlock } from './utils';
 
 /** What the host lets the person do beyond typing. Pass `remote.answer` and `remote.withdraw` from `createRemoteChat()`. */
 export interface PiChatActions {

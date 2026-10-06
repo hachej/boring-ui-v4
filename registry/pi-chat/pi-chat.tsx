@@ -6,7 +6,7 @@ import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { ChatAttachment, NativeChatController } from '@boring/ui/native-chat';
 import { ArrowDownIcon, HistoryIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import { Composer } from './composer';
 import type { ComposerFeedback } from './composer';
 import type { AttachmentsConfig, ConversationsConfig, EffortConfig, MentionsConfig, ModelConfig, SlashConfig } from './config';
@@ -22,7 +22,7 @@ import type { ChatCard, Mode } from './rows';
 import { Shimmer } from './shimmer';
 import { useChatSession, useTranscript } from './session';
 import type { ChatFeatureProps, FilesHandler, PiChatActions } from './session';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 export type { PiChatActions } from './session';
 export type { ChatCard, Mode } from './rows';

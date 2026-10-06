@@ -6,7 +6,7 @@ import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { NativeChatController } from '@boring/ui/native-chat';
 import { ArrowDownIcon, BellIcon, ChevronDownIcon, ExternalLinkIcon, GripVerticalIcon, Loader2Icon, MinusIcon, PanelLeftIcon, RefreshCwIcon, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react';
-import { Button } from '../pi-chat/button';
+import { Button } from '../button/button';
 import { CopyButton } from '../pi-chat/code-block';
 import { Composer } from '../pi-chat/composer';
 import type { ComposerFeedback } from '../pi-chat/composer';
@@ -28,7 +28,7 @@ import { useChatSession, useTranscript } from '../pi-chat/session';
 import type { ChatFeatureProps, ChatSession } from '../pi-chat/session';
 import { ArtifactWorkspace } from '../pi-workspace/workspace';
 import type { WorkspacePanelApi } from '../pi-workspace/workspace';
-import { cn } from '../pi-chat/utils';
+import { cn } from '../utils/utils';
 
 export { AgentNotifications, createNotificationStore, summaryOf, useNotifications, watchConversation } from './notifications';
 export type { AgentNotification, AgentNotificationsProps, NewNotification, NotificationKind, NotificationStore } from './notifications';

@@ -20,6 +20,15 @@ export default [
     },
   },
   {
+    // just-bash's CPython (WebAssembly) in the same shell: it reads and writes the workspace's files like any other command.
+    id: 'workspace-python', group: 'Workspace and shell', title: 'Run Python', requires: ['shell', 'python'], panel: 'files',
+    description: 'python3 runs in the workspace shell, reads a file the shell wrote and writes one that the Files tab lists.',
+    steps: [{ prompt: 'Use bash to run: printf "4 5 6" > tides.txt && python3 -c "n = sum(map(int, open(\'tides.txt\').read().split())); open(\'total.txt\', \'w\').write(str(n)); print(f\'total={n}\')" . Then reply with the exact output.' }],
+    script: { 0: [call('bash', { command: 'printf "4 5 6" > tides.txt && python3 -c "n = sum(map(int, open(\'tides.txt\').read().split())); open(\'total.txt\', \'w\').write(str(n)); print(f\'total={n}\')"' }),
+      ctx => `Python printed: ${ctx.last.text.trim()}`] },
+    expect: [{ toolResult: /total=15/ }, { reply: /Python printed: total=15/ }, { fileExists: 'total.txt' }],
+  },
+  {
     id: 'workspace-write-file', group: 'Workspace and shell', title: 'Write a file', requires: ['workspace'], panel: 'files',
     description: 'The agent writes a Markdown file with the write tool; it is listed, and opens in the viewer.',
     steps: [{ prompt: 'Use the write tool to create notes/todo.md with a title "Todo" and three short fictional tasks as a bullet list. Reply with one sentence.' }],

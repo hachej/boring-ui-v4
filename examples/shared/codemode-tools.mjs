@@ -29,7 +29,7 @@ export function summarize(records = RECORDS) {
   return { total: records.length, pages: Math.ceil(records.length / PAGE_SIZE), amount: records.reduce((sum, record) => sum + record.amount, 0), byStatus: group('status'), byRegion: group('region') };
 }
 
-const LIMITS = { timeoutMs: 20_000, memoryLimitBytes: 32 * 1024 * 1024, codeChars: 20_000, outputChars: 8_000, nestedCalls: 200 };
+export const LIMITS = { timeoutMs: 20_000, memoryLimitBytes: 32 * 1024 * 1024, codeChars: 20_000, outputChars: 8_000, nestedCalls: 200 };
 const RECORD = { type: 'object', properties: { id: { type: 'string' }, status: { enum: STATUSES }, region: { enum: REGIONS }, amount: { type: 'integer' } }, required: ['id', 'status', 'region', 'amount'] };
 
 /** The tools the sandbox injects. `count` bounds how many nested calls one execution may make. */
@@ -67,7 +67,8 @@ export async function runCode(code, signal) {
     const result = await sandbox.execute(code, { signal });
     const lines = result.output.filter(item => item.type === 'text').map(item => item.text);
     if (result.ok && result.value !== undefined) lines.push(typeof result.value === 'string' ? result.value : JSON.stringify(result.value));
-    if (!result.ok) lines.push(`${result.error.kind}: ${result.error.stack ?? result.error.message}`);
+    // The message only: a stack (the sandbox's frames, or the host's for a failing tool) never enters the transcript.
+    if (!result.ok) lines.push(`${result.error.kind}: ${result.error.name ? `${result.error.name}: ` : ''}${result.error.message}`);
     let text = lines.join('\n') || 'Code finished without output. Use text(value) or return a value.';
     // Upstream keeps all script output until the script ends; this bounds only what enters the transcript.
     if (text.length > LIMITS.outputChars) text = `${text.slice(0, LIMITS.outputChars)}\n[output truncated at ${LIMITS.outputChars} characters; aggregate in code and print less]`;

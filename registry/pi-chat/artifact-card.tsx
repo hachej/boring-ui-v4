@@ -5,7 +5,7 @@ import { ChevronRightIcon, FileCodeIcon, FileTextIcon, GlobeIcon, ImageIcon, Pen
 import { Shimmer } from './shimmer';
 import { artifactKey, typeLabel } from './artifact';
 import type { ArtifactDescriptor, ArtifactType } from './artifact';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 const ICONS: Record<ArtifactType, ComponentType<{ readonly className?: string; readonly 'aria-hidden'?: boolean | 'true' }>> = {
   markdown: FileTextIcon, html: GlobeIcon, svg: ImageIcon, code: FileCodeIcon, canvas: PenToolIcon,

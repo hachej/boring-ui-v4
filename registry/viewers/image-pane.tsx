@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent, ReactNode } from 'react';
 import { MaximizeIcon, ScanIcon, ZoomInIcon, ZoomOutIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import { downloadFile } from './download';
 import { formatBytes, useMediaUrl } from './media';
 import type { MediaSource } from './media';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 import { useViewerBar, ViewerFrame, ViewerIconButton } from './viewer-frame';
 import type { ViewerShare, ViewerStatus } from './viewer-frame';
 
@@ -38,7 +38,7 @@ function ZoomControls({ testId, percent, ready, onStep, onFit }: { readonly test
   const { tight } = useViewerBar();
   return <div role="group" aria-label="Zoom" className="flex items-center gap-0.5">
     <ViewerIconButton label="Zoom out" data-testid={`${testId}-zoom-out`} disabled={!ready} onClick={() => onStep(-1)}><ZoomOutIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
-    {!tight && <Button variant="ghost" data-testid={`${testId}-zoom-level`} aria-label={`Zoom ${percent}, fit to view`} title="Fit to view" disabled={!ready} className="min-w-10 px-1 tabular-nums" onClick={onFit}>{percent}</Button>}
+    {!tight && <Button variant="quiet" size="bar" data-testid={`${testId}-zoom-level`} aria-label={`Zoom ${percent}, fit to view`} title="Fit to view" disabled={!ready} className="min-w-10 px-1 tabular-nums" onClick={onFit}>{percent}</Button>}
     <ViewerIconButton label="Zoom in" data-testid={`${testId}-zoom-in`} disabled={!ready} onClick={() => onStep(1)}><ZoomInIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
   </div>;
 }

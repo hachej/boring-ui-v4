@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { CheckIcon, ChevronDownIcon, KeyRoundIcon, SettingsIcon } from 'lucide-react';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 /** One model a provider offers. */
 export interface ProviderModel { readonly id: string; readonly name?: string }

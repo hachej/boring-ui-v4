@@ -397,3 +397,40 @@ test('Code Interpreter env: two users never see each other\'s folders (own acces
     ['/boring/users/user-a', '/mnt/efs/users/user-a', '/mnt/efs/state/user-a/journal.sqlite', '/mnt/efs/state/user-a/main.pi.sqlite', '/mnt/workspace']);
   assert.throws(() => layout.harnessFile('../b'), TypeError);
 });
+
+test('errors leaving a virtual workspace are bounded: no stack frames reach a tool result, and the text stays under MAX_ERROR_CHARS', { timeout: 15000 }, async t => {
+  const { MAX_ERROR_CHARS } = await import('@boring/execution/virtual');
+  const { createBashTool } = await import('@earendil-works/pi-durable/tools');
+  const { toolResultText } = await import('../fixtures/native-document.mjs');
+  const { FileError, err } = await import('@earendil-works/pi-durable/env');
+  // A host failure with a long stack inside its message, as a backing that wraps another error's stack would report it.
+  const deep = n => { if (!n) { const inner = new Error('fictional backing failed'); return `${inner.message}\n${String(inner.stack).split('\n').slice(1).join('\n')}${'\n    at fictionalFrame (/host/fictional/backing.js:1:1)'.repeat(400)}`; } return deep(n - 1); };
+  const stacked = deep(50);
+  assert.ok(stacked.length > 10_000 && /^\s+at /m.test(stacked), 'the fixture error carries a long host stack');
+  // The workspace keeps its files in a Pi FileSystem (here another virtual workspace's env) whose reads of broken.txt fail with it.
+  const backing = fixture(t, { '/repo/note.txt': 'original\n', '/repo/broken.txt': 'unreadable\n' }), inner = (await acquire(backing)).environment;
+  const failing = path => String(path).endsWith('broken.txt');
+  const fs = new Proxy(inner, { get: (target, key) => key === 'readBinaryFile' || key === 'readTextFile'
+    ? (path, ...rest) => failing(path) ? Promise.resolve(err(new FileError('unknown', stacked, path))) : target[key](path, ...rest) : target[key] });
+  // Git's host policy callback throws the same error.
+  const workspace = createVirtualWorkspace({ providerId: 'fictional-bounded', fs, onBash: bash => installVirtualGitCommand({ bash,
+    repository: createGitRepository({ fs: createVirtualGitFs(bash.fs), directory: '/repo', author, authorize: () => { throw new Error(stacked); } }) }) });
+  t.after(() => workspace.dispose());
+  const leases = [];
+  const registry = createRegistry(); registry.install(defineExtension({ name: 'fictional.bounded-errors', tools: [createBashTool(), createReadTool()] }));
+  const harness = await Harness.open(new MemoryStorage(), { registry, models: createModels(), env: async () => { const lease = await acquire(workspace); leases.push(lease); return lease.environment; } }, context);
+  t.after(async () => { await harness.close(context); for (const lease of leases) await lease.release(context); });
+  const conversation = await harness.root(context);
+  // just-bash's own commands word their errors themselves (cat says "No such file or directory"); Git and the native tools pass the message on.
+  for (const [name, args, said] of [['read', { path: 'broken.txt' }, /fictional backing failed/], ['bash', { command: 'cat broken.txt' }, /cat: broken.txt/], ['bash', { command: 'git init' }, /fictional backing failed/]]) {
+    const { isError, text } = await toolResultText(harness, conversation, await admitDocumentTool(conversation, args, name));
+    const label = `${name} ${JSON.stringify(args)}`;
+    assert.equal(isError, true, `${label}: ${text.slice(0, 200)}`);
+    assert.match(text, said, label);
+    assert.doesNotMatch(text, /^\s+at /m, `${label} shows no stack frames`);
+    assert.ok(text.length < MAX_ERROR_CHARS + 500, `${label} is bounded: ${text.length} characters`);
+  }
+  const direct = await (await acquire(workspace)).environment.readTextFile('broken.txt', context);
+  assert.equal(direct.ok, false);
+  assert.ok(direct.error.message.length <= MAX_ERROR_CHARS && !/^\s+at /m.test(direct.error.message), 'the native environment\'s own error is bounded too');
+});

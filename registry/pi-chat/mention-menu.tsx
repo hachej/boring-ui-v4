@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FileTextIcon, FolderIcon } from 'lucide-react';
 import { usePickerKeyboard } from './picker-keyboard';
 import type { MentionResult, MentionsConfig } from './config';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 function highlight(text: string, query: string) {
   const at = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1;

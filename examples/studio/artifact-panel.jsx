@@ -17,7 +17,7 @@ import { ViewerFrame, ViewerToggle } from '../../registry/viewers/viewer-frame.t
 import { ViewerVersions } from '../../registry/viewers/menu.tsx';
 import { INTERACTIVE_HTML } from './interactive.mjs';
 import { downloadFile } from '../../registry/viewers/download.ts';
-import { copyText } from '../../registry/viewers/utils.ts';
+import { copyText } from '../../registry/utils/utils.ts';
 import { shareStudioLink } from './share-link.mjs';
 import { Canvas } from './panels/canvas.jsx';
 import { savedLabel, useSaved } from './saved-resource.mjs';

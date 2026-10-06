@@ -49,6 +49,29 @@ journey on `127.0.0.1` (a secure context) instead, for debugging.
 Set `STUDIO_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` to use Anthropic models (pass model IDs through `startStudio({ models })`). The bearer
 token is a per-process local fixture, not an identity provider.
 
+## Testing behind a proxy (headless)
+
+Load balancers and proxies close a response that sends nothing for their idle timeout (an AWS ALB after 60 s by default), buffer it
+(nginx) or compress it. The chat watch stream therefore sends `{"kind":"heartbeat","intervalMs":N}` while idle (default 15 s,
+`createChatTransportHandler({ heartbeatMs })`, `STUDIO_HEARTBEAT_MS` here) with `Cache-Control: no-store, no-transform` and
+`X-Accel-Buffering: no`, and the browser client reopens a stream that dropped or stayed silent for 2.5 intervals by itself.
+
+The last step of `npm run studio:journey:correctness` proves it headless: it puts the studio behind `examples/shared/idle-proxy.mjs`, a TCP
+proxy that closes any connection silent for `STUDIO_PROXY_IDLE_MS` (default 5000) like an ALB, with `STUDIO_HEARTBEAT_MS` (default 2000 in
+the journey; at most half the idle timeout). An idle chat must stay connected for more than three idle timeouts without reopening its watch;
+then the proxy drops every connection, the chat must read `reconnecting` and come back by itself, and a later reply must arrive exactly once.
+
+```sh
+CHROMIUM=/path/to/chromium npm run studio:journey:correctness
+CHROMIUM=/path/to/chromium STUDIO_PROXY_IDLE_MS=10000 STUDIO_HEARTBEAT_MS=4000 npm run studio:journey:correctness
+# By hand: the studio behind the proxy at http://127.0.0.1:4280
+OPENAI_API_KEY=... STUDIO_HEARTBEAT_MS=2000 npm run studio &
+PROXY_TARGET=http://127.0.0.1:4180 PROXY_IDLE_MS=5000 PROXY_PORT=4280 node examples/shared/idle-proxy.mjs
+```
+
+With `STUDIO_HEARTBEAT_MS=0` (no heartbeat) the journey fails: the proxy closes the idle stream. On AWS keep the ALB idle timeout at least
+twice the heartbeat (the 60 s default with the 15 s heartbeat), over HTTP/1.1 or HTTP/2 to the target.
+
 ## Two test layers
 
 Real-model scenarios were flaky (the model answered inline instead of calling a tool, asked one question instead of two), so the browser tests run as two layers:
@@ -222,8 +245,8 @@ const controller = createNativeChatController({ identity, ...remote });
 ## Styles
 
 `tailwind.mjs` compiles Tailwind v4 once at startup with the library API (theme and utilities only, no preflight, so the
-viewer panels keep their own styles). It scans `registry/pi-chat`, `pi-ambient`, `pi-workspace`, `viewers` and this folder for classes, and `theme.css` holds the
-shadcn tokens for light and dark (`prefers-color-scheme`). `styles.css` is the shell and panel CSS. The chat toolkit hooks
+viewer panels keep their own styles). It scans `registry/button`, `utils`, `pi-chat`, `pi-ambient`, `pi-workspace`, `viewers` and this folder for classes, and
+`themeCss()` renders the registry `theme` item (the same shadcn tokens a consumer installs) for light and dark (`prefers-color-scheme`); every example uses it. `styles.css` is the shell and panel CSS. The chat toolkit hooks
 for journeys are `data-testid` attributes: `composer-input`, `composer-submit` (`data-state` is `send` or `stop`), `connection`,
 `transcript`, `tool-card`, `tool-name`, `queue-item`, `question-card`, and for scenarios `scenario-list`, `scenario`, `scenario-next`.
 

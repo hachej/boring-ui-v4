@@ -13,7 +13,8 @@
     {
       "path": "registry/html-viewer/html-viewer.tsx",
       "content": "'use client';\n\nimport { HtmlViewer as RuntimeHtmlViewer } from '@boring/ui/html-viewer';\nimport type { HtmlViewerProps } from '@boring/ui/html-viewer';\n\nexport type { HtmlViewerProps } from '@boring/ui/html-viewer';\n\nexport function HtmlViewer({ className, ...props }: HtmlViewerProps) {\n  return <RuntimeHtmlViewer {...props} className={['boring-html-recipe', className].filter(Boolean).join(' ')} />;\n}\n",
-      "type": "registry:component"
+      "type": "registry:component",
+      "target": "components/html-viewer/html-viewer.tsx"
     }
   ],
   "css": {

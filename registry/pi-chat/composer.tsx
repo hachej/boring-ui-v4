@@ -3,12 +3,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, Ref } from 'react';
 import { AlertCircleIcon, ArrowUpIcon, FileTextIcon, ListEndIcon, Loader2Icon, MessageSquareIcon, PaperclipIcon, PlusIcon, SlashIcon, SquareIcon, XIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from '../button/button';
 import { hasMention, mentionTrigger, removeMention, slashItems, slashQuery } from './config';
 import type { MentionsConfig, SlashConfig, SlashItem } from './config';
 import { MentionMenu } from './mention-menu';
 import { SlashMenu } from './slash-menu';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 export interface ComposerAttachment { readonly id: string; readonly name: string; readonly mimeType: string; readonly data: string }
 

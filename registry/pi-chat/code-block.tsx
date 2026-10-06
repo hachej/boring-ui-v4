@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
-import { Button } from './button';
-import { copyText, cn } from './utils';
+import { Button } from '../button/button';
+import { copyText, cn } from '../utils/utils';
 
 /** Copy button with a short "copied" confirmation. Failures stay visible as a title instead of throwing. */
 export function CopyButton({ text, label = 'Copy', onCopy, className, iconOnly = false }: { readonly text: string; readonly label?: string; readonly onCopy?: (text: string) => Promise<void>; readonly className?: string; readonly iconOnly?: boolean }) {
