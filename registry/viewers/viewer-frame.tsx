@@ -183,14 +183,14 @@ export function ViewerFrame({ title, subtitle, status, target, revision, control
   const run = (action: (() => unknown) | undefined) => { void Promise.resolve().then(action).catch(() => { if (mounted.current) setNotice({ text: 'The action failed', tone: 'danger' }); }); };
 
   const reading = status?.label === 'Read-only';
-  const menuItems: ViewerMenuItem[] = [
+  const menuItems: ViewerMenuItem[] = ([
     ...(onRefresh ? [{ id: 'refresh', label: 'Reload', icon: <RefreshCwIcon className="size-4" />, disabled: busy === 'refresh', onSelect: refresh }] : []),
     ...(onCopy ? [{ id: 'copy', label: 'Copy', icon: copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />, onSelect: copy }] : []),
     ...(onDownload ? [{ id: 'download', label: 'Download', icon: <DownloadIcon className="size-4" />, onSelect: () => run(onDownload) }] : []),
     ...(onOpenInNewTab ? [{ id: 'open', label: 'Open in new tab', icon: <ExternalLinkIcon className="size-4" />, onSelect: () => run(onOpenInNewTab) }] : []),
     ...(host?.onFloatChat ? [{ id: 'float-chat', label: 'Float chat', icon: <PictureInPicture2Icon className="size-4" />, onSelect: () => run(host.onFloatChat) }] : []),
     ...(menu ?? []),
-  ].map(entry => ({ ...entry, testId: entry.testId ?? `${testId}-${entry.id}` }));
+  ] as ViewerMenuItem[]).map(entry => ({ ...entry, testId: entry.testId ?? `${testId}-${entry.id}` }));
 
   return <ViewerBarContext.Provider value={space}>
     <section data-boring="viewer-frame" data-testid={`${testId}-frame`} data-tight={space.tight || undefined}

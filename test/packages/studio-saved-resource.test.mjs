@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Window } from 'happy-dom';
 import { createElement, act } from 'react';
 import { createMarkdownController } from '@boring/ui/markdown';
-import { useSaved } from '../../examples/studio/saved-resource.mjs';
+import { useSaved } from '../../registry/pi-app/use-saved.ts';
 
 const target = { resource: { providerId: 'fictional', path: 'notes.md' }, view: { kind: 'published' } };
 const snapshot = revision => ({ ref: { ...target, revision }, bytes: new TextEncoder().encode(`# ${revision}\n`), mediaType: 'text/markdown' });

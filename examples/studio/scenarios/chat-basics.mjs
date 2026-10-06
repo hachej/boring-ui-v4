@@ -84,7 +84,7 @@ export default [
     expect: [{ reply: /READY-AGAIN/ }, { reply: /BACK-AFTER-RESTART/ }, { userMessages: 2 }],
   },
   {
-    id: 'chat-history', group: 'Chat basics', title: 'History of conversations', description: 'Past conversations with title and time, search, New, switching and the earlier records.',
+    id: 'chat-history', group: 'Chat basics', title: 'History of conversations', description: 'The sessions pane: past conversations with title and time, search, New, switching; History pages the earlier records.',
     steps: [{ prompt: 'Reply with exactly: ENTER-OK' }],
     async verify(t) {
       const { browser, logText, q, qa, pause, history, dark } = t;
@@ -100,16 +100,16 @@ export default [
       await pause(300);
       await t.shots('chatui-history');
       void dark;
+      // The pane is docked beside the chat on a desktop.
+      assert.equal(await browser.evaluate(`${q('[data-testid=conversations]')}.dataset.drawer`), 'false');
       // Search narrows the list by title; no match says so.
-      await browser.type(q('[data-testid=conversation-search]'), 'enter-ok');
+      await history.search('enter-ok');
       await browser.until('search filtered', `${qa('[data-testid=conversation-row]')}.length >= 1 && ${qa('[data-testid=conversation-row]')}.every(row => /ENTER-OK/i.test(row.innerText))`, 5000);
-      await browser.press('Escape');
-      await browser.until('Escape closes the list', `!${q('[data-testid=conversations]')}`, 5000);
-      await history.open();
-      await browser.type(q('[data-testid=conversation-search]'), 'zzzz-no-such');
+      await history.search('zzzz-no-such');
       await browser.until('no match message', `${q('[data-testid=conversations-empty]')}?.textContent.includes('No conversation matches')`, 5000);
       await browser.screenshot('chatui-history-empty.png');
-      await history.close();
+      await history.search('');
+      await browser.until('the whole list again', `${qa('[data-testid=conversation-row]')}.length >= 2`, 5000);
       // Selecting another conversation switches the chat; the list marks it.
       const other = (await (async () => { await history.open(); const list = await history.rows(); await history.close(); return list; })()).find(row => !row.active);
       await history.select(other.id);
@@ -124,9 +124,8 @@ export default [
       await history.create();
       assert.equal(await history.count(), before + 1);
       await history.select(current);
-      // The earlier records of the open conversation stay reachable from the list's footer.
-      await history.open();
-      await browser.click(q('[data-testid=history-earlier]'));
+      // The earlier records of the open conversation: the chat header's History (the list itself is the sessions pane).
+      await browser.click(q('[data-testid=history-open]'));
       await browser.until('the read-only earlier records panel', `!!${q('[data-testid=history]')}`, 10000);
       await browser.click(q('[aria-label="Return to active conversation"]'));
       await browser.until('back to the transcript', `!${q('[data-testid=history]')}`, 5000);

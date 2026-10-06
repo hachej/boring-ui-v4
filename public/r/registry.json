@@ -715,6 +715,68 @@
       ]
     },
     {
+      "name": "pi-app",
+      "type": "registry:block",
+      "title": "Pi agent app",
+      "description": "AgentWorkspace: a whole agent page in one component. Left: the sessions pane (search, New, rename, archive, delete; collapsible, a drawer on a narrow screen). Center: PiChat. Right: the artifact viewers (artifact panel with versions, file viewer, auto-open of new artifacts) in the ArtifactWorkspace panel, a full-screen sheet on a phone. Props are data and callbacks; hooks for the conversations handler (useConversations), the chat transport (useRemoteChat) and saved resources (useSaved).",
+      "dependencies": [
+        "@boring/ui@0.0.0",
+        "@boring/files@0.0.0",
+        "react@19.3.0",
+        "react-dom@19.3.0",
+        "lucide-react@1.51.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/pi-chat",
+        "@boring-ui/pi-workspace",
+        "@boring-ui/viewers",
+        "@boring-ui/utils",
+        "@boring-ui/button"
+      ],
+      "files": [
+        {
+          "path": "registry/pi-app/agent-workspace.tsx",
+          "type": "registry:component",
+          "target": "components/pi-app/agent-workspace.tsx"
+        },
+        {
+          "path": "registry/pi-app/sessions.tsx",
+          "type": "registry:component",
+          "target": "components/pi-app/sessions.tsx"
+        },
+        {
+          "path": "registry/pi-app/artifact-panel.tsx",
+          "type": "registry:component",
+          "target": "components/pi-app/artifact-panel.tsx"
+        },
+        {
+          "path": "registry/pi-app/file-viewer.tsx",
+          "type": "registry:component",
+          "target": "components/pi-app/file-viewer.tsx"
+        },
+        {
+          "path": "registry/pi-app/file-kinds.ts",
+          "type": "registry:lib",
+          "target": "components/pi-app/file-kinds.ts"
+        },
+        {
+          "path": "registry/pi-app/use-saved.ts",
+          "type": "registry:hook",
+          "target": "components/pi-app/use-saved.ts"
+        },
+        {
+          "path": "registry/pi-app/use-conversations.ts",
+          "type": "registry:hook",
+          "target": "components/pi-app/use-conversations.ts"
+        },
+        {
+          "path": "registry/pi-app/use-remote-chat.ts",
+          "type": "registry:hook",
+          "target": "components/pi-app/use-remote-chat.ts"
+        }
+      ]
+    },
+    {
       "name": "viewers",
       "type": "registry:component",
       "title": "Viewers",

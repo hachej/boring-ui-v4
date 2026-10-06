@@ -41,16 +41,15 @@ function groupOf(value: ConversationItem['updatedAt'], now: number): string {
 const ORDER = ['Today', 'Yesterday', 'Previous 7 days', 'Older', 'Conversations'];
 
 /**
- * The list of past conversations: search, a new-conversation action, rows grouped by recency with the open one marked.
- * An anchored card on a wide screen and a full-screen sheet on a phone. Escape or a click outside closes it.
+ * The searchable list of past conversations: a search box (server-side when the host offers `search`), the Archived filter, rows grouped by
+ * recency with the open one marked, and the row actions the host offers (rename, archive, delete). It fills its container; `ConversationHistory`
+ * puts it in a popover or sheet, the `pi-app` block in its sessions pane. `onPicked` runs after a row is chosen.
  */
-export function ConversationHistory({ conversations, onClose, onBrowseEarlier, placement = 'below' }: {
+export function ConversationList({ conversations, onPicked, autoFocus = false }: {
   readonly conversations: ConversationsConfig;
-  readonly onClose: () => void;
-  /** When given, a footer action opens the earlier records of the open conversation. */
-  readonly onBrowseEarlier?: (() => void) | undefined;
-  /** `above` opens the card upwards from a bar docked at the bottom of the screen; the backdrop then covers the whole page. */
-  readonly placement?: 'below' | 'above';
+  readonly onPicked?: (() => void) | undefined;
+  /** Focus the search box on mount (not on touch screens). */
+  readonly autoFocus?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [archived, setArchived] = useState(false);
@@ -61,13 +60,8 @@ export function ConversationHistory({ conversations, onClose, onBrowseEarlier, p
   const [confirming, setConfirming] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const search = useRef<HTMLInputElement>(null);
-  const now = useMemo(() => Date.now(), []);
-  useEffect(() => {
-    if (!globalThis.matchMedia?.('(pointer: coarse)').matches) search.current?.focus();
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [onClose]);
+  const now = useMemo(() => Date.now(), [conversations.items]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (autoFocus && !globalThis.matchMedia?.('(pointer: coarse)').matches) search.current?.focus(); }, [autoFocus]);
   const serverSearch = conversations.search;
   useEffect(() => {
     const needle = query.trim();
@@ -97,16 +91,6 @@ export function ConversationHistory({ conversations, onClose, onBrowseEarlier, p
   const action = 'text-muted-foreground';
   const total = shown.reduce((sum, group) => sum + group.items.length, 0);
   return <>
-    <button type="button" tabIndex={-1} aria-hidden="true" data-testid="conversations-backdrop" onClick={onClose} className={cn('z-20 hidden cursor-default sm:block', placement === 'above' ? 'fixed inset-0' : 'absolute inset-0')} />
-    <section role="dialog" aria-label="Conversation history" data-testid="conversations"
-      className={cn('fixed inset-0 z-50 flex flex-col bg-background text-foreground sm:absolute sm:inset-auto sm:z-30 sm:w-[23rem] sm:rounded-2xl sm:border sm:border-border sm:shadow-xl',
-        placement === 'above' ? 'sm:bottom-full sm:left-0 sm:mb-2 sm:max-h-[min(26rem,60dvh)]' : 'sm:top-12 sm:right-3 sm:max-h-[min(34rem,calc(100%-4rem))]')}>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5 max-sm:pt-[max(0.625rem,env(safe-area-inset-top))]">
-        <Button size="icon-sm" variant="ghost" aria-label="Close history" title="Close" data-testid="conversations-close" onClick={onClose} className="sm:hidden"><ArrowLeftIcon className="size-4" aria-hidden="true" /></Button>
-        <h3 className="m-0 min-w-0 flex-1 text-sm font-semibold tracking-tight">History</h3>
-        {conversations.onNew && <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations.onNew!(); onClose(); }}><PlusIcon className="size-3.5" aria-hidden="true" />New</Button>}
-        <Button size="icon-sm" variant="ghost" aria-label="Close history" title="Close" onClick={onClose} className="max-sm:hidden"><XIcon className="size-4" aria-hidden="true" /></Button>
-      </header>
       <div className="relative flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-5.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <input ref={search} type="search" value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="Search conversations" aria-label="Search conversations" data-testid="conversation-search"
@@ -144,7 +128,7 @@ export function ConversationHistory({ conversations, onClose, onBrowseEarlier, p
               return <li key={item.id} className="group/row relative flex items-center">
                 <button type="button" data-testid="conversation-row" data-conversation-id={item.id} data-active={active ? 'true' : undefined} aria-current={active ? 'true' : undefined}
                   title={item.lastMessage ?? undefined}
-                  onClick={() => { if (!active) conversations.onSelect(item.id); onClose(); }}
+                  onClick={() => { if (!active) conversations.onSelect(item.id); onPicked?.(); }}
                   className={cn('flex min-h-10 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 max-sm:min-h-12 motion-reduce:transition-none',
                     active ? 'bg-muted font-medium' : 'hover:bg-muted/60')}>
                   <MessageSquareIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -170,6 +154,38 @@ export function ConversationHistory({ conversations, onClose, onBrowseEarlier, p
           </ul>
         </section>)}
       </div>
+  </>;
+}
+
+/**
+ * The list of past conversations in a dialog: a header with New, then `ConversationList`.
+ * An anchored card on a wide screen and a full-screen sheet on a phone. Escape or a click outside closes it.
+ */
+export function ConversationHistory({ conversations, onClose, onBrowseEarlier, placement = 'below' }: {
+  readonly conversations: ConversationsConfig;
+  readonly onClose: () => void;
+  /** When given, a footer action opens the earlier records of the open conversation. */
+  readonly onBrowseEarlier?: (() => void) | undefined;
+  /** `above` opens the card upwards from a bar docked at the bottom of the screen; the backdrop then covers the whole page. */
+  readonly placement?: 'below' | 'above';
+}) {
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [onClose]);
+  return <>
+    <button type="button" tabIndex={-1} aria-hidden="true" data-testid="conversations-backdrop" onClick={onClose} className={cn('z-20 hidden cursor-default sm:block', placement === 'above' ? 'fixed inset-0' : 'absolute inset-0')} />
+    <section role="dialog" aria-label="Conversation history" data-testid="conversations"
+      className={cn('fixed inset-0 z-50 flex flex-col bg-background text-foreground sm:absolute sm:inset-auto sm:z-30 sm:w-[23rem] sm:rounded-2xl sm:border sm:border-border sm:shadow-xl',
+        placement === 'above' ? 'sm:bottom-full sm:left-0 sm:mb-2 sm:max-h-[min(26rem,60dvh)]' : 'sm:top-12 sm:right-3 sm:max-h-[min(34rem,calc(100%-4rem))]')}>
+      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5 max-sm:pt-[max(0.625rem,env(safe-area-inset-top))]">
+        <Button size="icon-sm" variant="ghost" aria-label="Close history" title="Close" data-testid="conversations-close" onClick={onClose} className="sm:hidden"><ArrowLeftIcon className="size-4" aria-hidden="true" /></Button>
+        <h3 className="m-0 min-w-0 flex-1 text-sm font-semibold tracking-tight">History</h3>
+        {conversations.onNew && <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations.onNew!(); onClose(); }}><PlusIcon className="size-3.5" aria-hidden="true" />New</Button>}
+        <Button size="icon-sm" variant="ghost" aria-label="Close history" title="Close" onClick={onClose} className="max-sm:hidden"><XIcon className="size-4" aria-hidden="true" /></Button>
+      </header>
+      <ConversationList conversations={conversations} onPicked={onClose} autoFocus />
       {onBrowseEarlier && <footer className="shrink-0 border-t border-border p-1.5 max-sm:pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         <Button size="sm" variant="ghost" data-testid="history-earlier" className="w-full justify-start text-muted-foreground" onClick={() => { onBrowseEarlier(); onClose(); }}>
           <HistoryIcon className="size-3.5" aria-hidden="true" />Earlier messages in this conversation</Button>
