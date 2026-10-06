@@ -23,7 +23,18 @@ export function checkSource(file, source, policy) {
   const errors = sf.parseDiagnostics.map((d) => `BORING-PI-4 ${file}: cannot parse source: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
   const aliases = new Map();
   const fail = (law, message) => errors.push(`${law} ${file}: ${message}`);
+  // Folder rules inside one package (`pathRules`): a subpath such as a browser entry cannot import what its
+  // package may import elsewhere, by module name or by a relative path into a sibling folder.
+  const local = file.slice(`packages/${owner}/`.length);
+  const pathRules = (rules.pathRules ?? []).filter((rule) => local.startsWith(rule.prefix));
   function moduleRule(name, typeOnly) {
+    for (const rule of pathRules) {
+      if (!name.startsWith('.') && matches(name, rule.forbidden ?? [])) fail('BORING-PI-5', `forbidden import in ${rule.prefix}: ${name}`);
+      if (name.startsWith('.')) {
+        const target = posix.normalize(posix.join(dirname(file), name)).slice(`packages/${owner}/`.length);
+        if ((rule.forbiddenRelative ?? []).some((prefix) => target.startsWith(prefix))) fail('BORING-PI-5', `forbidden relative import in ${rule.prefix}: ${name}`);
+      }
+    }
     const pi = upstream(name, policy);
     if (pi && (privatePath(name) || !matches(name === pi ? '.' : `.${name.slice(pi.length)}`, policy.upstreamExports[pi]))) {
       fail('BORING-PI-4', `not a public upstream export: ${name}`);

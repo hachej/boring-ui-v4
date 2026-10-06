@@ -12,6 +12,7 @@
     "./file-guard": { "types": "./dist/file-guard.d.ts", "import": "./dist/file-guard.js" },
     "./artifacts": { "types": "./dist/artifacts.d.ts", "import": "./dist/artifacts.js" },
     "./ask-user": { "types": "./dist/ask-user.d.ts", "import": "./dist/ask-user.js" },
+    "./browser-task": { "types": "./dist/browser-task.d.ts", "import": "./dist/browser-task.js" },
     "./questions": { "types": "./dist/questions.d.ts", "import": "./dist/questions.js" },
     "./delivery": { "types": "./dist/delivery.d.ts", "import": "./dist/delivery.js" },
     "./question-response": { "types": "./dist/question-response.d.ts", "import": "./dist/question-response.js" },
@@ -22,7 +23,9 @@
     "./validation": { "types": "./dist/validation.d.ts", "import": "./dist/validation.js" },
     "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
     "./approval": { "types": "./dist/approval.d.ts", "import": "./dist/approval.js" },
-    "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" }
+    "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" },
+    "./model-gateway": { "types": "./dist/model-gateway.d.ts", "import": "./dist/model-gateway.js" },
+    "./gateway-provider": { "types": "./dist/gateway-provider.d.ts", "import": "./dist/gateway-provider.js" }
   },
   "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0" },
   "peerDependenciesMeta": { "@boring/files": { "optional": true } },

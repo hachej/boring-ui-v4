@@ -97,17 +97,54 @@ function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'boring-pi-policy-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const write = (path, content) => { const full = join(directory, path); mkdirSync(dirname(full), { recursive: true }); writeFileSync(full, content); };
-  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'docs/LAWS.md', 'package.json']) write(path, readFileSync(join(root, path)));
+  for (const path of ['ARCHITECTURE.json', 'VERIFY.json', 'INVARIANTS.md', 'docs/LAWS.md', 'package.json', 'packages/feedback/INVARIANTS.md']) write(path, readFileSync(join(root, path)));
   // Feature laws name their owner and structural evidence files; the fixture carries them too.
   for (const feature of Object.values(JSON.parse(readFileSync(join(root, 'VERIFY.json'), 'utf8')).features ?? {})) {
     for (const path of [feature.owner, ...feature.verifiers.flatMap((v) => v.kind === 'command' ? v.command.slice(2) : [])]) write(path, readFileSync(join(root, path)));
   }
+  // Every registered structural test file gets the synthetic body: registration, not the real test, is checked here.
+  for (const rule of Object.values(JSON.parse(readFileSync(join(root, 'VERIFY.json'), 'utf8')).invariants)) for (const verifier of rule.verifiers) if (verifier.kind === 'command') for (const path of verifier.command.slice(2)) write(path, 'import test from "node:test"; test("synthetic registry fixture, not runtime conformance", () => {});');
   write('test/pi-boundary.test.mjs', 'import test from "node:test"; test("synthetic registry fixture, not runtime conformance", () => {});');
   return { directory, write };
 }
-test('empty specification is structurally valid but reports six deferred proofs', (t) => {
+test('empty specification is structurally valid and reports the six root and five feedback deferred proofs (FEEDBACK-3, 5 and 7 discharged by WP9)', (t) => {
   const f = fixture(t); const result = loadBoundary(f.directory);
-  assert.deepEqual(result.errors, []); assert.equal(result.sources, 0); assert.equal(result.pending.length, 6);
+  assert.deepEqual(result.errors, []); assert.equal(result.sources, 0);
+  assert.equal(result.pending.filter((p) => p.id.startsWith('BORING-PI-')).length, 6);
+  assert.deepEqual(result.pending.filter((p) => p.id.startsWith('FEEDBACK-')).map((p) => p.id), ['FEEDBACK-1', 'FEEDBACK-2', 'FEEDBACK-4', 'FEEDBACK-6', 'FEEDBACK-8']);
+});
+test('package-owned laws: missing index row, missing runtime slot and wrong applicability fail', (t) => {
+  const f = fixture(t);
+  f.write('docs/LAWS.md', readFileSync(join(root, 'docs/LAWS.md'), 'utf8').replace(/^\| FEEDBACK-3 \|.*$/m, ''));
+  assert.ok(loadBoundary(f.directory).errors.some((p) => p.includes('not indexed: FEEDBACK-3')));
+  const g = fixture(t); const architecture = JSON.parse(readFileSync(join(g.directory, 'ARCHITECTURE.json')));
+  delete architecture.runtimeProofs['FEEDBACK-2']; g.write('ARCHITECTURE.json', JSON.stringify(architecture));
+  assert.ok(loadBoundary(g.directory).errors.some((p) => p.includes('unmatched')));
+  const h = fixture(t); const registry = JSON.parse(readFileSync(join(h.directory, 'VERIFY.json')));
+  registry.invariants['FEEDBACK-1'].appliesTo = ['ui']; h.write('VERIFY.json', JSON.stringify(registry));
+  assert.ok(loadBoundary(h.directory).errors.some((p) => p.includes('does not apply to its owner: FEEDBACK-1')));
+});
+test('package-owned laws: a law defined twice across owners or in another document fails', (t) => {
+  const f = fixture(t); f.write('packages/ui/INVARIANTS.md', '## FEEDBACK-1 — copied\n');
+  assert.ok(loadBoundary(f.directory).errors.some((p) => p.includes('defined twice: FEEDBACK-1')));
+  const g = fixture(t); g.write('docs/architecture/OTHER.md', '## FEEDBACK-2 — copied\n');
+  assert.ok(loadBoundary(g.directory).errors.some((p) => p.includes('defined twice: FEEDBACK-2')));
+});
+test('package-owned laws: an owner that is not its package, an unknown package or the root prefix is refused', (t) => {
+  for (const entry of [
+    { owner: 'packages/ui/INVARIANTS.md', prefix: 'FEEDBACK', package: 'feedback' },
+    { owner: 'packages/nowhere/INVARIANTS.md', prefix: 'FEEDBACK', package: 'nowhere' },
+    { owner: 'packages/feedback/INVARIANTS.md', prefix: 'BORING', package: 'feedback' },
+  ]) {
+    const f = fixture(t); const registry = JSON.parse(readFileSync(join(f.directory, 'VERIFY.json')));
+    registry.packageLaws = [entry]; f.write('VERIFY.json', JSON.stringify(registry));
+    assert.ok(loadBoundary(f.directory).errors.some((p) => p.includes('invalid package law owner')), JSON.stringify(entry));
+  }
+});
+test('package-owned laws leave the root laws unchanged', (t) => {
+  const f = fixture(t); const registry = JSON.parse(readFileSync(join(f.directory, 'VERIFY.json')));
+  registry.invariants['BORING-PI-6'].verifiers[1].command = ['node', '--test', 'test/contracts/other.test.mjs']; f.write('VERIFY.json', JSON.stringify(registry));
+  assert.ok(loadBoundary(f.directory).errors.some((p) => p.includes('missing/changed required runtime proof slot: BORING-PI-6')));
 });
 test('new library behavior requires package implementation tests', (t) => {
   const f = fixture(t); f.write('packages/files/src/index.ts', 'export const ready = true;');
@@ -190,3 +227,32 @@ test('feature laws need their owner, index entry, structural command and a named
   const errors = loadBoundary(f.directory).errors;
   for (const expected of ['feature law needs structural and runtime evidence: SELF-1', 'invalid journey command: SELF-2', 'journey evidence must name its selector: SELF-3', 'law is not indexed: SELF-4']) assert.ok(errors.includes(expected), `${expected} in ${errors.join('; ')}`);
 });
+// FEEDBACK-5, structural part: folder import rules inside @boring/feedback and the one-way edge from
+// existing packages. Not runtime evidence that the parts behave independently.
+const check = (file, body) => checkSource(file, body, policy);
+
+for (const [name, file, body] of [
+  ['page imports the agent package', 'packages/feedback/src/page/picker.ts', 'import { defineAgent } from "@boring/agent/agents";'],
+  ['page imports Pi', 'packages/feedback/src/page/x.ts', 'import type { Harness } from "@earendil-works/pi-durable";'],
+  ['page imports node', 'packages/feedback/src/page/x.ts', 'import { readFileSync } from "node:fs";'],
+  ['page reaches into the store folder', 'packages/feedback/src/page/x.ts', 'import { createFeedbackStore } from "../store/index.js";'],
+  ['ui reaches into the agent folder', 'packages/feedback/src/ui/x.tsx', 'import { createFeedbackCapability } from "../agent/index.js";'],
+  ['format imports the platform', 'packages/feedback/src/format/x.ts', 'import { randomUUID } from "@boring/files/platform";'],
+  ['format reaches into page', 'packages/feedback/src/format/x.ts', 'import { serializePage } from "../page/index.js";'],
+  ['store imports React', 'packages/feedback/src/store/x.ts', 'import { useState } from "react";'],
+  ['store imports the Pi runtime', 'packages/feedback/src/store/x.ts', 'import { defineTool } from "@earendil-works/pi-durable";'],
+  ['source imports the Pi runtime', 'packages/feedback/src/source/x.ts', 'import { Type } from "@earendil-works/pi-ai";'],
+  ['agent reaches into ui', 'packages/feedback/src/agent/x.ts', 'import { copyReport } from "../ui/index.js";'],
+  ['an existing package imports feedback', 'packages/ui/src/x.ts', 'import type { FeedbackReport } from "@boring/feedback/format";'],
+  ['files imports feedback', 'packages/files/src/x.ts', 'import { parseFeedback } from "@boring/feedback/format";'],
+  ['feedback imports an undeclared ui runtime entry', 'packages/feedback/src/page/x.ts', 'import { MarkdownEditor } from "@boring/ui/markdown-editor";'],
+]) test(`feedback refused: ${name}`, () => assert.ok(check(file, body).length, `${file}: ${body}`));
+
+for (const [name, file, body] of [
+  ['format type-imports ui contracts and files', 'packages/feedback/src/format/x.ts', 'import type { Anchor } from "@boring/ui/contracts"; import type { ResourceLocator } from "@boring/files";'],
+  ['page uses the platform at runtime', 'packages/feedback/src/page/x.ts', 'import { copyToClipboard } from "@boring/files/platform";'],
+  ['page reaches into format', 'packages/feedback/src/page/x.ts', 'import type { FeedbackReport } from "../format/index.js";'],
+  ['store uses format and the platform', 'packages/feedback/src/store/x.ts', 'import type { FeedbackReport } from "../format/index.js"; import { randomUUID } from "@boring/files/platform";'],
+  ['agent type-imports Pi', 'packages/feedback/src/agent/x.ts', 'import type { ToolRegistration } from "@earendil-works/pi-durable";'],
+  ['agent defines its native extension with the Pi runtime', 'packages/feedback/src/agent/x.ts', 'import { defineExtension, defineTool } from "@earendil-works/pi-durable"; import { Type } from "@earendil-works/pi-ai";'],
+]) test(`feedback accepted: ${name}`, () => assert.deepEqual(check(file, body), [], `${file}: ${body}`));

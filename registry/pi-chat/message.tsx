@@ -10,6 +10,7 @@ import { ArtifactCard } from './artifact-card';
 import type { ArtifactsConfig } from './artifact';
 import { ApprovalCard } from './approval-card';
 import { QuestionCard } from './question-card';
+import { FeedbackMention, feedbackMentionId } from './feedback-card';
 import type { AnswerOutcome } from './question-card';
 import { ActivityBlock } from './activity';
 import type { ActivityState } from './activity';
@@ -47,7 +48,8 @@ function UserText({ text, context }: { readonly text: string; readonly context: 
   const open = context.pieces?.openMention;
   const mention = 'rounded-md bg-background px-1.5 py-0.5 font-mono text-[0.8125rem] font-medium text-foreground ring-1 ring-border';
   return <div data-testid="user-text" className="max-w-[85%] rounded-2xl rounded-br-md bg-muted px-4 py-2.5 text-[0.9375rem] leading-6 whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">{context.pieces ? pieces(text, context.pieces).map((piece, at) => piece.kind === 'mention'
-    ? open ? <button key={at} type="button" data-testid="message-mention" data-path={piece.value} aria-label={`Open ${piece.value}`} onClick={() => open(piece.value!)} className={cn(mention, 'cursor-pointer outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center')}>{piece.text}</button>
+    ? feedbackMentionId(piece.value!) ? <FeedbackMention key={at} path={piece.value!} id={feedbackMentionId(piece.value!)!} onOpen={open} />
+    : open ? <button key={at} type="button" data-testid="message-mention" data-path={piece.value} aria-label={`Open ${piece.value}`} onClick={() => open(piece.value!)} className={cn(mention, 'cursor-pointer outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center')}>{piece.text}</button>
       : <span key={at} data-testid="message-mention" data-path={piece.value} className={mention}>{piece.text}</span>
     : piece.kind === 'skill' ? <span key={at} data-testid="message-skill" data-skill={piece.value} className="rounded-md bg-primary/10 px-1.5 py-0.5 font-medium text-foreground">{piece.text}</span>
     : piece.text) : text}</div>;

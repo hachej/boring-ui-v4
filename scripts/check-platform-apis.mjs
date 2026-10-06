@@ -9,9 +9,11 @@ import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-// Browser-reachable source. Server-only files (packages/agent, each example server.mjs, files/src/sqlite.ts, the remote handlers) are not listed.
+// Browser-reachable source. Server-only files (packages/agent except its gateway provider, each example server.mjs, files/src/sqlite.ts, the remote handlers) are not listed.
 export const BROWSER_GLOBS = [
+  /^packages\/agent\/src\/gateway-provider\.ts$/,
   /^packages\/ui\/src\/.+\.[jt]sx?$/,
+  /^packages\/feedback\/src\/(?:format|page|ui)\/.+\.[jt]sx?$/,
   /^packages\/files\/src\/(?!sqlite\.ts$|remote-handler\.ts$).+\.ts$/,
   /^packages\/execution\/src\/(?:remote-files|remote-shell)(?:-io|-protocol)?\.ts$/,
   /^registry\/.+\.tsx?$/,
@@ -32,6 +34,8 @@ export const ALLOWLIST = {
   'registry/pi-chat/utils.ts': { rules: ['navigator.clipboard'], requires: [/globalThis\.navigator\?\.clipboard/, /execCommand/] },
   'registry/pi-ambient/browser-notify.ts': { rules: ['Notification'], requires: [/typeof candidate === 'function'/, /permission/, /requestPermission/] },
   'examples/ambient/mic.mjs': { rules: ['navigator.secure', 'getUserMedia'], requires: [/typeof globalThis\.navigator\?\.mediaDevices\?\.getUserMedia === 'function'/] },
+  // Feedback voice: opens the microphone only from start() (the person's click), through an injectable getUserMedia whose default feature-detects.
+  'packages/feedback/src/page/voice/capture.ts': { rules: ['navigator.secure', 'getUserMedia'], requires: [/typeof globalThis\.navigator\?\.mediaDevices\?\.getUserMedia !== 'function'/, /options\.getUserMedia \?\? browserGetUserMedia\(\)/] },
   'registry/viewers/share.ts': { rules: ['navigator.share'], requires: [/typeof nav\?\.share === 'function'/, /copyText/] },
 };
 

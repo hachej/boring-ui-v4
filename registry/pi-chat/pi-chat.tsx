@@ -8,6 +8,7 @@ import type { ChatAttachment, NativeChatController } from '@boring/ui/native-cha
 import { ArrowDownIcon, HistoryIcon, Loader2Icon, RefreshCwIcon } from 'lucide-react';
 import { Button } from './button';
 import { Composer } from './composer';
+import type { ComposerFeedback } from './composer';
 import type { AttachmentsConfig, ConversationsConfig, EffortConfig, MentionsConfig, ModelConfig, SlashConfig } from './config';
 import { EmptyState } from './empty-state';
 import type { Suggestion } from './empty-state';
@@ -29,6 +30,8 @@ export type { AnswerOutcome } from './question-card';
 export { artifactKey, collectArtifacts, detectArtifact, parseArtifact } from './artifact';
 export type { ArtifactDescriptor, ArtifactsConfig, ArtifactTarget, ArtifactType } from './artifact';
 export type { CommandMention, CommandMentions } from './markdown';
+export { FeedbackCard, FeedbackMention, feedbackMentionId, feedbackRenderTool, feedbackResultView } from './feedback-card';
+export type { FeedbackCardConfig, FeedbackShowOutcome, FeedbackShowRequest } from './feedback-card';
 export type { Suggestion } from './empty-state';
 export type { AttachmentsConfig, ConversationItem, ConversationsConfig, EffortConfig, MentionResult, MentionsConfig, ModelConfig, ModelRef, SlashApi, SlashCommand, SlashConfig, SlashSkill, UploadResult } from './config';
 
@@ -47,6 +50,8 @@ export interface PiChatProps extends ChatFeatureProps {
   readonly suggestions?: readonly Suggestion[];
   /** Past conversations. The header's History button then opens a searchable list with the open one marked and a New action. Omit it and History pages through the earlier records of this conversation. */
   readonly conversations?: ConversationsConfig;
+  /** The optional Feedback button in the composer (the registry `feedback` item's `useComposerFeedback`). Omit it and nothing changes. */
+  readonly feedback?: ComposerFeedback;
 }
 
 const PAGE = 60, MORE = 40;
@@ -68,12 +73,12 @@ function ConnectionBadge({ kind }: { readonly kind: string }) {
 }
 
 function PiChatSession({ controller, title = 'Conversation', mode = 'expert', className, actions, decisions, controls, headerStart, renderEntry, renderTool, groupTool, commandMentions,
-  onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept = 'image/*', emptyState, emptyDescription, suggestions, slash, mentions, attachments, model, effort, artifacts, conversations, activeController: active }: PiChatProps & { readonly activeController: { readonly current: NativeChatController } }) {
+  onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept = 'image/*', emptyState, emptyDescription, suggestions, slash, mentions, attachments, model, effort, artifacts, conversations, feedback, activeController: active }: PiChatProps & { readonly activeController: { readonly current: NativeChatController } }) {
   const [browsingHistory, setBrowsingHistory] = useState(false);
   const [pickingConversation, setPickingConversation] = useState(false);
   const scrollToBottom = useRef<() => void>(() => {});
   const session = useChatSession({ controller, activeController: active, mode, actions, renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept,
-    slash, mentions, attachments, model, effort, artifacts, afterSend: () => scrollToBottom.current() });
+    slash, mentions, attachments, model, effort, artifacts, afterSend: () => scrollToBottom.current(), feedback });
   const { state, derived, queued, queueActions, working, waitingForAnswer, connected, error, act, textarea, rowContext, composer, empty, loading, developer } = session;
   const { rows, pinned, retry } = derived;
   const transcript = useTranscript(rows, PAGE, MORE);

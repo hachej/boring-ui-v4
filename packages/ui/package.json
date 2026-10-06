@@ -20,6 +20,10 @@
       "types": "./dist/contracts.d.ts",
       "import": "./dist/contracts.js"
     },
+    "./anchor-conformance": {
+      "types": "./dist/anchor-conformance.d.ts",
+      "import": "./dist/anchor-conformance.js"
+    },
     "./resources": {
       "types": "./dist/resources.d.ts",
       "import": "./dist/resources.js"

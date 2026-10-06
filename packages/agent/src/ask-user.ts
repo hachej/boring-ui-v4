@@ -1,8 +1,9 @@
-import { ToolTask, defineDocFamily, defineTool } from '@earendil-works/pi-durable';
-import type { Conversation, ToolExecutionApi, ToolRegistration, TaskId, Tx } from '@earendil-works/pi-durable';
+import { defineDocFamily, defineTool } from '@earendil-works/pi-durable';
+import type { Conversation, ToolExecutionApi, ToolRegistration, TaskId } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { Context } from '@earendil-works/chord';
+import { AmbiguousCall, UnknownCall, callBinding, callBindingId, ownBindingKey, waitForDocument } from './durable-wait.js';
 
 export const ASK_USER_TOOL = 'ask_user';
 export const ASK_USER_MAX_ANSWER = 2000;
@@ -17,30 +18,8 @@ const documents = defineDocFamily<AskDocument, null>({
   initial: () => ({ question: null }),
 });
 
-class UnknownQuestion extends Error {}
-class AmbiguousQuestion extends Error {}
-
 /** Bind an answer to the exact assistant entry that asked it. */
-export const askUserQuestionId = (assistantEntryId: number, callId: string): string => JSON.stringify([assistantEntryId, callId]);
-
-async function questionBinding(tx: Tx, conversation: Conversation, id: string): Promise<{ key: string; callId: string; taskId: TaskId }> {
-  let cursor;
-  let match: { key: string; callId: string; taskId: TaskId } | undefined;
-  do {
-    const page = await tx.scanTasks({ conversationId: conversation.id, kind: ToolTask.definition.name }, 100, cursor);
-    for (const task of page.items) {
-      const input = task.input;
-      if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input['callId'] !== 'string' || typeof input['assistant'] !== 'number') continue;
-      const key = askUserQuestionId(input['assistant'], input['callId']);
-      if (key !== id && input['callId'] !== id) continue;
-      if (match !== undefined) throw new AmbiguousQuestion();
-      match = { key, callId: input['callId'], taskId: task.id };
-    }
-    cursor = page.next;
-  } while (cursor !== undefined);
-  if (match === undefined) throw new UnknownQuestion();
-  return match;
-}
+export const askUserQuestionId = callBindingId;
 
 function refusal(options: readonly string[] | undefined, allowFreeText: boolean | undefined): string | undefined {
   if (options !== undefined && (options.length < 2 || options.length > 6 || options.some(option => typeof option !== 'string' || !option.trim() || option.length > 200)
@@ -74,7 +53,6 @@ export function createAskUserTool(options: { readonly description?: string } = {
   });
 }
 
-
 /**
  * Ask the person from inside a running native tool and wait for the answer. The question is a conversation document bound
  * to the asking assistant entry and tool call (`askUserQuestionId`), so it survives a restart (a replay-safe call
@@ -84,10 +62,7 @@ export function createAskUserTool(options: { readonly description?: string } = {
  */
 export async function askPerson(api: ToolExecutionApi, context: Context, question: { readonly prompt: string; readonly options?: readonly string[]; readonly allowFreeText?: boolean }): Promise<string> {
   const key = await api.commit(async tx => {
-    const task = await tx.task(api.taskId);
-    const input = task?.input;
-    if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input['assistant'] !== 'number') throw new Error('Question task has no assistant entry');
-    const key = askUserQuestionId(input['assistant'], api.callId);
+    const key = await ownBindingKey(tx, api);
     const document = await tx.doc(documents, api.conversationId, key, null);
     if (!document.question) {
       const legacy = await tx.doc(documents, api.conversationId, api.callId, null);
@@ -97,27 +72,10 @@ export async function askPerson(api: ToolExecutionApi, context: Context, questio
     if (document.question.taskId !== api.taskId) throw new Error('Question identity belongs to another task');
     return key;
   }, context);
-  const watch = await api.watchDoc(documents, api.conversationId, key, context);
-  if (!watch) throw new Error('Question record is missing');
-  const signal = context.abortSignal;
-  const settled = (value: typeof watch.value) => value?.question?.state.kind !== 'pending';
-  let final = watch.value;
-  try {
-    if (!settled(final)) {
-      final = await new Promise<typeof final>((resolve, reject) => {
-        if (signal?.aborted) return reject(signal.reason ?? new Error('Question cancelled'));
-        signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('Question cancelled')), { once: true });
-        void watch.closed.then(() => reject(new Error('Question observation closed')));
-        watch.start(async value => { if (settled(value)) resolve(value); });
-      });
-    }
-  } catch (error) {
-    if (signal?.aborted) {
-      try { await api.commit(async tx => { const { question: record } = await tx.doc(documents, api.conversationId, key, null); if (record?.state.kind === 'pending') record.state = { kind: 'cancelled' }; }, BACKGROUND_CONTEXT); }
-      catch { /* the answer path also refuses a question whose call has ended */ }
-    }
-    throw error;
-  } finally { await watch.stop(); }
+  const final = await waitForDocument(api, documents, key, context, value => value?.question?.state.kind !== 'pending', async tx => {
+    const { question: record } = await tx.doc(documents, api.conversationId, key, null);
+    if (record?.state.kind === 'pending') record.state = { kind: 'cancelled' };
+  }, 'Question');
   const state = final?.question?.state;
   if (state?.kind !== 'answered') throw new Error('Question cancelled');
   return state.answer;
@@ -134,14 +92,14 @@ export async function answerUserQuestion(conversation: Conversation, callId: str
   const text = answer.trim();
   try {
     return await conversation.commit(async tx => {
-      const binding = await questionBinding(tx, conversation, callId);
+      const binding = await callBinding(tx, conversation, callId);
       const task = await tx.task(binding.taskId);
       if (!task) return { kind: 'conflict', reason: 'The question task is unavailable' };
       const document = await tx.doc(documents, conversation.id, binding.key, null);
       if (!document.question) {
         const legacy = await tx.doc(documents, conversation.id, binding.callId, null);
         // Throwing rolls back the empty drafts created by an unknown question lookup.
-        if (legacy.question?.taskId !== task.id) throw new UnknownQuestion();
+        if (legacy.question?.taskId !== task.id) throw new UnknownCall();
         document.question = { ...legacy.question, options: [...legacy.question.options], state: { ...legacy.question.state } };
       }
       const question = document.question;
@@ -157,8 +115,8 @@ export async function answerUserQuestion(conversation: Conversation, callId: str
       return { kind: 'answered' };
     }, context) as AskUserAnswer;
   } catch (error) {
-    if (error instanceof AmbiguousQuestion) return { kind: 'conflict', reason: 'Use the assistant-entry-bound question ID' };
-    if (error instanceof UnknownQuestion) return { kind: 'unknown-question' };
+    if (error instanceof AmbiguousCall) return { kind: 'conflict', reason: 'Use the assistant-entry-bound question ID' };
+    if (error instanceof UnknownCall) return { kind: 'unknown-question' };
     throw error;
   }
 }

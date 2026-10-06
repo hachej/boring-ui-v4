@@ -6,7 +6,7 @@ import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { ChatAttachment, NativeChatController } from '@boring/ui/native-chat';
 import { useStickToBottom } from 'use-stick-to-bottom';
-import type { PendingUpload } from './composer';
+import type { ComposerFeedback, PendingUpload } from './composer';
 import type { AttachmentsConfig, EffortConfig, MentionsConfig, ModelConfig, ModelRef, SlashConfig } from './config';
 import { ModelEffortPicker } from './pickers';
 import type { CommandMentions } from './markdown';
@@ -67,11 +67,13 @@ export interface ChatSessionOptions extends Readonly<{ [Key in keyof ChatFeature
   readonly afterSend?: (() => void) | undefined;
   /** Extra attributes of the row context a surface needs (for example per-reply actions). */
   readonly rowExtras?: Partial<RowContext> | undefined;
+  /** The optional Feedback button: when feedback is pending, Send attaches it to the message first. */
+  readonly feedback?: ComposerFeedback | undefined;
 }
 
 export function useChatSession(options: ChatSessionOptions) {
   const { controller, activeController: active, mode, actions, renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept,
-    slash, mentions, attachments, model, effort, artifacts, afterSend, rowExtras } = options;
+    slash, mentions, attachments, model, effort, artifacts, afterSend, rowExtras, feedback } = options;
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(0);
@@ -110,6 +112,23 @@ export function useChatSession(options: ChatSessionOptions) {
   const waitingForAnswer = rows.some(row => row.type === 'assistant' && row.parts.some(part => (part.kind === 'question' || part.kind === 'approval') && !part.live && !part.result));
   const send = () => {
     if (sendBlocked || !current()) return;
+    const attach = feedback?.pending ? feedback.attach : undefined;
+    if (attach) {
+      // The pending feedback goes with this message: the host attaches it to the text, then the native send reads the draft.
+      act(async () => {
+        const typed = controller.getSnapshot().draft.text;
+        const attached = await attach(typed);
+        if (attached.kind === 'refused') throw new Error(attached.reason);
+        if (!current()) return;
+        controller.setText(attached.text);
+        const submission = await controller.send('followUp');
+        if (submission) feedback?.sent?.();
+        else if (current()) controller.setText(typed);
+      });
+      afterSend?.();
+      textarea.current?.focus();
+      return;
+    }
     act(() => controller.send('followUp'));
     afterSend?.();
     textarea.current?.focus();
@@ -234,6 +253,7 @@ export function useChatSession(options: ChatSessionOptions) {
     uploading: uploading > 0, canAttach: Boolean(onFiles || attachments), fileAccept: attachments ? attachments.accept ?? '' : fileAccept, onPickFiles: (files: readonly File[]) => { void upload(files); },
     slash, onSlashError: report, mentions, mentionPaths: picked, onMentionPicked: (path: string) => setPicked(value => value.includes(path) ? value : [...value, path]),
     uploads: pending, onDismissUpload: (id: string) => setPending(items => items.filter(item => item.id !== id)),
+    feedback,
   };
 
   return { state, derived, rows, queued, queueActions, working, waitingForAnswer, connected, sendBlocked, error, setError, report, act, current, textarea, rowContext, composer, pickers, empty, loading, developer };

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, Ref } from 'react';
-import { AlertCircleIcon, ArrowUpIcon, FileTextIcon, ListEndIcon, Loader2Icon, PaperclipIcon, PlusIcon, SlashIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertCircleIcon, ArrowUpIcon, FileTextIcon, ListEndIcon, Loader2Icon, MessageSquareIcon, PaperclipIcon, PlusIcon, SlashIcon, SquareIcon, XIcon } from 'lucide-react';
 import { Button } from './button';
 import { hasMention, mentionTrigger, removeMention, slashItems, slashQuery } from './config';
 import type { MentionsConfig, SlashConfig, SlashItem } from './config';
@@ -17,6 +17,28 @@ const BASE64 = /^[A-Za-z0-9+/=\s]+$/;
 /** A data URL for a thumbnail, only for common image types and well-formed base64. */
 export function thumbnail(mimeType: string, data: string): string | undefined {
   return SAFE_IMAGE.test(mimeType) && BASE64.test(data) ? `data:${mimeType};base64,${data}` : undefined;
+}
+
+/**
+ * The optional Feedback entry point (FEEDBACK.md, "UX"): a button beside the "+" menu that starts feedback mode on the host's page,
+ * and afterwards one chip for the pending feedback. The host owns everything else (the registry `feedback` item's
+ * `useComposerFeedback` returns this shape). Absent: the composer is unchanged.
+ */
+export interface ComposerFeedback {
+  /** Enters feedback mode on the page. */
+  readonly start: () => void;
+  /** Feedback mode is on: the button shows pressed. */
+  readonly active?: boolean;
+  /** Feedback is waiting to be sent with the next message: Send is allowed with no text. */
+  readonly pending?: boolean;
+  /** The pending feedback's chip, shown with the other chips. */
+  readonly chip?: ReactNode;
+  /** Feedback mode's controls while it is on, docked under the composer's row. */
+  readonly bar?: ReactNode;
+  /** Send: the text to send instead, with the feedback attached, or why it cannot be sent yet. */
+  readonly attach?: (text: string) => Promise<{ readonly kind: 'ok'; readonly text: string } | { readonly kind: 'refused'; readonly reason: string }>;
+  /** The message carrying the feedback was accepted. */
+  readonly sent?: () => void;
 }
 
 /** One file being uploaded (or that failed to upload), shown as a chip until it settles or is dismissed. */
@@ -60,10 +82,21 @@ export interface ComposerProps {
   readonly layout?: 'stacked' | 'inline';
   /** Host controls (for example a voice button) as round buttons between the model pill and the send button. */
   readonly barEnd?: ReactNode;
+  /** The optional Feedback button and chip. */
+  readonly feedback?: ComposerFeedback | undefined;
 }
 
 /** Round bar buttons share one look: a tinted circle, 44px so a thumb can hit it. */
 const ROUND = 'inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-muted text-foreground transition-colors outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-45 motion-reduce:transition-none';
+
+/** The Feedback button, a round bar button beside the "+" menu in both layouts. */
+function FeedbackButton({ feedback, disabled }: { readonly feedback: ComposerFeedback; readonly disabled: boolean }) {
+  return <button type="button" data-testid="composer-feedback" aria-pressed={feedback.active === true} disabled={disabled || feedback.active === true || feedback.pending === true}
+    title="Feedback: point at the page and say what is wrong" onClick={feedback.start}
+    className={cn(ROUND, feedback.active && 'bg-accent')}>
+    <MessageSquareIcon className="size-4" aria-hidden="true" /><span className="sr-only">Feedback</span>
+  </button>;
+}
 
 /** The "+" button and its small menu (Attach files, Commands). Arrow keys move, Enter picks, Escape and outside clicks close. */
 function PlusMenu({ disabled, onAttach, onCommands }: { readonly disabled: boolean; readonly onAttach?: (() => void) | undefined; readonly onCommands?: (() => void) | undefined }) {
@@ -152,7 +185,8 @@ export function Composer(props: ComposerProps) {
   const chips = (props.mentionPaths ?? []).filter(path => hasMention(text, path));
   const onChange = (event: ChangeEvent<HTMLTextAreaElement>) => { trackCaret(event.currentTarget); props.onText(event.currentTarget.value); };
 
-  const hasContent = text.trim().length > 0 || attachments.length > 0;
+  const { feedback } = props;
+  const hasContent = text.trim().length > 0 || attachments.length > 0 || feedback?.pending === true;
   const canSubmit = hasContent && !sendBlocked && !disabled;
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     props.onKeyDown?.(event);
@@ -172,7 +206,8 @@ export function Composer(props: ComposerProps) {
   const drop = (event: DragEvent) => { if (!canAttach) return; event.preventDefault(); setDragging(false); props.onPickFiles(Array.from(event.dataTransfer.files)); };
 
   const chipRows = <>
-    {(chips.length > 0 || (props.uploads?.length ?? 0) > 0) && <div className="flex flex-wrap gap-2 px-3 pt-3">
+    {(chips.length > 0 || (props.uploads?.length ?? 0) > 0 || Boolean(feedback?.chip)) && <div className="flex flex-wrap gap-2 px-3 pt-3">
+      {feedback?.chip}
       {chips.length > 0 && <ul data-testid="mention-chips" aria-label="Mentioned files" className="m-0 contents list-none p-0">
         {chips.map(path => <li key={path} data-testid="mention-chip" data-path={path} title={path} className="flex h-9 max-w-full sm:max-w-[16rem] items-center gap-1.5 rounded-full border border-border bg-muted/50 py-1 pr-1 pl-2.5">
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -230,6 +265,7 @@ export function Composer(props: ComposerProps) {
     <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2">
       {fileEl}
       {plus}
+      {feedback && <FeedbackButton feedback={feedback} disabled={disabled} />}
       {textareaEl}
       {props.barNote}
       {props.barStart}
@@ -238,6 +274,7 @@ export function Composer(props: ComposerProps) {
       {working && hasContent && <Button variant="secondary" size="sm" data-testid="composer-queue" disabled={!canSubmit} onClick={props.onSend} className="h-11 shrink-0 rounded-full px-4"><ListEndIcon className="size-3.5" aria-hidden="true" />Queue</Button>}
       {send}
     </div>
+    {feedback?.bar}
   </form>;
 
   return <form data-testid="composer" onSubmit={event => { event.preventDefault(); if (canSubmit) props.onSend(); }} onDragOver={drag} onDragLeave={drag} onDrop={drop}
@@ -251,6 +288,7 @@ export function Composer(props: ComposerProps) {
     <div className="flex flex-nowrap items-center gap-x-2 px-3 pt-1 pb-3">
       {fileEl}
       {plus}
+      {feedback && <FeedbackButton feedback={feedback} disabled={disabled} />}
       {props.barStart}
       {props.barNote}
       {uploading && !(props.uploads?.length) && <span role="status" className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2Icon className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />Preparing attachments…</span>}
@@ -260,5 +298,6 @@ export function Composer(props: ComposerProps) {
         <ListEndIcon className="size-3.5" aria-hidden="true" />Queue</Button>}
       {send}
     </div>
+    {feedback?.bar}
   </form>;
 }
