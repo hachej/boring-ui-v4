@@ -28,6 +28,12 @@ Native read/write/append, directory access, symlinks and exclusive temporary fil
 
 The native shell runs Pi's stock bash tool with buffered output: `onOutput` receives the combined stdout and stderr once when the command ends (never as a live stream), spill thresholds are accepted but nothing is spilled to a file, and `timeout` (seconds) aborts the command and returns `timeout`. Use public Bash `exec` for separate buffered stdout/stderr. Host Bash options select upstream limits and explicit network/custom commands. No native executable fallback or network transport is added. Host callbacks are trusted code.
 
+Errors are bounded in one place (`boundedMessage` in `src/virtual-filesystem.ts`): every error the native environment, the `git` command or a `fs` backing passes on toward a tool result is its message only, with stack-frame lines dropped even when a backing put them in the message, and at most `MAX_ERROR_CHARS` (2,000, exported from `/virtual`) characters. The whole error stays on `cause` for host logs. Command output itself is bounded by Pi's bash tool (its tail, 50 KB or 2,000 lines).
+
+### Python (opt-in, Node only)
+
+`createVirtualWorkspace({ providerId, python: true })` adds `python3` and `python` to every shell of the workspace (the native `exec`'s included): just-bash's CPython 3.13 compiled to WebAssembly, with the standard library, reading and writing the same files as the shell. It is off by default and is the only way to turn it on (shell options cannot). Limits: Node only, so it throws a clear `TypeError` in a browser or its workers; the runtime (about 10 MB, shipped inside `just-bash`) loads on the first call (about a second here; later calls about half a second); its memory is not contained by the shell's execution limits, so a script can grow the host process; there is no pip, package installation or network. A Python traceback is the script's own output and passes through unchanged.
+
 ## Optional local Git
 
 `/virtual-git` requires `isomorphic-git@1.42.6` and `@boring/files/git`. `createVirtualGitFs(workspace.filesystem)` supplies its public promise filesystem. The host creates one `createGitRepository({ fs, directory, author, authorize })`, then calls `installVirtualGitCommand({ bash, repository })`. Installation verifies the actual public `bash.fs` identity. Each command requires the selected root cwd. Native tools receive the same repository instance.

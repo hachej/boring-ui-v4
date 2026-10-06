@@ -2,9 +2,9 @@ import { defineExtension, defineTool } from '@earendil-works/pi-durable';
 import type { Extension, PromptSection, Registry, ToolExecutionResult, ToolRegistration } from '@earendil-works/pi-durable';
 import type { ExecutionEnv } from '@earendil-works/pi-durable/env';
 import { Type } from '@earendil-works/pi-ai';
-import type { TSchema } from '@earendil-works/pi-ai';
 import type { Context } from '@earendil-works/chord';
 import type { Skill } from './agents.js';
+import { jsonSchemaTool } from './json-schema-tool.js';
 
 /*
  * Self-evolution (docs/architecture/SELF-EVOLUTION.md, laws SELF-1..4 in this package's README): an agent keeps its own standing
@@ -89,11 +89,12 @@ async function runTool(description: ToolDescription, env: ExecutionEnv | undefin
   return { content: [{ type: 'text', text: output || '(no output)' }], ...(failed ? { isError: true, diagnostics: [{ severity: 'error' as const, message: `${description.run} exited with code ${result.value.exitCode}` }] } : {}) };
 }
 
+/** The Harness validates each call's arguments against the agent-written schema before `run` starts (see `jsonSchemaTool`). */
 function toolOf(description: ToolDescription): ToolRegistration {
-  return {
-    name: description.name, description: description.description, parameters: description.parameters as unknown as TSchema,
+  return jsonSchemaTool({
+    name: description.name, description: description.description, parameters: description.parameters,
     execute: (args, api, context) => runTool(description, api.env, args, context),
-  };
+  });
 }
 
 /** Validates one tool description; returns it or a reason. Paths that `run` names under `.agent/` must exist. */

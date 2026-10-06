@@ -103,7 +103,13 @@ export function createPresentTool(options: PresentToolOptions) {
   const maxBytes = options.maxBytes ?? 256 * 1024;
   return defineTool({
     name: 'present',
-    description: 'Show a file of the workspace to the person in a side panel instead of pasting it in your reply: a document, an HTML page, an SVG image or code. Write the file first, then call present with its path. Present it again after you change it.',
+    // How to use it travels with the tool, so every host that offers `present` gets the same rules without repeating them in its prompt.
+    description: [
+      'Show a file of the workspace to the person in a side panel instead of pasting it in your reply.',
+      'When the person asks for something substantial and self-contained (a report, document, HTML page, SVG image or program), write it to a file with the write tool, using a short descriptive path with the right extension (.md, .html, .svg with a viewBox, or the language\'s own), then call present with that path; never put that content in your reply. After present, reply with one or two short sentences and never repeat the content.',
+      'Short answers stay in the chat, and so does anything the person asks to have in the chat or without tools or artifacts: then call no tool.',
+      'To change, extend or fix something you presented: read the file again first (the person may have edited it; keep their changes), change it with edit (or write the whole new content) at the same path, never a second file, and call present again. If you do not remember the path, list the files.',
+    ].join(' '),
     parameters: Type.Object({ path: Type.String({ minLength: 1, maxLength: 512, description: 'The file path, relative to the workspace.' }) }, { additionalProperties: false }),
     replay: 'safe',
     execute: async (args, api, context) => {
