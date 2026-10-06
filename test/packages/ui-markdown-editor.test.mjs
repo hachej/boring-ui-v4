@@ -105,6 +105,29 @@ test('React/Tiptap Markdown editor public output (DOM environment, not browser q
     assert.equal(rewritten.safe, false);
     assert.match(rewritten.reasons[0], /rewrite/);
     assert.equal(checkMarkdownRichSafety('```\nkeep\n\n\n\nblank runs in code\n```\n').safe, true);
+    // GFM tables keep the text they were written in, padded or not.
+    for (const table of ['|a|b|\n|-|-|\n|1|2|\n', '| L | C | R |\n|:---|:---:|---:|\n| 1 | 2 | 3 |\n', 'a | b\n--- | ---\n1 | 2\n',
+      '| a | b |\n|---|---|\n| **bold** `code` | [link](https://fictional.invalid/) _it_ |\n', '| a | b |\n|---|---|\n| x \\| y | `p|q` |\n',
+      '| a | b |\n|---|---|\n|  | 2 |\n| 1 |  |\n']) assert.deepEqual(checkMarkdownRichSafety(table), { safe: true }, table);
+  });
+
+  await t.test('an unpadded aligned table opens rich, survives an edit elsewhere byte for byte, and an edited table is valid aligned GFM', async t => {
+    const raw = '# Stock\n\n|Item|Qty|Note|\n|:--|:-:|--:|\n|Tea|2|`a\\|b`|\n|Jam||[shop](https://fictional.invalid/) _soon_|\n\nEnd.\n';
+    const f = await fixture(t, raw);
+    assert.equal(f.container.querySelector('section').dataset.mode, 'rich');
+    assert.equal(f.container.querySelectorAll('[contenteditable] table tr').length, 3);
+    const edited = raw.replace('End.', '## End.');
+    await f.click('Heading 2');
+    assert.equal(f.controller.getSnapshot().text, edited, 'the table is written back exactly');
+    await f.click('Save'); await f.settled();
+    assert.equal(await f.saved(), edited);
+    // The caret at the end of a document ending in a table sits in its last cell: adding a row rewrites that table only.
+    const last = await fixture(t, '|L|C|R|\n|:-|:-:|-:|\n|a|`x`|[l](https://fictional.invalid/)|\n');
+    await last.click('Add table row');
+    const table = marked.lexer(last.controller.getSnapshot().text).find(token => token.type === 'table');
+    assert.ok(table, 'still a GFM table');
+    assert.deepEqual(table.align, ['left', 'center', 'right']);
+    assert.deepEqual(table.rows.map(row => row.map(cell => cell.text)), [['a', '`x`', '[l](https://fictional.invalid/)'], ['', '', '']]);
   });
 
   await t.test('a rich edit keeps tables, links, images and task lists byte for byte and Save publishes only the edit', async t => {
