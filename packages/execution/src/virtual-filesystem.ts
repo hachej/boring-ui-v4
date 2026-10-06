@@ -7,6 +7,8 @@ type WriteFileOptions = Exclude<Parameters<IFileSystem['writeFile']>[2], string 
 type DirentEntry = Awaited<ReturnType<NonNullable<IFileSystem['readdirWithFileTypes']>>>[number];
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { FileError, FileSystem, Result } from '@earendil-works/pi-durable/env';
+import { boundedMessage } from './bounded-error.js';
+export { MAX_ERROR_CHARS, boundedMessage } from './bounded-error.js';
 
 /** What the shell and the native environment need from the files under them: just-bash's interface plus an atomic file replace. */
 export type VirtualFiles = IFileSystem & {
@@ -17,17 +19,6 @@ export type VirtualFiles = IFileSystem & {
 const errno: Record<FileError['code'], string> = {
   not_found: 'ENOENT', not_directory: 'ENOTDIR', is_directory: 'EISDIR', permission_denied: 'EACCES', invalid: 'EINVAL', not_supported: 'ENOTSUP', aborted: 'ECANCELED', unknown: 'EIO',
 };
-/** Largest error text, in characters, that the shell, Git and the native environment of a virtual workspace pass on (into a tool result). */
-export const MAX_ERROR_CHARS = 2000;
-/**
- * The one bound on error text leaving a virtual workspace: the message only, never a stack (stack frames are dropped even when a backing
- * put them in its message), at most `MAX_ERROR_CHARS`. The whole error stays on `cause` for the host's own logs.
- */
-export function boundedMessage(error: unknown): string {
-  const text = (error instanceof Error ? error.message : String(error)).replace(/\n[ \t]*at [^\n]*/g, '').trim() || 'Unknown error';
-  const note = ` [error truncated at ${MAX_ERROR_CHARS} characters]`;
-  return text.length > MAX_ERROR_CHARS ? `${text.slice(0, MAX_ERROR_CHARS - note.length)}${note}` : text;
-}
 async function value<Value>(pending: Promise<Result<Value, FileError>>): Promise<Value> {
   const result = await pending;
   if (result.ok) return result.value;

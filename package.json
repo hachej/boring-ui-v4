@@ -36,6 +36,7 @@
     "cloudflare:build": "npm run build && node examples/cloudflare/scripts/build-browser.mjs",
     "cloudflare:dev": "wrangler dev --config examples/cloudflare/wrangler.jsonc",
     "cloudflare:deploy": "npm run cloudflare:build && wrangler deploy --config examples/cloudflare/wrangler.jsonc",
+    "aws:journey": "npm run build && node examples/aws/journey.mjs",
     "studio:journey:scripted": "node examples/studio/journey.mjs --scripted",
     "studio:smoke": "node examples/studio/journey.mjs --smoke",
     "studio:journey:correctness": "node examples/studio/journey-correctness.mjs",
@@ -65,11 +66,12 @@
     "test:definitions-consumer": "node scripts/test-definitions-consumer.mjs"
   },
   "devDependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1146.0",
     "@earendil-works/chord": "1.0.1",
     "@earendil-works/pi-ai": "1.0.1",
     "@earendil-works/pi-codemode": "1.0.1",
-    "@earendil-works/pi-mcp": "1.0.4",
     "@earendil-works/pi-durable": "1.0.1",
+    "@earendil-works/pi-mcp": "1.0.4",
     "@json-render/core": "0.21.0",
     "@json-render/react": "0.21.0",
     "@modelcontextprotocol/sdk": "1.32.0",

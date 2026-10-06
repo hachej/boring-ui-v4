@@ -301,6 +301,103 @@ test('virtual SQLite repository: seeded, git-enabled native env over the SQLite 
   } finally { await repo.close(); db.close?.(); }
 });
 
+// ---- AWS Code Interpreter environment: the real AWS SDK client against the offline fake (examples/aws/fake-code-interpreter.mjs).
+async function codeInterpreterFixture(t, users = ['user-a', 'user-b']) {
+  const { mkdtempSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { createCodeInterpreterEnv, efsUserLayout } = await import('@boring/execution/aws-code-interpreter');
+  const { startFakeCodeInterpreter } = await import('../../examples/aws/fake-code-interpreter.mjs');
+  const efs = mkdtempSync(join(tmpdir(), 'boring-efs-'));
+  const arn = user => `arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-${user}`;
+  const fake = await startFakeCodeInterpreter({ accessPoints: Object.fromEntries(users.map(user => [arn(user), join(efs, 'users', user)])) });
+  t.after(() => fake.close());
+  const client = await fake.client();
+  const open = (user, uid, session) => {
+    const layout = efsUserLayout({ userId: user, uid, runtimeMountPath: efs });
+    mkdirSync(layout.runtime.root, { recursive: true });
+    return createCodeInterpreterEnv({ client, codeInterpreterIdentifier: fake.codeInterpreterIdentifier, id: layout.namespaceId, pollIntervalMs: 20,
+      session: session ?? { start: { filesystemConfigurations: [layout.filesystemConfiguration({ accessPointArn: arn(user), fileSystemArn: 'arn:aws:elasticfilesystem:us-east-1:000000000000:file-system/fs-0' })] } },
+      mount: { path: layout.interpreter.mountPath, root: layout.runtime.root } });
+  };
+  return { fake, arn, open, efsUserLayout };
+}
+
+test('Code Interpreter env: file tools and interpreter commands share one folder; output, exit codes, timeout, abort and loss map to native results', { timeout: 30000 }, async t => {
+  const { fake, open } = await codeInterpreterFixture(t);
+  const interpreter = open('user-a', 2001), env = interpreter.env;
+  assert.equal(interpreter.sessionId(), undefined, 'the session starts on the first command, not before');
+  getOrThrow(await env.writeFile('notes/plan.md', 'draft\n', context));
+  let output = '';
+  const ran = getOrThrow(await env.exec('cat notes/plan.md && echo reviewed >> notes/plan.md && pwd && echo warn >&2 && exit 4', { onOutput: text => { output += text; } }, context));
+  assert.equal(ran.exitCode, 4);
+  assert.equal(output, 'draft\n/mnt/workspace\nwarn\n');
+  assert.equal(getOrThrow(await env.readTextFile('/mnt/workspace/notes/plan.md', context)), 'draft\nreviewed\n');
+  assert.deepEqual(getOrThrow(await env.listDir('notes', context)).map(entry => entry.path), ['/mnt/workspace/notes/plan.md']);
+  assert.equal(getOrThrow(await env.exec('test "$GREETING" = hi && test "$(basename "$PWD")" = notes', { env: { GREETING: 'hi' }, cwd: 'notes' }, context)).exitCode, 0);
+  const timedOut = await env.exec('sleep 5', { timeout: 0.2 }, context);
+  assert.equal(timedOut.ok ? 'ok' : timedOut.error.code, 'timeout');
+  const cancelled = withCancel(context);
+  setTimeout(() => cancelled.cancel(), 100);
+  const aborted = await env.exec('sleep 5', {}, cancelled.context);
+  assert.equal(aborted.ok ? 'ok' : aborted.error.code, 'aborted');
+  assert.equal(fake.calls.filter(call => call.name === 'stopTask').length, 2, 'timeout and abort both request stopTask');
+  // The service ends the session: commands report it, nothing restarts on its own, renew() is the owner's explicit choice.
+  const first = interpreter.sessionId();
+  fake.expire(first);
+  const gone = await env.exec('true', {}, context);
+  assert.equal(gone.ok ? 'ok' : gone.error.code, 'shell_unavailable');
+  assert.equal(interpreter.lost(), true);
+  assert.equal(getOrThrow(await env.readTextFile('notes/plan.md', context)), 'draft\nreviewed\n', 'files on the mount outlive the session');
+  assert.equal(interpreter.renew(), true);
+  assert.equal(getOrThrow(await env.exec('cat notes/plan.md', {}, context)).exitCode, 0);
+  assert.notEqual(interpreter.sessionId(), first);
+  // Releasing a consumer's view never stops the session; the owner's stop() does, once.
+  await env.cleanup(context);
+  assert.equal(fake.calls.filter(call => call.operation === 'StopCodeInterpreterSession').length, 0);
+  await interpreter.stop(context); await interpreter.stop(context);
+  assert.equal(fake.calls.filter(call => call.operation === 'StopCodeInterpreterSession').length, 1);
+  const stopped = await env.exec('true', {}, context);
+  assert.equal(stopped.ok ? 'ok' : stopped.error.code, 'shell_unavailable');
+  // A borrowed session is used as is and never stopped here.
+  const owner = open('user-a', 2001);
+  getOrThrow(await owner.env.exec('true', {}, context));
+  const borrowed = open('user-a', 2001, { sessionId: owner.sessionId() });
+  assert.equal(borrowed.owned, false);
+  assert.equal(getOrThrow(await borrowed.env.exec('cat notes/plan.md', {}, context)).exitCode, 0);
+  await borrowed.stop(context);
+  assert.equal(fake.calls.filter(call => call.operation === 'StopCodeInterpreterSession').length, 1);
+});
+
+test('Code Interpreter env: two users never see each other\'s folders (own access point, confined file tools, symlinks included)', { timeout: 30000 }, async t => {
+  const { fake, arn, open, efsUserLayout } = await codeInterpreterFixture(t);
+  const a = open('user-a', 2001).env, b = open('user-b', 2002).env;
+  getOrThrow(await a.writeFile('secret.md', 'only for user a\n', context));
+  getOrThrow(await b.exec('true', {}, context));
+  assert.deepEqual(fake.calls.filter(call => call.operation === 'StartCodeInterpreterSession').map(call => call.filesystemConfigurations[0].efsConfiguration.accessPointArn), [arn('user-b')]);
+  assert.deepEqual(getOrThrow(await b.listDir('.', context)), []);
+  for (const path of ['../user-a/secret.md', '/mnt/workspace/../workspace/../efs/users/user-a/secret.md', '/tmp/x']) {
+    const read = await b.readTextFile(path, context);
+    assert.equal(read.ok ? 'read' : read.error.code, 'permission_denied', path);
+  }
+  // Links made in the interpreter that point at the other folder (as this host resolves them) are refused, dangling or not.
+  getOrThrow(await b.exec('ln -s ../user-a/secret.md near && ln -s ../user-a/new.md dangling && ln -s ../user-a linked', {}, context));
+  for (const path of ['near', 'linked/secret.md']) { const read = await b.readTextFile(path, context); assert.equal(read.ok ? 'read' : read.error.code, 'permission_denied', path); }
+  for (const path of ['dangling', 'linked/new.md']) { const write = await b.writeFile(path, 'x', context); assert.equal(write.ok ? 'written' : write.error.code, 'permission_denied', path); }
+  const canonical = await b.canonicalPath('near', context);
+  assert.equal(canonical.ok ? canonical.value : canonical.error.code, 'permission_denied');
+  assert.equal(getOrThrow(await b.fileInfo('near', context)).kind, 'symlink', 'the link itself is visible; its target is not');
+  assert.equal(getOrThrow(await a.exists('new.md', context)), false);
+  assert.equal(getOrThrow(await a.readTextFile('secret.md', context)), 'only for user a\n');
+  // The layout is pure and refuses anything that could name another folder.
+  for (const userId of ['..', 'a/b', 'A', '', '.hidden', 'x'.repeat(65)]) assert.throws(() => efsUserLayout({ userId, uid: 2001 }), TypeError, userId);
+  assert.throws(() => efsUserLayout({ userId: 'user-a', uid: 0 }), TypeError);
+  const layout = efsUserLayout({ userId: 'user-a', uid: 2001 });
+  assert.deepEqual([layout.accessPoint.rootDirectory, layout.runtime.root, layout.runtime.journal, layout.harnessFile('main'), layout.interpreter.mountPath],
+    ['/boring/users/user-a', '/mnt/efs/users/user-a', '/mnt/efs/state/user-a/journal.sqlite', '/mnt/efs/state/user-a/main.pi.sqlite', '/mnt/workspace']);
+  assert.throws(() => layout.harnessFile('../b'), TypeError);
+});
+
 test('errors leaving a virtual workspace are bounded: no stack frames reach a tool result, and the text stays under MAX_ERROR_CHARS', { timeout: 15000 }, async t => {
   const { MAX_ERROR_CHARS } = await import('@boring/execution/virtual');
   const { createBashTool } = await import('@earendil-works/pi-durable/tools');

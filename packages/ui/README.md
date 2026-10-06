@@ -40,7 +40,7 @@ Rich formatting and Markdown source controls share controller state. Mounting, s
 
 Detailed alignment uses a matrix of at most 250,000 cells after trimming equal prefix/suffix lines. Larger comparisons show all removed/added middle lines with an explicit notice. This bounds the comparison matrix, not total document size, string-comparison cost or rendered rows.
 
-The rich view includes a Document outline built from the native parsed headings. Navigation changes the native selection without editing or saving Markdown. Rich/source switches retain each mode's selection and direction while the buffer version is unchanged. External replacement or source edits invalidate older bookmarks; changing controllers starts a new local session. Human heading controls use the mounted presentation command described below.
+The rich view includes a Document outline built from the native parsed headings. Navigation changes the native selection without editing or saving Markdown. Rich/source switches retain each mode's selection and direction while the buffer version is unchanged. Text projected from outside (load, refresh, discard, source edits) puts the rich selection at the document start, where the browser leaves its caret, so a click or formatting command never acts on a stale selection at the end. External replacement or source edits invalidate older bookmarks; changing controllers starts a new local session. Human heading controls use the mounted presentation command described below.
 
 ### Mounted Markdown commands
 

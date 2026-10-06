@@ -223,7 +223,7 @@ alone. No private Pi patch is a remedy for an incompatible policy. See the curre
 Ship small executable host recipes for remote coding, background app work and an assistant/editor
 beside an existing app. Prefer native TypeScript over a setup DSL. Worker skills stay in
 boring-stack and deployment workflows in boring-factory, not the UI runtime.
-Specified, not built: [AWS AgentCore recipe](HOST-RECIPE-AWS.md) (Runtime + Code Interpreter + EFS).
+Built and proven offline, live run pending an account: [AWS AgentCore recipe](HOST-RECIPE-AWS.md) (Runtime or ECS + Code Interpreter + one EFS folder per user).
 
 Use standard shadcn distribution. For a deliberately public source release, qualify direct GitHub
 registry consumption before operating a server. Private distribution uses a supported authenticated

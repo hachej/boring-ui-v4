@@ -43,6 +43,10 @@
     "./virtual-sqlite": {
       "types": "./dist/virtual-sqlite.d.ts",
       "import": "./dist/virtual-sqlite.js"
+    },
+    "./aws-code-interpreter": {
+      "types": "./dist/aws-code-interpreter.d.ts",
+      "import": "./dist/aws-code-interpreter.js"
     }
   },
   "peerDependencies": {
@@ -51,7 +55,8 @@
     "just-bash": "3.6.0",
     "isomorphic-git": "1.42.6",
     "@boring/files": "0.0.0",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "@aws-sdk/client-bedrock-agentcore": "3.1146.0"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -67,6 +72,9 @@
       "optional": true
     },
     "zod": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agentcore": {
       "optional": true
     }
   }
