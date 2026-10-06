@@ -323,6 +323,26 @@ test('self-evolution with approval on a channel: reload asks with what changes, 
   await until('approval question sent', () => channel.sent.length === 7);
   assert.match(channel.sent[6].reply.prompt, /^Allow reload\? Instructions: 0 line\(s\) added, 0 removed, reordered or edited/);
   assert.equal(kept.state.instructions.text, 'Second fictional rule.\nFictional new rule.');
+
+  // Restoring the populated approved state (a restart): the approved tool comes back without reading .agent/.
+  const restarted = defineAgent({ id: 'evolving', model: caller.model, instructions: 'Reload when asked.', selfEvolving: { approval }, workspace: 'one' });
+  const restartedRegistry = createRegistry(); restarted.install(restartedRegistry);
+  const restored = await restarted.restore();
+  assert.deepEqual(restored.tools.current, ['echo_args']);
+  assert.deepEqual(restored.errors, []);
+  assert.ok(restartedRegistry.snapshot().tools().some(item => item.tool.name === 'echo_args'));
+  // A host upgrade now has its own echo_args: the approved agent tool of that name is refused and reported, never installed over it.
+  const hostEcho = defineTool({ name: 'echo_args', description: 'The host\'s fictional echo.', parameters: Type.Object({}), replay: 'safe',
+    execute: async () => ({ content: [{ type: 'text', text: 'host echo' }] }) });
+  const upgraded = defineAgent({ id: 'evolving', model: caller.model, tools: [hostEcho], instructions: 'Reload when asked.', selfEvolving: { approval }, workspace: 'one' });
+  const upgradedRegistry = createRegistry(); upgraded.install(upgradedRegistry);
+  const report = await upgraded.restore();
+  assert.deepEqual(report.tools.current, []);
+  assert.deepEqual(report.errors.map(error => error.path), ['.agent/tools/echo_args.json']);
+  assert.match(report.text, /the name echo_args is already a tool of this agent; the approved tool was not restored/);
+  const echoes = upgradedRegistry.snapshot().tools().filter(item => item.tool.name === 'echo_args');
+  assert.equal(echoes.length, 1);
+  assert.equal((await echoes[0].tool.execute({}, { env }, context)).content[0].text, 'host echo');
 });
 
 test('a question of a browser-started run stays in the browser', async t => {
@@ -879,4 +899,111 @@ test('dispatch: a host-started run (a schedule, say) is submitted once per reque
   await until('released and answered', () => channel.sent.length === 4);
   assert.deepEqual(channel.sent.slice(2).map(sent => sent.reply.markdown).sort(), ['Answer: Fictional digest two', 'Answer: Morning!']);
   assert.deepEqual(invites, ['fictional-sender']);
+});
+
+/** A scripted model for held-window cases: "Save ..." calls save_fictional_note, a tool result is reported, anything else is "Answer: <text>". */
+function windowModel() {
+  const model = { id: 'fictional-window', name: 'Fictional window', provider: 'fictional-window-provider', api: 'fictional-window-api', baseUrl: 'https://fixture.invalid',
+    input: ['text'], reasoning: false, contextWindow: 32768, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+  const stream = (_model, transcript) => {
+    const events = createAssistantMessageEventStream();
+    const out = { role: 'assistant', content: [], api: model.api, provider: model.provider, model: model.id, timestamp: 1, stopReason: 'stop',
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    const last = transcript.messages.filter(item => item.role !== 'system').at(-1);
+    const said = typeof last?.content === 'string' ? last.content : last?.content?.map(part => part.text ?? '').join('') ?? '';
+    events.push({ type: 'start', partial: out });
+    if (last?.role === 'user' && said.startsWith('Save')) {
+      const toolCall = { type: 'toolCall', id: `call-${transcript.messages.length}`, name: 'save_fictional_note', arguments: { title: 'Fictional picnic' } };
+      out.content.push(toolCall); out.stopReason = 'toolUse';
+      events.push({ type: 'toolcall_start', contentIndex: 0, partial: out }, { type: 'toolcall_end', contentIndex: 0, toolCall, partial: out }, { type: 'done', reason: 'toolUse', message: out });
+    } else {
+      const text = last?.role === 'toolResult' ? `Result: ${said}` : `Answer: ${said}`;
+      out.content.push({ type: 'text', text });
+      events.push({ type: 'text_start', contentIndex: 0, partial: out }, { type: 'text_delta', contentIndex: 0, delta: text, partial: out },
+        { type: 'text_end', contentIndex: 0, content: text, partial: out }, { type: 'done', reason: 'stop', message: out });
+    }
+    events.end(out);
+    return events;
+  };
+  const models = createModels();
+  models.setProvider(createProvider({ id: model.provider, models: [model], auth: { apiKey: { name: 'Fictional keyless provider', resolve: async () => ({ auth: {} }) } }, api: { stream, streamSimple: stream } }));
+  return { models, model: { provider: model.provider, modelId: model.id } };
+}
+
+/** A gateway with a 24-hour reply window and a controllable clock over one conversation whose agent has an approval-gated tool. */
+async function windowFixture(t, { send, admitInput } = {}) {
+  const { models, model } = windowModel();
+  const runs = [];
+  const write = requireApproval(defineTool({ name: 'save_fictional_note', description: 'Save a fictional note.', parameters: Type.Object({ title: Type.String() }), replay: 'unsafe',
+    execute: async args => { runs.push(args.title); return { content: [{ type: 'text', text: `saved ${args.title}` }] }; } }), { summarize: args => `save "${args.title}"` });
+  const agent = defineAgent({ id: 'window', model, tools: [write], instructions: 'Save.' });
+  const registry = createRegistry(); agent.install(registry);
+  const harness = await Harness.open(new MemoryStorage(), { registry, models }, context);
+  const conversation = await agent.createConversation(harness, context);
+  const channel = fakeChannel(), events = [];
+  const clock = { at: Date.now() };
+  const adapter = { ...channel.adapter, replyWindowMs: 24 * 60 * 60 * 1000, ...(send ? { send: (address, reply) => send(address, reply, channel) } : {}) };
+  const gateway = createChannelGateway({ harness, context, adapters: [adapter], route: async () => conversation, now: () => clock.at, onEvent: event => events.push(event), retryDelaysMs: [], ...(admitInput ? { admitInput } : {}) });
+  t.after(async () => { await gateway.close(); await harness.close(context); });
+  return { conversation, gateway, channel, events, clock, runs, handle: gateway.handler('fake') };
+}
+
+test('a held approval stays unanswerable until its notification is delivered: a reply during a blocked or failed send answers nothing', async t => {
+  let gate, failNext = true;
+  const blocked = new Promise(resolve => { gate = resolve; });
+  const f = await windowFixture(t, { send: async (address, reply, channel) => {
+    if (reply.kind === 'question') {
+      if (failNext) { failNext = false; throw Object.assign(new Error('fictional permanent failure'), { retryable: false }); }
+      await blocked;
+    }
+    channel.sent.push({ address, reply });
+  } });
+  // The person wrote once, then 25 hours later a host-started run asks for approval: the question is held.
+  await f.handle(webhook([message('w0', 'Hello', 'fictional-sender', f.clock.at)]));
+  await until('first answer', () => f.channel.sent.length === 1);
+  f.clock.at += 25 * 60 * 60 * 1000;
+  await f.gateway.dispatch({ channel: 'fake', address: 'fictional-sender', conversation: f.conversation, requestId: 'host:save:1', text: 'Save the fictional picnic' });
+  await until('question held', () => f.events.some(event => event.kind === 'held' && event.reply === 'question'));
+
+  // The person writes: the release's send fails. The question stays held, so an Approve right after answers nothing.
+  await f.handle(webhook([message('w1', 'Morning', 'fictional-sender', f.clock.at)]));
+  await until('failed send reported', () => f.events.some(event => event.kind === 'undeliverable' && /fictional permanent failure/.test(event.reason)));
+  f.clock.at += 1000;
+  await f.handle(webhook([message('w2', 'Approve', 'fictional-sender', f.clock.at)]));
+  // Next message: the release's send now blocks. An Approve sent while it is blocked answers nothing either.
+  f.clock.at += 1000;
+  await f.handle(webhook([message('w3', 'Still there?', 'fictional-sender', f.clock.at)]));
+  f.clock.at += 1000;
+  await f.handle(webhook([message('w4', 'Approve', 'fictional-sender', f.clock.at)]));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.deepEqual(f.runs, []);
+  assert.ok(!f.channel.sent.some(sent => sent.reply.kind === 'question'));
+  // Delivered: from now on a later reply answers it, once.
+  gate();
+  await until('question delivered', () => f.channel.sent.some(sent => sent.reply.kind === 'question'));
+  assert.equal(f.channel.sent.filter(sent => sent.reply.kind === 'question').length, 1);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  f.clock.at += 60_000;
+  await f.handle(webhook([message('w5', 'Approve', 'fictional-sender', f.clock.at)]));
+  await until('approved run', () => f.runs.length === 1);
+  await until('result sent', () => f.channel.sent.some(sent => /Result: saved Fictional picnic/.test(sent.reply.markdown ?? '')));
+  assert.deepEqual(f.runs, ['Fictional picnic']);
+});
+
+test('a capped sender still reopens the reply window: replies held for it are released though the new message is refused', async t => {
+  let capped = false;
+  const f = await windowFixture(t, { admitInput: async () => capped ? 'Fictional daily limit reached.' : true });
+  await f.handle(webhook([message('c0', 'Hello', 'fictional-sender', f.clock.at)]));
+  await until('first answer', () => f.channel.sent.length === 1);
+  // 25 hours later a host-started run answers: held for the window.
+  f.clock.at += 25 * 60 * 60 * 1000;
+  await f.gateway.dispatch({ channel: 'fake', address: 'fictional-sender', conversation: f.conversation, requestId: 'host:digest:1', text: 'Fictional digest' });
+  await until('answer held', () => f.events.some(event => event.kind === 'held' && event.reply === 'answer'));
+  assert.equal(f.channel.sent.length, 1);
+  // The person is over their cap: the message is refused as new work, but it opens the window, so the held answer goes out.
+  capped = true;
+  await f.handle(webhook([message('c1', 'Anything new?', 'fictional-sender', f.clock.at)]));
+  await until('held answer released', () => f.channel.sent.some(sent => sent.reply.markdown === 'Answer: Fictional digest'));
+  assert.ok(f.channel.sent.some(sent => sent.reply.kind === 'notice' && sent.reply.text === 'Fictional daily limit reached.'));
+  assert.equal(await f.gateway.owed(), 0);
 });

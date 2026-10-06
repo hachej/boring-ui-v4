@@ -467,9 +467,22 @@ export function createSelfEvolution(options: SelfEvolutionOptions): SelfEvolutio
   /** Install the saved approved state as it was; nothing is read from `.agent/`. */
   const restore = () => serial(async () => {
     const state = await approval!.load();
-    const skills = (state?.skills ?? []).map(skill => ({ name: skill.name, description: skill.description, body: skill.body }));
+    // The host's tools and skills may have changed since the approval (an upgrade): an approved name that is now the host's is
+    // refused and reported, exactly as a reload would, never installed over the host's.
+    const errors: SelfEvolutionError[] = [];
+    const reserved = new Set([...options.reserved, 'reload', 'load_skill']);
+    const tools: ToolDescription[] = [];
+    for (const tool of state?.tools ?? []) {
+      if (reserved.has(tool.name) || tools.some(other => other.name === tool.name)) { errors.push({ path: `${TOOLS}/${tool.name}.json`, message: `the name ${tool.name} is already a tool of this agent; the approved tool was not restored` }); continue; }
+      tools.push(tool);
+    }
+    const skills: Skill[] = [];
+    for (const skill of state?.skills ?? []) {
+      if ([...hostSkills, ...skills].some(other => other.name === skill.name)) { errors.push({ path: `${SKILLS}/${skill.name}.md`, message: `a skill named ${skill.name} already exists; the approved skill was not restored` }); continue; }
+      skills.push({ name: skill.name, description: skill.description, body: skill.body });
+    }
     // A state saved before the executable set was recorded (version 1) approved no files: its tools refuse until the next reload.
-    const found: Scan = { errors: [], text: state?.instructions?.text ?? '', digest: state?.instructions?.digest ?? '', skills, tools: [...state?.tools ?? []], files: { ...state?.version === 2 ? state.files : {} }, available: true,
+    const found: Scan = { errors, text: state?.instructions?.text ?? '', digest: state?.instructions?.digest ?? '', skills, tools, files: { ...state?.version === 2 ? state.files : {} }, available: true,
       instructions: { present: Boolean(state?.instructions), characters: state?.instructions?.characters ?? 0, truncated: (state?.instructions?.characters ?? 0) > MAX_AGENT_INSTRUCTIONS } };
     agentSkills = found.skills;
     described = new Map(found.tools.map(tool => [tool.name, tool]));
@@ -477,7 +490,7 @@ export function createSelfEvolution(options: SelfEvolutionOptions): SelfEvolutio
     approvedFiles = found.files;
     current = build(found.tools, found.files);
     for (const registry of registries) registry.install(current);
-    return report({ available: true, added: [], changed: [], removed: [], current: [...described.keys()] }, found.skills, found.instructions, []);
+    return report({ available: true, added: [], changed: [], removed: [], current: [...described.keys()] }, found.skills, found.instructions, errors);
   });
 
   return {

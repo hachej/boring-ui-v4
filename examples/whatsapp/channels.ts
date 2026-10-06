@@ -311,6 +311,8 @@ export function createChannelGateway(options: ChannelGatewayOptions): ChannelGat
   const pendingConversation = new Map<string, string>();
   /** Messages being accepted in this process: a concurrent copy of one (a provider retry racing the first) waits for it. */
   const accepting = new Map<string, Promise<AcceptResult>>();
+  /** Held questions being sent by a `release` in this process: another release never sends one twice. */
+  const releasing = new Set<string>();
 
   async function send(item: Pick<OutboxItem, 'channel' | 'address' | 'requestId'>, message: ChannelReply): Promise<boolean> {
     const adapter = adapters.get(item.channel);
@@ -480,8 +482,9 @@ export function createChannelGateway(options: ChannelGatewayOptions): ChannelGat
   }
 
   /**
-   * The person wrote: send what was held for the reply window, replies first, then questions (answerable from now on, so a
-   * message sent before one of them was delivered never answers it).
+   * The person wrote: send what was held for the reply window, replies first, then questions. A held question stays held (so
+   * no reply answers it) until its send succeeded; then it is unheld and marked asked in one commit, so only a message sent
+   * after that answers it. A failed send keeps it held for the next message.
    */
   async function release(channel: string, address: string): Promise<void> {
     const { items, questions } = await harness.commit(async tx => {
@@ -489,24 +492,33 @@ export function createChannelGateway(options: ChannelGatewayOptions): ChannelGat
       if (!windowOpen(outbox, channel, address)) return { items: [], questions: [] };
       const items = outbox.items.filter(item => item.held && item.channel === channel && item.address === address);
       for (const item of items) delete item.held;
-      const questions = Object.entries(outbox.heldQuestions ?? {}).filter(([, held]) => held.channel === channel && held.address === address);
-      for (const [key] of questions) delete outbox.heldQuestions![key];
+      const questions = Object.entries(outbox.heldQuestions ?? {}).filter(([key, held]) => held.channel === channel && held.address === address && !releasing.has(key));
       return { items: items.map(copy), questions: questions.map(([key, held]) => ({ key, ...held, question: { ...held.question, options: [...held.question.options] } })) };
     }, context);
     // A delivery still finishing its hold is awaited first, so the released item is not mistaken for it.
     for (const item of items) void (delivering.get(item.requestId) ?? Promise.resolve()).then(() => deliver(item));
     for (const held of questions) {
-      const conversation = await harness.conversation(held.conversationId, context);
-      if (!conversation || !(await openQuestions(conversation, context)).some(question => question.callId === held.question.callId)) continue;
-      if (!await send(held, { kind: 'question', ...held.question })) continue;
-      await conversation.commit(async tx => {
-        const outbox = await tx.doc(Outbox);
-        const current = outbox.items.find(value => value.requestId === held.requestId);
-        if (current && !current.asked.includes(held.question.callId)) current.asked.push(held.question.callId);
-        // Asked now: only a reply sent after this answers it.
-        outbox.askedAt ??= {};
-        outbox.askedAt[held.key] = now();
-      }, context);
+      if (releasing.has(held.key)) continue;
+      releasing.add(held.key);
+      try {
+        const conversation = await harness.conversation(held.conversationId, context);
+        const stillOpen = conversation && (await openQuestions(conversation, context)).some(question => question.callId === held.question.callId);
+        if (!conversation || !stillOpen) {
+          // Answered or gone elsewhere (the browser, a stop): nothing to send.
+          await harness.commit(async tx => { const outbox = await tx.doc(Outbox); if (outbox.heldQuestions) delete outbox.heldQuestions[held.key]; }, context);
+          continue;
+        }
+        if (!await send(held, { kind: 'question', ...held.question })) continue;
+        await conversation.commit(async tx => {
+          const outbox = await tx.doc(Outbox);
+          if (outbox.heldQuestions) delete outbox.heldQuestions[held.key];
+          const current = outbox.items.find(value => value.requestId === held.requestId);
+          if (current && !current.asked.includes(held.question.callId)) current.asked.push(held.question.callId);
+          // Asked now: only a reply sent after this answers it.
+          outbox.askedAt ??= {};
+          outbox.askedAt[held.key] = now();
+        }, context);
+      } finally { releasing.delete(held.key); }
     }
   }
 
@@ -556,8 +568,9 @@ export function createChannelGateway(options: ChannelGatewayOptions): ChannelGat
     accepting.set(key, run);
     let result: AcceptResult;
     try { result = await run; } finally { accepting.delete(key); }
-    // The person wrote: whatever waited for the reply window goes now.
-    if (result === 'admitted' || result === 'answered') void release(message.channel, message.address).catch(() => undefined);
+    // The person wrote: whatever waited for the reply window goes now, whether or not this message itself was admitted as new
+    // work (a capped sender, a refused or duplicate reply). `release` checks the window, which only a verified, routed message opens.
+    void release(message.channel, message.address).catch(() => undefined);
     return result;
   }
 
