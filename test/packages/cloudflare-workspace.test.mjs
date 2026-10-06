@@ -360,7 +360,9 @@ test('an open chat watch with a session token ends when the session expires', as
   clearInterval(alive);
   assert.match(body, /"kind":"end","reason":"revoked"/);
   assert.ok(Date.now() - started <= 2500, 'ended at the expiry');
-  // After expiry the same forwarded request is refused outright.
+  // After expiry the same forwarded request is refused outright. The revocation timer may fire a millisecond before the clock
+  // reaches the expiry second, so wait until the clock has passed it.
+  while (Date.now() <= session.exp * 1000) await new Promise(resolve => setTimeout(resolve, 5));
   assert.equal((await handler(forwardedRequest(spoofed, session.exp))).status, 403);
 });
 
