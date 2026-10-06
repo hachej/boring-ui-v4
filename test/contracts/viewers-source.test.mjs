@@ -52,6 +52,14 @@ test('viewer frame, panes and share (DOM environment, not browser qualification)
     return { container, q, click, render: async next => { await act(async () => rootNode.render(next)); } };
   };
   const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  // Waits for a controller's own signal (a save settled, a refresh reported) instead of a fixed delay: a store write can take longer on a busy machine.
+  const until = (controller, done) => act(() => new Promise((resolve, reject) => {
+    const failed = setTimeout(() => { stop(); reject(new Error('the controller never reached the expected state')); }, 10000);
+    const check = () => { if (done(controller.getSnapshot())) { clearTimeout(failed); stop(); resolve(); } };
+    const stop = controller.subscribe(check);
+    check();
+  }));
+  const saved = controller => until(controller, state => state.save.kind === 'settled');
   const h = createElement;
 
   await t.test('the frame shows a standard action only when its handler is supplied', async t => {
@@ -198,11 +206,11 @@ test('viewer frame, panes and share (DOM environment, not browser qualification)
     assert.equal(view.q('[data-testid="viewer-status"]').textContent, 'Unsaved');
     const base = d.controller.getSnapshot().base.target;
     await d.publish('elsewhere', '# Plan\n\nchanged by someone else\n', base);
-    await view.click('[data-testid="viewer-more"]'); await view.click('[data-testid="viewer-refresh"]'); await settle();
+    await view.click('[data-testid="viewer-more"]'); await view.click('[data-testid="viewer-refresh"]'); await until(d.controller, state => state.remote !== null);
     assert.equal(d.controller.getSnapshot().text, '# Plan\n\n- [x] done\n- [ ] local edit\n', 'Refresh kept the unsaved edit');
     assert.equal(view.q('[data-testid="viewer-status"]').textContent, 'Changed elsewhere');
     assert.match(view.container.textContent, /Your local text has been kept/);
-    await view.click('[data-testid="viewer-save"]'); await settle();
+    await view.click('[data-testid="viewer-save"]'); await saved(d.controller);
     // Unsupported constructs: rich is unavailable.
     const raw = await documents(t, 'text/markdown', '---\ntitle: x\n---\n\n<div>raw</div>\n');
     const unsafe = await mount(t, h(markdownPane.MarkdownPane, { controller: raw.controller, title: 'Raw' }));
@@ -221,7 +229,7 @@ test('viewer frame, panes and share (DOM environment, not browser qualification)
     assert.ok(view.q('textarea[aria-label="HTML source"]'));
     assert.equal(view.q('[data-testid="viewer-save"]') === null, true);
     await act(async () => { const area = view.q('textarea'); Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(area, '<p>edited</p>'); area.dispatchEvent(new window.Event('input', { bubbles: true })); });
-    await view.click('[data-testid="viewer-save"]'); await settle();
+    await view.click('[data-testid="viewer-save"]'); await saved(d.controller);
     assert.equal(new TextDecoder().decode((await d.read()).snapshot.bytes), '<p>edited</p>');
     assert.equal(view.q('[data-testid="viewer-status"]') === null, true);
   });
