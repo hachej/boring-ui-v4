@@ -56,7 +56,7 @@ const SECTIONS = {
   present: () => `Showing files: if the person asks for the answer in the chat, or says without tools or without artifacts, call no tool at all and write the answer in the chat, however long it is. Otherwise, whenever the person asks you to write something substantial and self-contained (a report, document, HTML page, SVG image or a program), you MUST write it to a file in the workspace with the write tool and then call present with that file's path, and never write it in your reply. Use a short descriptive path with the right extension: .md for documents, .html for pages, .svg for images (with a viewBox), and the language's own extension for programs. After present reply with one or two short sentences and never repeat the file's content.
 Whenever the person asks you to change, extend, fix or revise something you already made, you MUST read the file again first (the person may have edited it and you must keep their changes), change it with edit (or write the complete new content), and call present again with the same path. Never create a second file for a revision and never answer a revision with text only. If you do not remember the path, list the files.
 ${HTML_RUNTIME_NOTE}`,
-  notes: () => `Shared document: notes.md in the workspace is a Markdown document that you and the person both edit. Read it with read before changing it, change it with edit (or create it with write when it is missing), and never discard lines you were not asked to change.`,
+  notes: ({ notes = 'notes.md' }) => `Shared document: ${notes} in the workspace is a Markdown document that you and the person both edit. Read it with read before changing it, change it with edit (or create it with write when it is missing), and never discard lines you were not asked to change.`,
   canvas: () => `Canvas: draw diagrams, boxes and arrows on the one shared tldraw canvas that the person sees and edits (not as an SVG artifact, unless an SVG image is asked for). Always call read_canvas first, then add_canvas_shapes or remove_canvas_shapes (a canvas that is not saved yet is created by the first add). Lay shapes out on a tidy grid: boxes about 180 wide and 90 high, at least 80 apart, never on top of shapes you read. Connect shapes with arrows by id, adding shapes and their arrows in one call. Never remove or redraw shapes you were not asked to change. If a call is refused because the canvas changed, call read_canvas again and retry once.`,
   workspace: () => `Workspace: you also have a workspace of files (your working directory; use paths relative to it). Use read, list_files, write and edit to inspect and change files instead of guessing. Read a file before you change it: a change to a file you have not read, or that the person changed since you read it, is refused; then read it again and redo the change on top of what is there. Files the person attaches are saved under uploads/. A message may already contain the content of files the person attached or @mentioned: use it directly instead of reading the file again.`,
   shell: () => `Use bash to run commands in the workspace. Report real command output; never invent it.`,
@@ -78,11 +78,14 @@ const ALWAYS = new Set(['intro', 'ask']);
  * @param {string} [options.root] the workspace root as the ExecutionEnv names it (the provider's file system `cwd`); needed with a workspace part
  * @param {{ providerId: string, read: Function, keep: Function, queue: object } | undefined} [options.files] the workspace provider (`@boring/files/workspace`): the guard serialises with its queue and `present` keeps revisions in it
  * @param {object} [options.access] the agent's principal for the provider
+ * @param {string} [options.notes] the shared document's path in the workspace (default `notes.md`)
  * @param {{ capabilities: string[], tools?: object[], extensions?: object[] }[]} [options.parts]
- * @param {string} [options.selfEvolving] the workspace instance id: the agent keeps its own instructions, skills and tools in that workspace's
- *   `.agent/` and applies them with `reload` (docs/architecture/SELF-EVOLUTION.md). Off when absent. Its tools run through the host's `exec`.
+ * @param {string | { workspace: string, approval: object }} [options.selfEvolving] the workspace instance id: the agent keeps its own instructions,
+ *   skills and tools in that workspace's `.agent/` and applies them with `reload` (docs/architecture/SELF-EVOLUTION.md). Off when absent. Its
+ *   tools run through the host's `exec`. `{ workspace, approval }`: the person approves every reload and only approved state takes effect
+ *   (`approval` keeps that state; see `SelfEvolutionApproval` in @boring/agent/agents).
  */
-export function defineStandardAgent({ id = 'standard', model, cwd, root, thinkingLevel = 'medium', files, access, parts = [], selfEvolving }) {
+export function defineStandardAgent({ id = 'standard', model, cwd, root, thinkingLevel = 'medium', files, access, parts = [], selfEvolving, notes }) {
   const guarded = Boolean(files) && parts.some(part => part.capabilities.includes('workspace'));
   if (guarded && !root) throw new TypeError('A workspace needs its root for the file guard');
   const capabilities = [...(guarded ? ['present', 'notes'] : []), 'ask', 'skills', ...parts.flatMap(part => part.capabilities), ...(selfEvolving ? ['self-evolving'] : [])];
@@ -93,8 +96,9 @@ export function defineStandardAgent({ id = 'standard', model, cwd, root, thinkin
   ];
   // The guard wraps Pi's own read, write and edit, so it is selected after the extensions that register them.
   const extensions = [...parts.flatMap(part => part.extensions ?? []), ...(guarded ? [createFileGuard({ files, root, resolveAccess: () => access })] : [])];
-  const instructions = ORDER.filter(key => ALWAYS.has(key) || capabilities.includes(key)).map(key => SECTIONS[key]()).join('\n\n');
+  const instructions = ORDER.filter(key => ALWAYS.has(key) || capabilities.includes(key)).map(key => SECTIONS[key]({ notes })).join('\n\n');
   const agent = defineAgent({ id, model, thinkingLevel, instructions, tools, extensions, skills: SKILLS, ...(cwd ? { cwd } : {}),
-    ...(selfEvolving ? { selfEvolving: true, workspace: selfEvolving } : {}) });
+    ...(typeof selfEvolving === 'string' ? { selfEvolving: true, workspace: selfEvolving } : {}),
+    ...(selfEvolving && typeof selfEvolving === 'object' ? { selfEvolving: { approval: selfEvolving.approval }, workspace: selfEvolving.workspace } : {}) });
   return { agent, capabilities };
 }

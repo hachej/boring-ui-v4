@@ -13,8 +13,10 @@
 //    names the old SQLite resource store (`openSqliteResources` and its types or tables), the old document and artifact tools
 //    (`read_document`, `save_document`, `patch_document`, `create_artifact`, `update_artifact`, `read_artifact`,
 //    `list_artifacts`), the artifact `index.json` or the `/api/workspace-resources` route. Files live in a workspace behind
-//    `createWorkspaceProvider`; agents use Pi's native file tools and `present`. Exempt: this file, which lists them, and the
-//    history section of a README headed exactly "## Migrating from the removed resource store" (the old call to new call note).
+//    `createWorkspaceProvider`; agents use Pi's native file tools and `present`. Exempt: this file, which lists them, the
+//    history section of a README headed exactly "## Migrating from the removed resource store" (the old call to new call note),
+//    and `MIGRATIONS`: the Cloudflare recipe's one-time move of data its deployed objects still hold in the old tables, and the
+//    test fixture that builds that old layout to prove the move. They read the old tables to rename them; nothing else may.
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,13 +25,14 @@ import { spawnSync } from 'node:child_process';
 export const REMOVED_FILE_APIS = /\b(?:openSqliteResources|SqliteResourceProvider|SqliteResourceOptions|SqliteFileResourceOptions|SqliteConnectionResourceOptions|boring_documents|boring_versions|read_document|save_document|patch_document|create_artifact|update_artifact|read_artifact|list_artifacts)\b|workspace-resources|\bindex\.json\b/g;
 
 const HISTORY_HEADING = '## Migrating from the removed resource store';
+export const MIGRATIONS = new Set(['examples/cloudflare/src/legacy-storage.mjs', 'test/fixtures/cloudflare-legacy-storage.mjs']);
 
 /** Every tracked file (or each of `files`) that names a removed file API, as `path:line: name`. */
 export function removedFileApis(root, files) {
   const listed = files ?? spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
   const found = [];
   for (const path of listed) {
-    if (path === 'scripts/check-handlers.mjs') continue;
+    if (path === 'scripts/check-handlers.mjs' || MIGRATIONS.has(path)) continue;
     let text;
     try { text = readFileSync(resolve(root, path), 'utf8'); } catch { continue; }
     if (text.includes('\0')) continue;

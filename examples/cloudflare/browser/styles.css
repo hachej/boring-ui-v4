@@ -17,3 +17,8 @@ body { margin: 0; background: var(--background); color: var(--foreground); font:
 .cf-gate button { font: inherit; padding: 0.625rem 0.75rem; border: 0; border-radius: 0.5rem; background: var(--primary); color: var(--primary-foreground); cursor: pointer; min-height: 2.75rem; }
 .cf-gate .cf-error { color: var(--destructive); }
 @media (max-width: 900px) { .cf-notes { min-height: 2.75rem; } }
+/* The workspace file list and, on a phone, the way from the document back to the chat. */
+.cf-files ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+.cf-files li button { width: 100%; text-align: left; min-height: 2.5rem; padding: 0.375rem 0.625rem; border: 1px solid var(--border); border-radius: 0.5rem; background: transparent; color: inherit; font: inherit; font-family: ui-monospace, Menlo, monospace; font-size: 0.8125rem; cursor: pointer; overflow-wrap: anywhere; }
+.cf-files li button:hover { background: var(--muted); }
+.cf-open-chat { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 60; display: inline-flex; align-items: center; gap: 0.5rem; min-height: 3rem; padding: 0 1.125rem; border: 0; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font: inherit; font-weight: 500; box-shadow: 0 4px 16px rgb(0 0 0 / 0.18); cursor: pointer; }

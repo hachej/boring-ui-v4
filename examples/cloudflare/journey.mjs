@@ -84,7 +84,8 @@ try {
     }
   });
   if (!debugRoutes) await step('the debug routes are off unless ENABLE_DEBUG_ROUTES is set', async () => {
-    for (const route of ['restart', 'atomicity']) assert.equal((await api(`/api/debug/${route}`, { method: 'POST' })).status, 404);
+    for (const route of ['restart', 'atomicity', 'holds', 'holds/release']) assert.equal((await api(`/api/debug/${route}`, { method: 'POST' })).status, 404);
+    assert.equal((await api('/api/debug/holds')).status, 404);
   });
   for (const scenario of scenarios) {
     if (only && !only.includes(scenario.id) && !only.includes(slug(scenario.group))) continue;

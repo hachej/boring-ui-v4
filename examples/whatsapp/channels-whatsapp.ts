@@ -8,6 +8,11 @@ import type { ChannelAdapter, ChannelMessage, ChannelReceipt, ChannelReply } fro
 export const WHATSAPP = Object.freeze({
   channel: 'whatsapp', bodyLimit: 1_048_576, graphOrigin: 'https://graph.facebook.com', apiVersion: 'v25.0', maxText: 4096,
   maxButtons: 3, maxButtonTitle: 20, maxRows: 10, maxRowTitle: 24, maxInteractiveBody: 1024,
+  /**
+   * Meta's customer service window: free-form messages reach a person only within 24 hours of their last message; outside it
+   * only an approved template does. Five minutes are kept back for clock skew and the send itself.
+   */
+  replyWindowMs: 24 * 60 * 60 * 1000 - 5 * 60 * 1000,
 });
 
 /** Host-owned secrets. Only `withCredentials` sees them, for the length of one call. */
@@ -28,16 +33,30 @@ export interface WhatsAppChannelOptions {
   readonly now?: () => number;
   /** Mark each admitted message read and show the typing indicator. Default true. */
   readonly typingIndicator?: boolean;
+  /** Override Meta's reply window (`WHATSAPP.replyWindowMs`); tests only. */
+  readonly replyWindowMs?: number;
+  /**
+   * An approved template (no variables) sent outside the reply window to invite the person to write, for example "Your
+   * scheduled task has a result: reply to see it." A template does not reopen the window for free-form text: the held reply
+   * still goes when the person answers. Without one, the reply simply waits for their next message.
+   */
+  readonly inviteTemplate?: { readonly name: string; readonly language: string };
 }
+
+/** Meta's own identifiers of a failed call: enough to diagnose it or quote it to Meta support. Never a token or message text. */
+export interface WhatsAppApiErrorDetail { readonly code?: number; readonly subcode?: number; readonly type?: string; readonly fbtraceId?: string }
 
 export class WhatsAppApiError extends Error {
   readonly status: number;
   readonly retryable: boolean;
-  constructor(status: number, retryable: boolean) {
-    super(`WhatsApp Cloud API request failed (${status})`);
+  readonly detail: WhatsAppApiErrorDetail;
+  constructor(status: number, retryable: boolean, detail: WhatsAppApiErrorDetail = {}) {
+    const parts = [detail.code === undefined ? '' : `code ${detail.code}`, detail.subcode === undefined ? '' : `subcode ${detail.subcode}`, detail.fbtraceId ? `fbtrace ${detail.fbtraceId}` : ''].filter(Boolean);
+    super(`WhatsApp Cloud API request failed (${status}${parts.length ? `; ${parts.join(', ')}` : ''})`);
     this.name = 'WhatsAppApiError';
     this.status = status;
     this.retryable = retryable;
+    this.detail = detail;
   }
 }
 
@@ -58,13 +77,19 @@ export function createWhatsAppChannel(options: WhatsAppChannelOptions): ChannelA
       body: JSON.stringify({ messaging_product: 'whatsapp', ...payload }),
     });
     if (response.ok) return;
-    let transient = false, code: number | undefined;
+    let transient = false, code: number | undefined, detail: WhatsAppApiErrorDetail = {};
     try {
       const body: unknown = await response.json();
-      if (record(body) && record(body['error'])) { transient = body['error']['is_transient'] === true; code = typeof body['error']['code'] === 'number' ? body['error']['code'] : undefined; }
+      if (record(body) && record(body['error'])) {
+        const error = body['error'];
+        transient = error['is_transient'] === true;
+        code = typeof error['code'] === 'number' ? error['code'] : undefined;
+        detail = { ...(code === undefined ? {} : { code }), ...(typeof error['error_subcode'] === 'number' ? { subcode: error['error_subcode'] } : {}),
+          ...(typeof error['type'] === 'string' ? { type: error['type'].slice(0, 60) } : {}), ...(typeof error['fbtrace_id'] === 'string' ? { fbtraceId: error['fbtrace_id'].slice(0, 60) } : {}) };
+      }
     } catch { /* HTTP status still classifies it */ }
     const retryable = transient || (code !== undefined && [1, 2, 4, 17, 32, 613, 80007].includes(code)) || response.status === 408 || response.status === 429 || response.status >= 500;
-    throw new WhatsAppApiError(response.status, retryable);
+    throw new WhatsAppApiError(response.status, retryable, detail);
   }
 
   return {
@@ -87,6 +112,9 @@ export function createWhatsAppChannel(options: WhatsAppChannelOptions): ChannelA
     send: async (address, reply) => options.withCredentials(async credentials => {
       for (const payload of renderWhatsAppReply(reply)) await post({ recipient_type: 'individual', to: address, ...payload }, credentials);
     }),
+    replyWindowMs: options.replyWindowMs ?? WHATSAPP.replyWindowMs,
+    ...(options.inviteTemplate ? { invite: async (address: string) => options.withCredentials(credentials =>
+      post({ recipient_type: 'individual', to: address, type: 'template', template: { name: options.inviteTemplate!.name, language: { code: options.inviteTemplate!.language } } }, credentials)) } : {}),
     ...(options.typingIndicator === false ? {} : {
       received: async (message: ChannelMessage) => options.withCredentials(credentials =>
         post({ status: 'read', message_id: message.messageId, typing_indicator: { type: 'text' } }, credentials)),
@@ -134,11 +162,38 @@ export function parseWhatsAppMessages(payload: unknown, options: { readonly phon
         const text = inboundText(message);
         if (text === undefined) continue;
         const stamp = typeof message['timestamp'] === 'string' && /^\d+$/.test(message['timestamp']) ? Number(message['timestamp']) * 1000 : receivedAt;
-        out.push({ channel: WHATSAPP.channel, address: message['from'], messageId: message['id'], text, receivedAt: Number.isSafeInteger(stamp) ? stamp : receivedAt });
+        const choice = choiceOf(message);
+        out.push({ channel: WHATSAPP.channel, address: message['from'], messageId: message['id'], text, receivedAt: Number.isSafeInteger(stamp) ? stamp : receivedAt, ...(choice ? { choice } : {}) });
       }
     }
   }
   return out;
+}
+
+/** Option ids name their question: `q:` + base64url of `[question, option]`. WhatsApp allows 256 characters per id. */
+export function encodeChoice(question: string, option: string): string | undefined {
+  const id = `q:${btoa(unescape(encodeURIComponent(JSON.stringify([question, option])))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+  return id.length <= 256 ? id : undefined;
+}
+export function decodeChoice(id: string): { question: string; option: string } | undefined {
+  if (!id.startsWith('q:')) return undefined;
+  try {
+    const value: unknown = JSON.parse(decodeURIComponent(escape(atob(id.slice(2).replace(/-/g, '+').replace(/_/g, '/')))));
+    return Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && typeof value[1] === 'string' ? { question: value[0], option: value[1] } : undefined;
+  } catch { return undefined; }
+}
+/**
+ * A tapped button or list row. One we sent names its question in the id; any other (an older build's plain "Approve", a
+ * template quick reply) gets the empty question, which matches no open question, so it can never answer one as text.
+ */
+function choiceOf(message: Record<string, unknown>): { question: string; option: string } | undefined {
+  const interactive = message['interactive'], button = message['button'];
+  if (message['type'] === 'button' && record(button)) return { question: '', option: typeof button['text'] === 'string' ? button['text'] : '' };
+  if (message['type'] !== 'interactive' || !record(interactive)) return undefined;
+  const choice = interactive['type'] === 'button_reply' ? interactive['button_reply'] : interactive['list_reply'];
+  if (!record(choice)) return undefined;
+  return (typeof choice['id'] === 'string' ? decodeChoice(choice['id']) : undefined)
+    ?? { question: '', option: typeof choice['title'] === 'string' ? choice['title'] : '' };
 }
 
 function inboundText(message: Record<string, unknown>): string | undefined {
@@ -147,8 +202,12 @@ function inboundText(message: Record<string, unknown>): string | undefined {
   if (message['type'] === 'button' && record(button) && typeof button['text'] === 'string') return button['text'];
   if (message['type'] === 'interactive' && record(interactive)) {
     const choice = interactive['type'] === 'button_reply' ? interactive['button_reply'] : interactive['list_reply'];
-    // Our buttons and rows carry the option text as their ID, so the answer is the exact option.
-    if (record(choice)) return typeof choice['id'] === 'string' ? choice['id'] : typeof choice['title'] === 'string' ? choice['title'] : undefined;
+    // Our buttons and rows carry their question and option in the id (see encodeChoice); the text is the option.
+    if (record(choice)) {
+      const decoded = typeof choice['id'] === 'string' ? decodeChoice(choice['id']) : undefined;
+      if (decoded) return decoded.option;
+      return typeof choice['id'] === 'string' ? choice['id'] : typeof choice['title'] === 'string' ? choice['title'] : undefined;
+    }
   }
   return undefined;
 }
@@ -161,15 +220,17 @@ export function renderWhatsAppReply(reply: ChannelReply): Payload[] {
   const prompt = whatsAppMarkdown(reply.prompt);
   const { options } = reply;
   const fits = (max: number) => options.every(option => [...option].length <= max);
-  if (options.length && prompt.length <= WHATSAPP.maxInteractiveBody) {
+  const ids = options.map(option => encodeChoice(reply.callId, option));
+  // Interactive options must name their question; when an id would not fit, fall back to numbered text.
+  if (options.length && prompt.length <= WHATSAPP.maxInteractiveBody && ids.every(id => id !== undefined)) {
     const footer = reply.allowFreeText ? { footer: { text: 'Or type your own answer.' } } : {};
     if (options.length <= WHATSAPP.maxButtons && fits(WHATSAPP.maxButtonTitle)) {
       return [{ type: 'interactive', interactive: { type: 'button', body: { text: prompt }, ...footer,
-        action: { buttons: options.map(option => ({ type: 'reply', reply: { id: option, title: option } })) } } }];
+        action: { buttons: options.map((option, index) => ({ type: 'reply', reply: { id: ids[index], title: option } })) } } }];
     }
     if (options.length <= WHATSAPP.maxRows && fits(WHATSAPP.maxRowTitle)) {
       return [{ type: 'interactive', interactive: { type: 'list', body: { text: prompt }, ...footer,
-        action: { button: 'Choose', sections: [{ title: 'Options', rows: options.map(option => ({ id: option, title: option })) }] } } }];
+        action: { button: 'Choose', sections: [{ title: 'Options', rows: options.map((option, index) => ({ id: ids[index], title: option })) }] } } }];
     }
   }
   const numbered = options.map((option, index) => `${index + 1}. ${option}`).join('\n');

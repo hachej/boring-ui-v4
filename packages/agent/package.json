@@ -22,6 +22,7 @@
     "./validation": { "types": "./dist/validation.d.ts", "import": "./dist/validation.js" },
     "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
     "./approval": { "types": "./dist/approval.d.ts", "import": "./dist/approval.js" },
+    "./mcp": { "types": "./dist/mcp.d.ts", "import": "./dist/mcp.js" },
     "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" }
   },
   "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0" },

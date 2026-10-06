@@ -2,7 +2,7 @@
 
 Status: implemented 2026-10-06 in `@boring/agent` (`defineAgent({ selfEvolving: true, workspace })`, the `reload` tool, instructions,
 skills and tools from `.agent/`, the scan on open, the `npm run check` rule) and turned on for the studio's local (virtual) variant, with its
-`/reload` command, and the Cloudflare recipe (agent `reload` only); proved by the studio journey `self-evolution`. The laws now live in
+`/reload` command, and the Cloudflare recipe (every object, the person approving each reload, and `/reload` on WhatsApp); proved by the studio journey `self-evolution`. The laws now live in
 [packages/agent/README.md](../../packages/agent/README.md#self-evolution). Not done: the factory promotion workflow (see Apps). Owner decisions recorded here: the agent writes its
 own tools; the library stays close to native Pi; isolation belongs to where `exec` runs (the host's `ExecutionEnv`, and
 later the dedicated runtime in boring-factory), not to a new Boring layer.
@@ -56,12 +56,15 @@ host process never imports agent-written code. Off by default: without the optio
   and its execution all stay in the sandbox; the host only registers the native tool from the description it read.
 - **Persistence follows the environment.** `.agent/` lives as long as that workspace. Where the environment does not persist
   (an expiring sandbox), version `.agent/` with the workspace (git push or a published resource) or it is lost with it.
-- **No `exec`, no tools.** On an environment without `exec` (for example today's Cloudflare recipe), instructions and skills
+- **No `exec`, no tools.** On an environment without `exec`, instructions and skills
   still work and `reload` reports that tools are unavailable there instead of registering tools that cannot run.
 - **Cost.** Every call to an agent-written tool is one `exec` round trip on that environment.
 
-No separate trust setting. Choosing the execution environment chooses the isolation. Hosts that want a person to approve
-changes to `.agent/` use the existing approval gate; it is not part of this feature.
+No separate trust setting. Choosing the execution environment chooses the isolation. A host that wants the person to approve
+changes passes `selfEvolving: { approval }`: `reload` then asks through the existing approval question (with what would change), only
+approved state takes effect (instructions shown and tool scripts are those approved), and the host keeps that state and restores it on
+open. Writing to `.agent/` needs no approval. The Cloudflare recipe does this on every object, with the person's `/reload` on WhatsApp
+as their own approval ([packages/agent/README.md](../../packages/agent/README.md#self-evolution)).
 
 ## Apps
 
