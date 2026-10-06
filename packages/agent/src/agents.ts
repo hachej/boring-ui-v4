@@ -4,9 +4,9 @@ import { Type } from '@earendil-works/pi-ai';
 import type { Context } from '@earendil-works/chord';
 import type { ExecutionEnv } from '@earendil-works/pi-durable/env';
 import { createSelfEvolution } from './self-evolving.js';
-import type { SelfEvolutionReport } from './self-evolving.js';
+import type { SelfEvolutionApproval, SelfEvolutionReport } from './self-evolving.js';
 
-export type { SelfEvolutionError, SelfEvolutionReport } from './self-evolving.js';
+export type { SelfEvolutionApproval, SelfEvolutionError, SelfEvolutionReport, SelfEvolutionState } from './self-evolving.js';
 
 /** Instructions the agent loads on demand: only name and description occupy the system prompt. */
 export interface Skill {
@@ -31,9 +31,11 @@ export interface AgentSpec {
   readonly cwd?: string;
   /**
    * Let the agent keep its own instructions, skills and tools in `.agent/` of its workspace and apply them with `reload`
-   * (docs/architecture/SELF-EVOLUTION.md). Off by default: without it nothing reads `.agent/` (SELF-1).
+   * (docs/architecture/SELF-EVOLUTION.md). Off by default: without it nothing reads `.agent/` (SELF-1). `{ approval }`: the person
+   * approves every `reload` and only approved state takes effect; the host keeps that state (`approval.load`/`save`) and calls `restore`
+   * on open instead of `reload`.
    */
-  readonly selfEvolving?: boolean;
+  readonly selfEvolving?: boolean | { readonly approval: SelfEvolutionApproval };
   /** The workspace instance this agent works in; names the per-workspace extension `self-evolving:<workspace>`. Required with `selfEvolving`. */
   readonly workspace?: string;
 }
@@ -52,7 +54,9 @@ export interface DefinedAgent {
    * With `selfEvolving` only: rescan `.agent/` through `env` (the conversation's environment, or the workspace's on open) and replace
    * the per-workspace extension in every registry `install` was given. The `reload` tool and a host's `/reload` command call this.
    */
-  readonly reload?: (env: ExecutionEnv | undefined, context: Context) => Promise<SelfEvolutionReport>;
+  readonly reload?: (env: ExecutionEnv | undefined, context: Context, options?: { readonly operation?: string }) => Promise<SelfEvolutionReport>;
+  /** With `selfEvolving: { approval }` only: install the last approved state (call it on open, where a plain self-evolving host reloads). */
+  readonly restore?: () => Promise<SelfEvolutionReport>;
   /** Create a native conversation configured as this agent. The host keeps the native handle. */
   readonly createConversation: (harness: Harness, context: Context, options?: Partial<Pick<ConversationCreateOptions, 'ownership' | 'init'>>) => Promise<Conversation>;
 }
@@ -118,6 +122,7 @@ export function defineAgent(spec: AgentSpec): DefinedAgent {
   // The skills of a self-evolving agent live in its per-workspace extension, so agent-written skills join them on reload.
   const evolution = spec.selfEvolving ? createSelfEvolution({
     name: `self-evolving:${spec.workspace}`, skills: (spec.skills ?? []).map(validSkill), parseSkill, skillsExtension: createSkillsExtension,
+    ...(typeof spec.selfEvolving === 'object' ? { approval: spec.selfEvolving.approval } : {}),
     reserved: [...(spec.tools ?? []), ...(spec.extensions ?? []).flatMap(extension => extension.tools ?? [])].map(tool => tool.name),
   }) : undefined;
   const initial = evolution?.current();
@@ -136,6 +141,7 @@ export function defineAgent(spec: AgentSpec): DefinedAgent {
     get skills() { return evolution ? listed(evolution.skills()) : hostSkills; },
     install: (registry: Registry) => { for (const extension of extensions) { if (extension === initial) evolution!.install(registry); else registry.install(extension); } },
     ...(evolution ? { reload: evolution.reload } : {}),
+    ...(evolution?.restore ? { restore: evolution.restore } : {}),
     createConversation: (harness: Harness, context: Context, options: Partial<Pick<ConversationCreateOptions, 'ownership' | 'init'>> = {}) =>
       harness.createConversation({ ownership: options.ownership ?? { kind: 'ownerless' }, agent, ...(options.init ? { init: options.init } : {}) }, context),
   });

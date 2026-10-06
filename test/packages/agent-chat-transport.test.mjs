@@ -335,3 +335,27 @@ test('revocation while host prepares mentions prevents native submission', async
   assert.equal(record, undefined);
   assert.equal(f.fake.calls.length, 0);
 });
+
+test('a hidden page pauses the stream by default; pauseWhenHidden: false keeps it (a connection that feeds notifications)', async t => {
+  const page = Object.assign(new EventTarget(), { visibilityState: 'hidden' });
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { value: page, configurable: true, writable: true });
+  t.after(() => { if (had) Object.defineProperty(globalThis, 'document', had); else delete globalThis.document; });
+  for (const pauseWhenHidden of [undefined, false]) {
+    page.visibilityState = 'hidden';
+    const { fake, conversation, fetch } = await fixture(t);
+    const controller = createNativeChatController({ identity, ...await createRemoteChat({ endpoint, fetch, ...(pauseWhenHidden === false ? { pauseWhenHidden } : {}) }) });
+    t.after(() => controller.dispose());
+    await controller.connect();
+    await conversation.submit({ type: 'input', requestId: `bg-${pauseWhenHidden}`, content: 'Run in the background.' }, context);
+    (await fake.nextCall()).respond('Background reply.');
+    if (pauseWhenHidden === false) {
+      await until('the reply arrives while hidden', () => texts(controller.getSnapshot().view).includes('Background reply.'));
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      assert.ok(!texts(controller.getSnapshot().view).includes('Background reply.'), 'paused while hidden');
+      page.visibilityState = 'visible'; page.dispatchEvent(new Event('visibilitychange'));
+      await until('the reply arrives once visible', () => texts(controller.getSnapshot().view).includes('Background reply.'));
+    }
+  }
+});

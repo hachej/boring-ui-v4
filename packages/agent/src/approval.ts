@@ -1,6 +1,6 @@
 import { defineExtension } from '@earendil-works/pi-durable';
-import type { ConversationId, Extension, ToolExecutionResult, ToolRegistration, Wrap } from '@earendil-works/pi-durable';
-import type { JsonValue } from '@earendil-works/chord';
+import type { ConversationId, Extension, ToolExecutionApi, ToolExecutionResult, ToolRegistration, Wrap } from '@earendil-works/pi-durable';
+import type { Context, JsonValue } from '@earendil-works/chord';
 import type { Static, TSchema } from '@earendil-works/pi-ai';
 import { askPerson } from './ask-user.js';
 
@@ -60,7 +60,7 @@ export function requireApproval<TParameters extends TSchema, TDetails extends Js
     ...(tool as unknown as ToolRegistration<TParameters, JsonValue>),
     replay: 'safe',
     execute: async (args, outerApi, context): Promise<ToolExecutionResult<JsonValue>> => {
-      let record: { summary: string; decision?: 'approved' | 'denied' | 'cancelled' } | undefined;
+      let record: ApprovalRecord | undefined;
       const withRecord = (value: JsonValue | undefined): JsonValue | undefined => !record ? value
         : value === undefined || (value !== null && typeof value === 'object' && !Array.isArray(value)) ? { ...(value ?? {}), [APPROVAL_DETAILS]: record } : value;
       const publish = (next: typeof record) => { record = next; return outerApi.details(withRecord(undefined)!, context); };
@@ -81,25 +81,38 @@ export function requireApproval<TParameters extends TSchema, TDetails extends Js
       if (!ask) return run();
       let summary: string;
       try { summary = options.summarize(args, call); } catch { summary = JSON.stringify(args); }
-      summary = summary.slice(0, 500);
-      await publish({ summary });
-      const prompt = `Allow ${tool.name}? ${summary}`.slice(0, 1000);
-      // The decision joins the summary in the call's details, so a view tells approved, denied and never-answered apart.
-      const decided = (decision: 'approved' | 'denied' | 'cancelled') => publish({ summary, decision });
-      let answer: string;
-      try { answer = await askPerson(outerApi, context, { prompt, options: [APPROVE, DENY] }); }
-      catch (error) {
-        if (context.abortSignal?.aborted) throw error; // the call itself is being stopped: Pi records that, and no decision was made
-        await decided('cancelled');
-        return text(`${CANCELLED_PREFIX} ${tool.name} was not run and nothing was changed.`, true);
-      }
-      if (answer !== APPROVE) { await decided('denied'); return text(`${DENIED_PREFIX} ${tool.name} was not run and nothing was changed.`, true); }
-      await decided('approved');
+      const decision = await askApproval(outerApi, context, { toolName: tool.name, summary, publish });
+      if (decision === 'cancelled') return text(`${CANCELLED_PREFIX} ${tool.name} was not run and nothing was changed.`, true);
+      if (decision === 'denied') return text(`${DENIED_PREFIX} ${tool.name} was not run and nothing was changed.`, true);
       return run();
     },
   };
   GATED.add(gated);
   return gated;
+}
+
+/** The record a gated call keeps under `APPROVAL_DETAILS`: the summary and, once made, the decision. */
+export type ApprovalRecord = { readonly summary: string; readonly decision?: 'approved' | 'denied' | 'cancelled' };
+
+/**
+ * The one approval question of a tool call, as `requireApproval` asks it: `publish` stores the summary (under `APPROVAL_DETAILS` in the
+ * call's running details, where a chat card and a channel gateway find it), then the person is asked "Allow <tool>? <summary>" with
+ * Approve and Deny through `askPerson`, and the decision is published beside the summary. A tool that computes its summary while it
+ * runs (for example `reload`, from what changed on disk) asks through this directly. Throws when the call itself is being stopped.
+ */
+export async function askApproval(api: ToolExecutionApi, context: Context, question: { readonly toolName: string; readonly summary: string; readonly publish: (record: ApprovalRecord) => Promise<void> }): Promise<'approved' | 'denied' | 'cancelled'> {
+  const summary = question.summary.slice(0, 500);
+  await question.publish({ summary });
+  const prompt = `Allow ${question.toolName}? ${summary}`.slice(0, 1000);
+  // The decision joins the summary in the call's details, so a view tells approved, denied and never-answered apart.
+  const decided = async (decision: 'approved' | 'denied' | 'cancelled') => { await question.publish({ summary, decision }); return decision; };
+  let answer: string;
+  try { answer = await askPerson(api, context, { prompt, options: [APPROVE, DENY] }); }
+  catch (error) {
+    if (context.abortSignal?.aborted) throw error; // the call itself is being stopped: Pi records that, and no decision was made
+    return decided('cancelled');
+  }
+  return decided(answer === APPROVE ? 'approved' : 'denied');
 }
 
 /** Whether `tool` came from `requireApproval`. Use it to keep gated tools out of a code-mode sandbox's tool list. */

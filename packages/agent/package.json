@@ -23,6 +23,7 @@
     "./validation": { "types": "./dist/validation.d.ts", "import": "./dist/validation.js" },
     "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
     "./approval": { "types": "./dist/approval.d.ts", "import": "./dist/approval.js" },
+    "./mcp": { "types": "./dist/mcp.d.ts", "import": "./dist/mcp.js" },
     "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" },
     "./model-gateway": { "types": "./dist/model-gateway.d.ts", "import": "./dist/model-gateway.js" },
     "./gateway-provider": { "types": "./dist/gateway-provider.d.ts", "import": "./dist/gateway-provider.js" }
