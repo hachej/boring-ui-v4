@@ -1,7 +1,7 @@
 # Host recipe: AWS (AgentCore Runtime + Code Interpreter + EFS)
 
-Status: **specification only, nothing implemented.** Owner: the host-recipe track in [ROADMAP.md §10](ROADMAP.md#10-package-useful-recipes-and-keep-one-source-of-instructions).
-Facts about AWS services were checked against AWS documentation on 2026-10-05 (links at the end); re-check them when work starts.
+Status: **built and proven offline; never run against AWS** (no account yet). Owner: the host-recipe track in [ROADMAP.md §10](ROADMAP.md#10-package-useful-recipes-and-keep-one-source-of-instructions).
+Code: [`@boring/execution/aws-code-interpreter`](../../packages/execution/README.md#aws-code-interpreter-environment) and [`examples/aws`](../../examples/aws/README.md). Facts about AWS services were checked against AWS documentation and the `@aws-sdk/client-bedrock-agentcore@3.1146.0` model on 2026-10-06 (links at the end); re-check them before the live run.
 
 ## Goal
 
@@ -11,65 +11,47 @@ recipe, not a framework: native AWS pieces wired directly, no generic multi-clou
 scheduler (BORING-PI-1..6). Cloudflare (`PiHarness` in a Durable Object) is the sibling recipe; both share only the
 library adapters listed under "Library work".
 
-## Mapping
+## What AWS supports (checked 2026-10-06)
+
+- **Code Interpreter can mount EFS**, per interpreter or per session: `filesystemConfigurations` with `efsConfiguration { accessPointArn, fileSystemArn, mountPath }` on `CreateCodeInterpreter` (inherited by every session) or `StartCodeInterpreterSession` (that session only); both are combined. It needs VPC network mode, subnets in the mount targets' Availability Zones, TCP 2049 to the mount targets, and `elasticfilesystem:ClientMount`/`ClientWrite` on the **interpreter's execution role** with an `AccessPointArn` condition. At most 2 EFS access points per request (4 per session); mount paths are `/mnt/<name>`; a failed mount fails the session start. All operations through an access point run as its POSIX uid/gid. ([Code Interpreter file systems](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/code-interpreter-filesystem-configurations.html), [StartCodeInterpreterSession](https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_StartCodeInterpreterSession.html).) The CloudFormation type `AWS::BedrockAgentCore::CodeInterpreterCustom` (cfn-lint 1.57.2 schema) has VPC network configuration but no file system property, so the recipe mounts per session, which is also what per-user folders need.
+- **AgentCore Runtime can mount EFS** (`filesystemConfigurations[].efsAccessPoint`, VPC mode, `/mnt/<name>`, at most 2 EFS access points), but **per runtime, mounted into every session**: a session cannot choose a per-user access point. ([Runtime file systems](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-filesystem-configurations.html).) ECS task definitions are likewise static per task definition.
+- **Code Interpreter tools** (`InvokeCodeInterpreter`, response is an event stream of `result` events or exceptions): `executeCode`, `executeCommand`, `startCommandExecution`, `getTask`, `stopTask`, `readFiles`, `writeFiles`, `listFiles`, `removeFiles`; arguments `command`, `taskId`, `paths`, `content[{ path, text | blob }]`, `directoryPath`; results carry `content` blocks and `structuredContent { taskId, taskStatus: submitted | working | completed | canceled | failed, stdout, stderr, exitCode, executionTime }`. Commands take no cwd or environment argument. The official Python client documents file paths as **relative to the interpreter's working directory** (absolute paths refused), so the file tools cannot address the EFS mount by absolute path; the response shapes of `getTask` (cumulative or incremental output) are not documented. ([API reference examples](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/code-interpreter-api-reference-examples.html), [InvokeCodeInterpreter](https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeCodeInterpreter.html).) Sessions last `sessionTimeoutSeconds` (default 900, maximum 28 800).
+- **Runtime HTTP contract**: `POST /invocations` (JSON in, JSON or SSE out), `GET /ping` (`Healthy` | `HealthyBusy`; `HealthyBusy` keeps the session active; `time_of_last_update` must change only with the status), optional `/ws`, ARM64 container on `0.0.0.0:8080`. ([HTTP protocol contract](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html).)
+
+## Mapping (as built)
 
 | Need | AWS piece | Library seam |
 |---|---|---|
-| Agent process and lifecycle | **Bedrock AgentCore Runtime** (microVM per `runtimeSessionId`, container on ARM64, `0.0.0.0:8080`, `POST /invocations`, `GET /ping`, optional `/ws`) | A small container entry that opens the native Harness and serves the chat transport |
-| Durable Pi state | **Amazon EFS** access point mounted by the runtime (`filesystemConfigurations[].efsAccessPoint`, mount path under `/mnt/`) | Pi Durable SQLite storage on a file under the mount |
-| Workspace files (documents, presented files) | Same EFS mount | The workspace provider (`createWorkspaceProvider`) over the workspace directory on the mount, its journal in a SQLite file outside that directory (files PR 7, pending) |
-| Real shell and files for the agent | **AgentCore Code Interpreter** (`InvokeCodeInterpreter`: `executeCommand`, `startCommandExecution`/`getTask`/`stopTask`, `readFiles`, `writeFiles`, `listFiles`, `removeFiles`) | A Pi `ExecutionEnv` adapter, same pattern as the Vercel Sandbox adapter in `@boring/execution` |
-| Browser chat | `pi-chat` + `createRemoteChat` against the runtime endpoint | Chat transport over `/invocations` (and `/ws` later) |
-| Identity | AgentCore inbound auth with a JWT authorizer (Cognito or another OIDC issuer) | Transport `authenticate` maps the verified token to the host identity/scope |
+| Agent process and lifecycle | **AgentCore Runtime** (microVM per `runtimeSessionId`) or one **ECS** task | `examples/aws/server.mjs`: `/ping`, `/invocations`; one native Harness per conversation key |
+| Durable Pi state | EFS through the host's access point (root `/boring`, mounted at `/mnt/efs`) | Pi Durable SQLite at `/mnt/efs/state/<user>/<key>.pi.sqlite` (`efsUserLayout().harnessFile`) |
+| Workspace files | The user's folder `/mnt/efs/users/<user>` on the same mount | `createWorkspaceProvider` over the environment below; journal at `/mnt/efs/state/<user>/journal.sqlite`, outside the folder |
+| Real shell | **Code Interpreter** session per user, mounting the user's own access point (root `/boring/users/<user>`) at `/mnt/workspace` | `createCodeInterpreterEnv`: commands through `startCommandExecution`/`getTask`/`stopTask`, files on the host's mount of the same folder |
+| Browser chat | `pi-chat` + `createRemoteChat` | The chat transport operations in the `/invocations` body (`{ op, conversation, params, input }`); a browser fetch adapter is not built |
+| Identity | AgentCore JWT authorizer (Cognito or another OIDC issuer), checked again in the container | `examples/aws/jwt.mjs`; `sub` → `users.json` (uid, access point) is host policy |
 
 ## Decisions and why
 
-1. **One AgentCore session per conversation (or per private workspace).** A session is one microVM; mapping a
-   conversation to `runtimeSessionId` gives a single writer for that conversation's databases. Session ids must meet the
-   AgentCore length rule (derive them from the conversation id).
-2. **Durable state on EFS, not managed session storage.** Managed session storage is per-session and survives
-   stop/resume, but it is **wiped on every runtime version update** (every deploy) and after 14 idle days. Pi durable
-   state and published resources must survive deploys, so they live on EFS. Session storage may still hold disposable
-   scratch.
-3. **One SQLite file per writer.** EFS is shared NFS (close-to-open consistency, advisory locks). SQLite over NFS is
-   only acceptable with a single writer per file: `/mnt/state/<scope>/<conversation>.pi.sqlite` for the harness and
-   `/mnt/state/<scope>/journal.sqlite` for the workspace journal, written only by the session that owns the scope. A
-   workspace shared across sessions needs a server-side owner (a separate session or service), not concurrent
-   SQLite writers. Validate WAL vs rollback journal on EFS before choosing.
-4. **Idle termination vs background work.** Sessions stop after `idleRuntimeSessionTimeout` (default 900 s) and at
-   `maxLifetime` (default and max 28 800 s). Pi recovers interrupted work on the next open, but nothing reopens a
-   stopped session by itself. The recipe must either keep the session busy while native tasks run (the `/ping`
-   contract's busy status, to be verified) or wake it (an EventBridge Scheduler invocation) when background tasks are
-   pending. Report "stopped, will resume" separately from "done".
-5. **Code Interpreter as the execution environment, not the agent host.** The agent process stays in Runtime; the
-   shell and working files run in a Code Interpreter session acquired per workspace. Interpreter sessions also expire,
-   so reattachment must verify instance identity or report the workspace lost (AGENTS: references include view and
-   scope; reattachment verifies identity). Bytes cross the API, so large files need streaming or S3 staging.
-6. **Transport over `/invocations`.** AgentCore routes only `/invocations`, `/ping` and `/ws` to the container. The
-   chat transport today selects the operation with a `?op=` query parameter on one endpoint; verify that query strings
-   reach the container, otherwise move the operation into the request body for this recipe. `watch` needs a streaming
-   response (or `/ws`); verify streaming limits through the AgentCore endpoint. Behind an ALB (or any proxy) the idle watch
-   stays open only through the transport's heartbeat (`heartbeatMs`, default 15 s): set the ALB idle timeout to at least twice
-   the heartbeat (the 60 s default works) and see [Testing behind a proxy](../../examples/studio/README.md#testing-behind-a-proxy-headless).
-7. **Models.** Bedrock models through Pi AI's provider configuration, or the host's existing OpenAI/Anthropic keys from
-   Secrets Manager. No credentials in the image or in tool-visible files.
+1. **One AgentCore session per conversation key.** The session id is `runtimeSessionId(user, key)` (`boring-` + 48 hex of SHA-256, over the 33-character minimum); the server refuses a request whose session header names another key (single writer per file). On ECS, one task and never two during a deployment.
+2. **Durable state on EFS, not managed session storage.** Managed session storage is per-session and **wiped on every runtime version update** and after 14 idle days. Pi state and published files must survive deploys, so they live on EFS.
+3. **One SQLite file per writer.** EFS is NFS (close-to-open consistency, advisory locks): a harness file per conversation key and a journal per user, written only by the session that owns them. Journal mode on EFS (WAL or rollback) is still to measure.
+4. **Idle termination vs background work.** `/ping` reports `HealthyBusy` while any open harness has live tasks or unsettled submissions (`Harness.inspect`), with a stable `time_of_last_update`. Whether that holds a session past `idleRuntimeSessionTimeout` (900 s) is to verify; nothing reopens a stopped session by itself (an EventBridge Scheduler wake is not built).
+5. **Code Interpreter as the execution environment, not the agent host; the files stay where they are.** The owner's design: the runtime and the interpreter see the same EFS folder. Because the runtime cannot mount per user, it mounts the host access point and confines itself in code to the user's folder; the interpreter, which runs the agent's commands, is confined by the user's access point. File operations run on the runtime's mount (no bytes through the API, no copy, no sync: one place for files, [FILES-GIT-EXEC](FILES-GIT-EXEC.md#one-place-for-files)); tool paths are interpreter paths (`/mnt/workspace/...`) so commands and file tools name the same file. Symbolic links made in the interpreter are resolved on the runtime side before use and refused when they leave the folder. An expired session is reported lost (`shell_unavailable`); the host renews explicitly and the next command starts a new session on the same files.
+6. **POSIX identity.** Each user's access point has the user's own uid and the shared gid 1000 with setgid `2770` folders; the runtime's access point is uid/gid 1000; both sides use umask `002`, so either side can change what the other wrote.
+7. **Transport over `/invocations`.** AgentCore routes only `/invocations`, `/ping` and `/ws`, so the operation travels in the JSON body and the server forwards it to the unchanged chat transport handler. `watch` streams NDJSON; whether `InvokeAgentRuntime` streams a non-SSE body is to verify. Behind the ECS load balancer (or any proxy) the idle watch stays open only through the transport's heartbeat (`heartbeatMs`, default 15 s): keep the idle timeout at least twice the heartbeat (the template sets 120 s; the ALB default of 60 s also works) and see [Testing behind a proxy](../../examples/studio/README.md#testing-behind-a-proxy-headless).
+8. **Models** through Pi AI's `amazon-bedrock` provider with an inference profile and VPC endpoints; the template has no NAT gateway, so the JWKS is passed inline (`OIDC_JWKS`).
 
-## Library work this recipe needs (shared with Cloudflare)
+## Implemented (offline)
 
-- Done: the workspace journal and the SQLite workspace backend take an injected `SqliteConnection` (`openNodeConnection`,
-  `durableObjectSqliteConnection`), so the same code runs on a file, on EFS, or in a Durable Object.
-- `@boring/execution` gains a Code Interpreter `ExecutionEnv` adapter (FileSystem + Shell from one session instance),
-  with bounded output, cancellation through `stopTask`, and explicit loss on expiry.
-- The chat transport keeps working behind a single route (`op` in the body as an option).
+- `@boring/execution/aws-code-interpreter`: `createCodeInterpreterEnv({ client, codeInterpreterIdentifier, session: { sessionId } | { start }, id, mount: { path, root }, cwd?, umask?, pollIntervalMs? })` returns `{ env, owned, sessionId(), lost(), renew(), stop(context) }`; `efsUserLayout({ userId, uid, gid?, runtimeMountPath?, runtimeAccessPointRoot?, interpreterMountPath? })` is pure. The SDK is an exact optional peer (`3.1146.0`).
+- `examples/aws`: server, JWT check, fake Code Interpreter, offline journey, CloudFormation template (VPC endpoints, EFS with host and example user access points, Code Interpreter in VPC mode, least-privilege roles, AgentCore Runtime with JWT authorizer and lifecycle 900/28 800 s, or ECS Fargate ARM64 behind an HTTPS load balancer with a 120 s idle timeout and one task), Dockerfile, user provisioning printout.
+- Studio variant `aws` (`STUDIO_AWS=fake`) and scenario `aws-shared-folder`.
+- Evidence and its limits: [PARTIAL.md](../implementation/PARTIAL.md#aws-code-interpreter-environment-and-host-recipe-offline), [FEATURES.md](../implementation/FEATURES.md).
 
-## Infrastructure (in the recipe, as code)
+## Remaining
 
-VPC with subnets in the EFS mount-target Availability Zones (DNS hostnames and resolution on); EFS file system,
-mount targets and one access point with the container's POSIX UID/GID; security groups allowing TCP 2049 from the
-runtime to the mount targets; execution role with `elasticfilesystem:ClientMount`/`ClientWrite` conditioned on the
-access point ARN plus Code Interpreter and model permissions; ECR image (ARM64); AgentCore runtime with
-`networkMode: VPC`, the EFS `filesystemConfigurations`, lifecycle settings and a JWT inbound authorizer. Infrastructure
-as code (CDK or Terraform) is chosen when work starts; deployment workflows themselves belong to boring-factory.
+- **The live run** ([commands](../../examples/aws/README.md#live-run-pending-needs-an-aws-account)) and the acceptance journey below.
+- A browser fetch adapter from `createRemoteChat` to `/invocations` (or `op` in the body as a transport option), and the deployed UI.
+- Wake for pending background work after an idle stop; provisioning users (access point, `users.json`) as a host workflow (boring-factory) rather than a printout.
 
 ## Acceptance for the recipe
 
@@ -78,17 +60,23 @@ edit an artifact; run a shell command in the Code Interpreter; reload and see hi
 (`StopRuntimeSession`) and a runtime version update, then resume and see the same conversation, documents and
 pending work recovered; a second user cannot read the first user's scope. Costs and limits recorded.
 
-## Open questions
+## Open questions (for the live run)
 
 - `/ping` busy semantics and whether they hold a session past the idle timeout.
-- Query strings and streaming through `InvokeAgentRuntime`; WebSocket session limits.
-- SQLite journal mode and latency on EFS; whether harness and resources share one file per scope.
-- Code Interpreter session limits, network modes and file size limits for the adapter.
+- Streaming of the NDJSON `watch` body through `InvokeAgentRuntime`; WebSocket session limits.
+- Whether `RequestHeaderAllowlist: [Authorization]` passes the bearer to the container.
+- `getTask` output shape (cumulative or incremental stdout, statuses on failure) and command length limits.
+- Whether `StartCodeInterpreterSession` with `filesystemConfigurations` needs any EFS permission on the caller.
+- SQLite journal mode and latency on EFS; per-user interpreter cold start; costs.
 
 ## Sources
 
+- Code Interpreter file systems: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/code-interpreter-filesystem-configurations.html
+- StartCodeInterpreterSession: https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_StartCodeInterpreterSession.html
+- InvokeCodeInterpreter: https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeCodeInterpreter.html
+- Code Interpreter API examples: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/code-interpreter-api-reference-examples.html
 - AgentCore Runtime file systems: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-filesystem-configurations.html
 - AgentCore Runtime HTTP contract: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-http-protocol-contract.html
 - AgentCore lifecycle settings: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-lifecycle-settings.html
-- InvokeCodeInterpreter: https://docs.aws.amazon.com/bedrock-agentcore/latest/APIReference/API_InvokeCodeInterpreter.html
+- Official Python client (relative file paths): https://github.com/aws/bedrock-agentcore-sdk-python/blob/main/src/bedrock_agentcore/tools/code_interpreter_client.py
 - Cloudflare PiHarness (sibling recipe): https://developers.cloudflare.com/changelog/post/2026-10-02-pi-harness/

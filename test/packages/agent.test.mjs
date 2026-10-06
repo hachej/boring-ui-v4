@@ -554,3 +554,121 @@ for (const phase of ['interrupt', 'settle']) test(`metering: a run killed ${phas
   const left = phase === 'interrupt' ? 95_000 : 98_000;
   assert.deepEqual(result.balance, { balanceMicros: left, heldMicros: 0, availableMicros: left });
 });
+
+/** Models whose one provider answers `Echo: <last user text>`, so a conversation's last message is predictable without a real model. */
+async function echoModels() {
+  const { createProvider } = await import('@earendil-works/pi-ai/models');
+  const { createAssistantMessageEventStream } = await import('@earendil-works/pi-ai/utils/event-stream');
+  const MODEL = { id: 'echo', name: 'Echo', provider: 'echo', api: 'echo-api', baseUrl: 'https://fixture.invalid', input: ['text'], reasoning: false, contextWindow: 200000, maxTokens: 1024, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+  const stream = (_model, transcript) => {
+    const user = [...transcript.messages].reverse().find(message => message.role === 'user');
+    const said = typeof user.content === 'string' ? user.content : user.content.map(part => part.text ?? '').join('');
+    const events = createAssistantMessageEventStream();
+    const message = { role: 'assistant', content: [{ type: 'text', text: `Echo: ${said}` }], api: MODEL.api, provider: MODEL.provider, model: MODEL.id, timestamp: Date.now(), stopReason: 'stop', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    setTimeout(() => { events.push({ type: 'start', partial: message }); events.push({ type: 'done', reason: 'stop', message }); events.end(message); }, 2);
+    return events;
+  };
+  const models = createModels();
+  models.setProvider(createProvider({ id: MODEL.provider, models: [MODEL], auth: { apiKey: { name: 'keyless', resolve: async () => ({ auth: {} }) } }, api: { stream, streamSimple: stream } }));
+  return { models, model: { provider: 'echo', modelId: 'echo' } };
+}
+
+test('conversations: metadata in one native document per conversation; list, search, rename, archive, fork and delete survive a restart', { timeout: 30000 }, async t => {
+  const { createConversations, createConversationsHandler, conversationMetadata } = await import('@boring/agent/conversations');
+  const directory = mkdtempSync(join(tmpdir(), 'conversations-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const { models, model } = await echoModels();
+  let clock = 1_000;
+  const open = async () => {
+    const harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'session.sqlite')), { registry: createRegistry(), models }, context);
+    return { harness, conversations: createConversations({ harness, context, now: () => ++clock }) };
+  };
+  const team = 'fictional-team', other = 'fictional-other-team';
+  const start = harness => init => harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { model }, init }, context);
+  const say = async (conversation, text) => (await conversation.submit({ type: 'input', content: text }, context)).wait(context);
+
+  let { harness, conversations } = await open();
+  const first = await conversations.create(team, { start: start(harness) });
+  const second = await conversations.create(team, { start: start(harness) });
+  const foreign = await conversations.create(other, { start: start(harness), title: 'Other team chat' });
+  // Untitled until the first user message; then the title is derived once and stays.
+  assert.equal((await conversations.get(team, first.id)).title, null);
+  await say(first, 'Plan the lantern walk');
+  await say(first, 'Add a stop at the quartz fountain');
+  await say(second, 'Draft the river notice');
+  await conversations.flush();
+  const one = await conversations.get(team, first.id);
+  assert.equal(one.title, 'Plan the lantern walk', 'title from the first user message, not the last');
+  assert.equal(one.lastMessage, 'Echo: Add a stop at the quartz fountain', 'preview of the last assistant message');
+  assert.equal((await conversations.list({ owner: team })).items.map(item => item.id).join(), [second.id, first.id].join(), 'newest activity first');
+  assert.deepEqual((await conversations.list({ owner: other })).items.map(item => item.title), ['Other team chat'], 'owner scoping');
+  // A conversation this module did not create is not listed and gets no metadata document from turns.
+  const unmanaged = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { model } }, context);
+  await say(unmanaged, 'Unlisted chat');
+  await conversations.flush();
+  assert.equal(await harness.snapshot(conversationMetadata, unmanaged.id, context), undefined);
+
+  // Rename, server-side search over title and last message, archive.
+  assert.equal((await conversations.rename(team, second.id, 'River notice')).title, 'River notice');
+  assert.equal(await conversations.rename(other, second.id, 'Stolen'), undefined, 'another owner cannot rename');
+  assert.deepEqual((await conversations.list({ owner: team, query: 'QUARTZ' })).items.map(item => item.id), [first.id], 'a word of the last message');
+  assert.deepEqual((await conversations.list({ owner: team, query: 'river' })).items.map(item => item.id), [second.id], 'a word of the title');
+  await conversations.archive(team, first.id);
+  assert.deepEqual((await conversations.list({ owner: team })).items.map(item => item.id), [second.id], 'archived ones are hidden');
+  assert.deepEqual((await conversations.list({ owner: team, archived: true })).items.map(item => item.id), [first.id]);
+  await conversations.archive(team, first.id, false);
+
+  // Fork at the first answer: the history up to that entry, a derived title, and it keeps working with the same agent.
+  const page = await first.entries({}, 50, undefined, context);
+  const firstAnswer = page.items.filter(entry => entry.model?.some(message => message.role === 'assistant')).at(-1);
+  const fork = await conversations.fork(team, first.id, firstAnswer.id);
+  const forked = await conversations.get(team, fork.id);
+  assert.equal(forked.title, 'Plan the lantern walk (fork)');
+  assert.equal(forked.lastMessage, 'Echo: Plan the lantern walk');
+  const texts = async conversation => (await conversation.entries({}, 50, undefined, context)).items.flatMap(entry => entry.model ?? []).map(message => typeof message.content === 'string' ? message.content : message.content.map(part => part.text ?? '').join('')).reverse();
+  assert.deepEqual(await texts(fork), ['Plan the lantern walk', 'Echo: Plan the lantern walk']);
+  await say(fork, 'Continue from here');
+  await conversations.flush();
+  assert.equal((await conversations.get(team, fork.id)).lastMessage, 'Echo: Continue from here');
+  assert.equal((await conversations.get(team, first.id)).lastMessage, 'Echo: Add a stop at the quartz fountain', 'the source is unchanged');
+
+  // Delete is a durable mark (Pi keeps the records): hidden from the list, `get` and `open`.
+  assert.equal(await conversations.delete(other, second.id), false);
+  assert.equal(await conversations.delete(team, second.id), true);
+  assert.equal(await conversations.open(team, second.id), undefined);
+  assert.ok(await harness.conversation(second.id, context), 'the native records are retained');
+
+  // The HTTP handler: owner from the host's authentication, JSON-only POSTs.
+  const handler = createConversationsHandler({ conversations, authenticate: async request => request.headers.get('authorization') === 'Bearer fictional' ? { owner: team, start: start(harness) } : null });
+  const call = (op, body) => handler(new Request(`https://fixture.invalid/conversations${op ? `?op=${op}` : ''}`, { method: body ? 'POST' : 'GET', headers: { authorization: 'Bearer fictional', ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }));
+  assert.equal((await handler(new Request('https://fixture.invalid/conversations'))).status, 401);
+  assert.equal((await handler(new Request('https://fixture.invalid/conversations?op=rename', { method: 'POST', headers: { authorization: 'Bearer fictional' }, body: '{}' }))).status, 415);
+  assert.deepEqual((await (await call()).json()).conversations.map(item => item.id), [fork.id, first.id]);
+  assert.deepEqual((await (await handler(new Request('https://fixture.invalid/conversations?q=fountain', { headers: { authorization: 'Bearer fictional' } }))).json()).conversations.map(item => item.id), [first.id]);
+  assert.equal((await call('rename', { conversationId: foreign.id, title: 'Mine now' })).status, 404, 'another owner\'s conversation is unknown');
+  assert.equal((await (await call('rename', { conversationId: first.id, title: 'Lantern walk' })).json()).conversation.title, 'Lantern walk');
+  const made = (await (await call('create', {})).json()).conversationId;
+  assert.equal((await call('delete', { conversationId: made })).status, 200);
+  assert.equal((await call('fork', { conversationId: first.id, at: 'x' })).status, 400);
+
+  // Restart: everything above is in the native documents.
+  await conversations.dispose();
+  await harness.close(context);
+  ({ harness, conversations } = await open());
+  t.after(async () => { await conversations.dispose(); await harness.close(context); });
+  const after = (await conversations.list({ owner: team, archived: 'all' })).items;
+  assert.deepEqual(after.map(item => [item.id, item.title, item.lastMessage]), [
+    [fork.id, 'Plan the lantern walk (fork)', 'Echo: Continue from here'],
+    [first.id, 'Lantern walk', 'Echo: Add a stop at the quartz fountain'],
+  ]);
+  // Adopting an existing conversation (a host migrating its own index) derives title and preview once from the history.
+  const adopted = await conversations.adopt(unmanaged.id, team, { updatedAt: 5 });
+  assert.equal(adopted.title, 'Unlisted chat');
+  assert.equal(adopted.lastMessage, 'Echo: Unlisted chat');
+  assert.equal(await conversations.adopt(foreign.id, team), undefined, 'a conversation another owner manages is not taken over');
+  // Paging by cursor, newest first.
+  const firstPage = await conversations.list({ owner: team, limit: 2 });
+  const nextPage = await conversations.list({ owner: team, limit: 2, cursor: firstPage.next });
+  assert.deepEqual([...firstPage.items, ...nextPage.items].map(item => item.id), [fork.id, first.id, unmanaged.id]);
+  assert.equal(nextPage.next, undefined);
+});

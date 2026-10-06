@@ -155,7 +155,7 @@ section per capability, so an agent without a shell is never told about bash.
 | `local` (default) | just-bash virtual workspace + isomorphic-git, snapshotted to the data directory; self-evolving (agent-written tools run in just-bash) | the workspace provider's journal in the data directory | always |
 | `vercel` | Vercel Sandbox microVM (Pi's `ExecutionEnv` over `@vercel/sandbox`); no virtual git | the same journal | when `VERCEL_TOKEN`, `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` are set |
 | `cloudflare` | a separate deployment, `examples/cloudflare`, running the SAME agent and scenarios on Workers | SQLite in a Durable Object | listed, not hosted here |
-| `aws` | specified, not built: [HOST-RECIPE-AWS.md](../../docs/architecture/HOST-RECIPE-AWS.md) | | listed as unavailable |
+| `aws` | commands in an AgentCore Code Interpreter session (`@boring/execution/aws-code-interpreter`), files on the user's EFS folder mounted here and in the session; here only against the offline fake Code Interpreter behind the real AWS SDK (scenario `aws-shared-folder`). The deployable recipe is [`examples/aws`](../aws/README.md) | a directory in the data directory standing for EFS, the same journal | when `STUDIO_AWS=fake` |
 
 Credits: a variant with `credits: true` (only `local`) meters every message with `@boring/agent/metering` ([agent README](../../packages/agent/README.md#metering)) against the person's
 fictional balance in `credits.sqlite` of the data directory (a starting grant of 50 credits, a hold of 0.02 per message, Pi's `calculateCost` with a 1.25 markup). An exhausted balance
@@ -218,6 +218,11 @@ more to show: Git (variants with git, with a count of changes), Tasks (once the 
 
 Attachments and `@path` mentions: the server passes `createMentionResolver` (`@boring/agent/mentions`) as `prepareInput`, so the workspace file
 reaches the model whether or not it has a file tool. Limits: 100 KB per file, 300 KB per message, text and images only; the rest become a short note.
+
+Conversations: the History list is `@boring/agent/conversations` behind `/api/variants/:id/conversations` (owner: the variant's agent), so
+titles, last messages, archive and delete marks live in Pi's `session.sqlite` with the transcripts. Rows offer rename, archive (an Archived
+filter shows them again) and delete; a settled reply has a Fork button. Data from earlier versions (`conversations.json`,
+`conversation-activity.json`) is adopted once at start and renamed to `*.migrated`.
 
 ## WhatsApp
 
