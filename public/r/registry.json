@@ -1270,12 +1270,11 @@
       "name": "feedback",
       "type": "registry:component",
       "title": "Feedback",
-      "description": "Feedback from the chat composer: one Feedback button starts feedback mode on the application page (hover, click to pin a numbered note, hold ⌥ to use the app, optional voice), and one chip carries the notes to the next message. FeedbackBar, NoteBubble, FeedbackChip with its review, useComposerFeedback for the pi-chat composer, and PickerOverlay styles. PreviewBanner shows a live preview of a change (Approve / Discard) over `@boring/feedback/preview`. Optional, not mounted by default: PointButton, AnnotateSheet, FeedbackList and FeedbackReport. Picking, masking, anchoring and placement stay in @boring/feedback/page and /ui, so restyling cannot weaken them.",
+      "description": "Feedback from the chat composer: one Feedback button starts feedback mode on the application page (hover, click to pin a numbered note, hold ⌥ to use the app, optional voice), and one chip carries the notes to the next message. FeedbackBar, NoteBubble, FeedbackChip with its review, useComposerFeedback for the pi-chat composer, and PickerOverlay styles. Optional, not mounted by default: PointButton, AnnotateSheet, FeedbackList and FeedbackReport. Picking, masking, anchoring and placement stay in @boring/feedback/page and /ui, so restyling cannot weaken them.",
       "dependencies": [
         "@boring/feedback@0.0.0",
         "@boring/ui@0.0.0",
         "@boring/files@0.0.0",
-        "@earendil-works/pi-ai@1.0.1",
         "react@19.3.0",
         "react-dom@19.3.0"
       ],
@@ -1883,11 +1882,6 @@
           "target": "components/feedback/feedback-session.tsx"
         },
         {
-          "path": "registry/feedback/preview-banner.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/preview-banner.tsx"
-        },
-        {
           "path": "registry/feedback/point-button.tsx",
           "type": "registry:component",
           "target": "components/feedback/point-button.tsx"
@@ -1916,6 +1910,24 @@
           "path": "registry/feedback/use-external.ts",
           "type": "registry:component",
           "target": "components/feedback/use-external.ts"
+        }
+      ]
+    },
+    {
+      "name": "feedback-preview",
+      "type": "registry:component",
+      "title": "Feedback preview",
+      "description": "PreviewBanner: a live, reversible preview of a change in the page (Approve / Discard) over `@boring/feedback/preview`, whose subagent calls models through a host gateway. Separate from `feedback` so annotation-only apps do not install the model SDK; install `feedback` first (its styles cover the banner).",
+      "dependencies": [
+        "@boring/feedback@0.0.0",
+        "@earendil-works/pi-ai@1.0.1",
+        "react@19.3.0"
+      ],
+      "files": [
+        {
+          "path": "registry/feedback-preview/preview-banner.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/preview-banner.tsx"
         }
       ]
     }

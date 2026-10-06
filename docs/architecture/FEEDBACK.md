@@ -624,7 +624,7 @@ green", "preview"), the builder calls one tool:
   attribute write other than `style` exists to call: a call to anything else
   is an error result. Every change is logged; revert restores each touched
   element's original `style` attribute and text nodes.
-- **The banner** (`PreviewBanner`, registry `feedback`) is fixed,
+- **The banner** (`PreviewBanner`, registry `feedback-preview`, separate so annotation-only apps don't install the model SDK) is fixed,
   `data-feedback-ignore`, labelled "Preview — these changes are not saved",
   lists the changes, has a small input to keep talking to the subagent
   ("darker"), Approve and Discard.

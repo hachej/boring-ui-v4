@@ -84,13 +84,15 @@ test('registry dependency pins and scoped styles preserve the declared source di
       }
       continue;
     }
-    if (item.name === 'feedback') {
-      assert.deepEqual(item.css, feedbackCss(), 'registry.json css differs from registry/feedback/feedback.css: run node scripts/build-feedback-css.mjs');
+    if (item.name === 'feedback' || item.name === 'feedback-preview') {
+      if (item.name === 'feedback-preview') assert.equal(item.css, undefined, 'the banner is styled by the feedback item');
+      else assert.ok(!item.dependencies.some(name => name.startsWith('@earendil-works/pi-ai')), 'annotation-only feedback must not install the model SDK');
+      if (item.name === 'feedback') assert.deepEqual(item.css, feedbackCss(), 'registry.json css differs from registry/feedback/feedback.css: run node scripts/build-feedback-css.mjs');
       const scoped = (rules, where) => { for (const [key, value] of Object.entries(rules)) {
         if (/^@(media|container|supports)\b/.test(key)) { scoped(value, where + ' ' + key); continue; }
         for (const part of key.split(/,(?![^(]*\))/)) assert.ok(part.trim().startsWith('[data-boring="feedback"]'), where + ': ' + key);
       } };
-      scoped(item.css, 'feedback');
+      if (item.name === 'feedback') scoped(item.css, 'feedback');
       assert.ok(declared.has('@boring/feedback'));
       const names = item.files.map(file => file.path.replace(/^registry\/feedback\//, '').replace(/\.tsx?$/, ''));
       for (const file of item.files) {
