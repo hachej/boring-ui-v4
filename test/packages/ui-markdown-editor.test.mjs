@@ -116,18 +116,19 @@ test('React/Tiptap Markdown editor public output (DOM environment, not browser q
     const f = await fixture(t, raw);
     assert.equal(f.container.querySelector('section').dataset.mode, 'rich');
     assert.equal(f.container.querySelectorAll('[contenteditable] table tr').length, 3);
-    const edited = raw.replace('End.', '## End.');
+    // The caret starts at the beginning of a loaded document, so the title is the line that changes.
+    const edited = raw.replace('# Stock', '## Stock');
     await f.click('Heading 2');
     assert.equal(f.controller.getSnapshot().text, edited, 'the table is written back exactly');
     await f.click('Save'); await f.settled();
     assert.equal(await f.saved(), edited);
-    // The caret at the end of a document ending in a table sits in its last cell: adding a row rewrites that table only.
+    // The caret at the start of a document that is a table sits in its first cell: adding a row rewrites that table only.
     const last = await fixture(t, '|L|C|R|\n|:-|:-:|-:|\n|a|`x`|[l](https://fictional.invalid/)|\n');
     await last.click('Add table row');
     const table = marked.lexer(last.controller.getSnapshot().text).find(token => token.type === 'table');
     assert.ok(table, 'still a GFM table');
     assert.deepEqual(table.align, ['left', 'center', 'right']);
-    assert.deepEqual(table.rows.map(row => row.map(cell => cell.text)), [['a', '`x`', '[l](https://fictional.invalid/)'], ['', '', '']]);
+    assert.deepEqual(table.rows.map(row => row.map(cell => cell.text)), [['', '', ''], ['a', '`x`', '[l](https://fictional.invalid/)']]);
   });
 
   await t.test('a rich edit keeps tables, links, images and task lists byte for byte and Save publishes only the edit', async t => {
@@ -139,8 +140,8 @@ test('React/Tiptap Markdown editor public output (DOM environment, not browser q
     assert.ok(f.container.querySelector('[contenteditable] input[type="checkbox"]'), 'task items have checkboxes');
     assert.equal(f.container.querySelector('[contenteditable] img'), null, 'a remote image is never loaded');
     assert.equal(f.container.querySelector('[contenteditable] [data-boring-image="inert"]').textContent, 'alt text');
-    // The caret starts at the end of the document, so the last paragraph is the one that changes.
-    const edited = raw.replace('End with', '## End with');
+    // The caret starts at the beginning of the document, so the title is the line that changes.
+    const edited = raw.replace('# Plan', '## Plan');
     await f.click('Heading 2');
     assert.equal(f.controller.getSnapshot().text, edited);
     assert.equal(f.controller.getSnapshot().dirty, true);

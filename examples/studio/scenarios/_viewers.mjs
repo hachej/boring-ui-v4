@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 
 export function viewerKit(t) {
-  const { browser, q, qa, pause } = t;
+  const { browser, q, qa } = t;
   const variant = () => t.app.host.variants.get(t.variantId());
   const ok = result => { if (!result.ok) throw result.error; return result.value; };
   // The workspace is `/workspace/<path>` in the browser; the variant's environment keeps it under its own root.
@@ -42,13 +42,21 @@ export function viewerKit(t) {
     assert.equal(await browser.evaluate(`${q(`${scope} [data-testid=${prefix}-more]`)}.getAttribute('aria-label')`), 'More actions');
     assert.equal(await browser.evaluate(`${q(`${scope} [data-testid=${prefix}-share]`)}.getAttribute('aria-label')`), 'Share');
   };
-  // The caret at the very start of the rich document, moved with the browser's own editing command (as Ctrl+Home does).
+  // The caret at the very start of the rich document, as a person puts it there: a click on the left edge of its first character.
+  // Ready means the editor's own selection agrees, not only the browser's caret: after a focus or a click ProseMirror writes its selection
+  // back to the page a moment later (a freshly loaded document holds it at the end), and on a busy machine that write can land after the
+  // caret moved, putting it back at the end. Every Markdown file these scenarios edit starts with a level-1 title, so the toolbar's
+  // Heading 1 state (computed from the editor's selection) is that signal.
   const caretAtStart = async scope => {
-    await browser.evaluate(`(() => { ${q(`${scope} [role=textbox]`)}.focus(); return true; })()`);
-    const key = { key: 'Home', code: 'Home', windowsVirtualKeyCode: 36, modifiers: 2, commands: ['moveToBeginningOfDocument'] };
-    await browser.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
-    await browser.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
-    await pause(150);
+    const point = await browser.evaluate(`(() => { const box = ${q(`${scope} [role=textbox]`)}; box.firstElementChild.scrollIntoView({ block: 'nearest' });
+      const text = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, { acceptNode: node => node.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP }).nextNode();
+      const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 1); const r = range.getBoundingClientRect();
+      return { x: r.left + 1, y: r.top + r.height / 2 }; })()`);
+    for (const type of ['mousePressed', 'mouseReleased']) await browser.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 });
+    await browser.until('the caret at the start', `(() => { const box = ${q(`${scope} [role=textbox]`)}, s = getSelection();
+      if (!box || !s.rangeCount || !s.isCollapsed || !box.contains(s.anchorNode)) return false;
+      const before = document.createRange(); before.selectNodeContents(box); before.setEnd(s.anchorNode, s.anchorOffset);
+      return before.toString() === '' && ${q(`${scope} [aria-label="Heading 1"]`)}?.getAttribute('aria-pressed') === 'true'; })()`, 5000);
   };
   const editorText = rel => `(${q(`${VIEWER(rel)} [role=textbox]`)}?.innerText ?? '')`;
   // Real copying, no stubs: the page is an insecure context (no navigator.clipboard or navigator.share), so Share and Copy take the
