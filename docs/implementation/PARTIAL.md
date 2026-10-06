@@ -97,7 +97,7 @@ The optional authenticated Fetch response handler now accepts only an exact orig
 
 The pinned pi-codemode 1.0.0/quickjs-wasi 3.6.2 standalone probe passed real engine timeout and cancellation. It also demonstrated that `max_output_tokens: 1` is parsed metadata while ten output items are retained. There is no public production output cap and reserved globals cannot replace built-in output functions. Native transcript truncation does not bound prior host accumulation. The bounded probe is under `.cache/evidence/implementation/codemode-public-api/`. It is not native Durable integration or A14/A22 proof. This seam blocks only configurations promising that hard output guarantee; other roadmap work continues.
 
-Strict question-consumer checking also requires the explicit `@modelcontextprotocol/sdk@1.31.0` development dependency because pinned upstream model declarations reference it as an optional peer. The initial isolated check failed on that missing declaration. The recipe installs the exact cached registry archive and transitive closure, then retains `skipLibCheck: false`. It does not claim the agent's declared peers alone suffice for strict checking.
+Strict question-consumer checking also requires the explicit `@modelcontextprotocol/sdk@1.32.0` development dependency because pinned upstream model declarations reference it as an optional peer. The initial isolated check failed on that missing declaration. The recipe installs the exact cached registry archive and transitive closure, then retains `skipLibCheck: false`. It does not claim the agent's declared peers alone suffice for strict checking.
 
 ## Native chat increment
 
@@ -171,7 +171,7 @@ The isolated consumer installs only execution and its pinned native registry clo
 
 ## Assistant Markdown rendering
 
-The optional chat renderer now uses a private Marked lexer and React elements for common Markdown and GFM. It preserves native text-part boundaries, assistant row identity and the existing newline-joined Copy response source. Public `entities@7.0.1` decodes prose, titles and link destinations once; code, escaped tokens and raw HTML stay literal. Generated Markdown images produce descriptive text without resource elements. Only validated absolute HTTP(S) links become clickable anchors, with no automatic navigation and no claim that this replaces host egress policy.
+The optional chat renderer now uses a private Marked lexer and React elements for common Markdown and GFM. It preserves native text-part boundaries, assistant row identity and the existing newline-joined Copy response source. Public `entities@8.1.0` decodes prose, titles and link destinations once; code, escaped tokens and raw HTML stay literal. Generated Markdown images produce descriptive text without resource elements. Only validated absolute HTTP(S) links become clickable anchors, with no automatic navigation and no claim that this replaces host egress policy.
 
 Six new scenarios, seven TAP checks including the parent, drive the public ChatPanel through a real native Harness and fake model. They cover GFM structure, code/HTML/entity fidelity, unsafe URLs, absent generated resource elements, source copying, partial fenced streams retaining DOM identity and global Marked isolation. Existing ChatPanel and native controller suites also pass. Independent token-boundary and comment reviews found no remaining concrete defect. No renderer source was copied from legacy. Syntax highlighting, mention routing, link-copy affordances, grouped tools, archived history, styling and actual browser behavior remain separate work. W05 and all P/A/H obligations remain partial.
 
@@ -179,7 +179,7 @@ The expanded isolated chat consumer installs the exact Marked/entities peers, pa
 
 ## Installed Markdown source recipe
 
-The first shadcn item uses the pinned 4.21.0 CLI and a copied React wrapper over the existing public Markdown editor. The item preserves concrete controller props and uses scoped CSS with host tokens. Its exact direct dependency pins match the public UI peers. `registry/README.md` owns installation instructions and qualification limits.
+The first shadcn item uses the pinned 4.21.1 CLI and a copied React wrapper over the existing public Markdown editor. The item preserves concrete controller props and uses scoped CSS with host tokens. Its exact direct dependency pins match the public UI peers. `registry/README.md` owns installation instructions and qualification limits.
 
 The controlled local fixture uses original cached registry archives and a freshly packed UI archive. It checks registry integrity, embedded name/version and installed version before exercising the copied component. This is a local artifact installation qualification; hosted registry and npm metadata resolution remain open. The committed item retains its version pins. Empty fixture baseColor leaves theme ownership with the host and avoids the CLI's optional color-preset fetch.
 

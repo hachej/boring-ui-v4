@@ -17,7 +17,7 @@ The `markdown-editor` and `html-viewer` items copy thin React wrappers and scope
 
 | Block | Install | Pick it when |
 | --- | --- | --- |
-| `pi-chat` | `npx shadcn@4.21.0 add <registry>/pi-chat.json` | you lay out the page yourself and only need the conversation (`PiChat`) |
+| `pi-chat` | `npx shadcn@4.21.1 add <registry>/pi-chat.json` | you lay out the page yourself and only need the conversation (`PiChat`) |
 | `pi-ambient` | `... add <registry>/pi-ambient.json` (also installs `pi-chat` and `pi-workspace`) | an agent sits beside an existing site: `AmbientChat` bar and `AgentNotifications` toasts |
 | `pi-workspace` | `... add <registry>/pi-workspace.json` (also installs `pi-chat`) | the page is the chat plus a resizable artifact panel (`ArtifactWorkspace`); add `viewers` for the panel contents and `pi-ambient` for float-when-narrow |
 
@@ -47,23 +47,23 @@ Pass `actions.answer` to `PiChat`. A call to a tool wrapped with `requireApprova
 
 ## Install into a new app (tested with a fresh outside app)
 
-Nothing is published, so a consumer needs a package source for the private `@boring/*` packages. The first pass at A46 used the steps below in a Vite, React 19 and Tailwind v4 app created by the pinned CLI (`npx shadcn@4.21.0 init -t vite -b radix -p nova -n app -y --no-monorepo`).
+Nothing is published, so a consumer needs a package source for the private `@boring/*` packages. The first pass at A46 used the steps below in a Vite, React 19 and Tailwind v4 app created by the pinned CLI (`npx shadcn@4.21.1 init -t vite -b radix -p nova -n app -y --no-monorepo`).
 
 1. In this repository: `npm ci && npm run build && npm run registry:build`, then `npm pack ./packages/ui ./packages/files ./packages/agent --pack-destination <dir>`.
 2. Serve the tarballs as an npm registry for the `@boring` scope (a ten-line static registry that returns a packument with `dist.tarball`, `dist.integrity` and the package's own manifest is enough) and put `@boring:registry=http://127.0.0.1:<port>/` in the app's `.npmrc`. This is required because every item lists `@boring/ui@0.0.0` as a dependency and the CLI runs `npm install` for it. `file:` tarball specs in `package.json` do not help: the CLI still installs `@boring/ui@0.0.0` by name.
-3. Serve `public/r/` over HTTP and run `npx shadcn@4.21.0 add http://127.0.0.1:<port>/r/pi-chat.json http://127.0.0.1:<port>/r/viewers.json http://127.0.0.1:<port>/r/markdown-editor.json -y`. Files land in `src/components/pi-chat/`, `src/components/viewers/` and `src/components/markdown-editor.tsx`; scoped CSS is merged into the app's CSS file. Re-running with `-o` is idempotent.
+3. Serve `public/r/` over HTTP and run `npx shadcn@4.21.1 add http://127.0.0.1:<port>/r/pi-chat.json http://127.0.0.1:<port>/r/viewers.json http://127.0.0.1:<port>/r/markdown-editor.json -y`. Files land in `src/components/pi-chat/`, `src/components/viewers/` and `src/components/markdown-editor.tsx`; scoped CSS is merged into the app's CSS file. Re-running with `-o` is idempotent.
 4. Install the server side with exact pins: `@boring/agent`, `@boring/files`, `react@19.3.0`, `react-dom@19.3.0`, `@earendil-works/pi-durable@1.0.1`, `@earendil-works/pi-ai@1.0.1` and `@earendil-works/chord@1.0.1`. Node 22.19 or newer runs a TypeScript server with `node server/main.ts` (SQLite resources use `node:sqlite`).
 5. The shadcn Vite template's `npm run typecheck` is `tsc --noEmit` over a solution file with `"files": []` and checks nothing. Use `tsc -p tsconfig.app.json --noEmit`; the installed source passes the template's `strict`, `noUnusedLocals` and `noUnusedParameters`.
 
 ## Build and install
 
-Run `npm run registry:build` with the pinned shadcn 4.21.0 development dependency. The command generates the registry index and the item JSON files under `public/r/` from `registry.json`. The source contract test rebuilds the item and compares its contents.
+Run `npm run registry:build` with the pinned shadcn 4.21.1 development dependency. The command generates the registry index and the item JSON files under `public/r/` from `registry.json`. The source contract test rebuilds the item and compares its contents.
 
 With the exact package dependencies available through the host's package distribution, run the standard CLI in an existing React application with a valid `components.json`:
 
 ```sh
-npx shadcn@4.21.0 add /absolute/path/to/public/r/markdown-editor.json
-npx shadcn@4.21.0 add /absolute/path/to/public/r/html-viewer.json
+npx shadcn@4.21.1 add /absolute/path/to/public/r/markdown-editor.json
+npx shadcn@4.21.1 add /absolute/path/to/public/r/html-viewer.json
 ```
 
 Version 0.0.0 identifies the local library candidate. This repository does not publish or host the package or registry endpoint. The command above requires that distribution setup before a normal npm install can succeed.

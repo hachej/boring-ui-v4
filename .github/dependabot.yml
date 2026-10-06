@@ -11,6 +11,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @tiptap/markdown still depends on marked ^17 and receives our marked parser instance; move together when Tiptap does.
+      - dependency-name: marked
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
