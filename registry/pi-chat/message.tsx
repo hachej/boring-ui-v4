@@ -18,9 +18,9 @@ import { Shimmer } from './shimmer';
 import { ToolCard } from './tool';
 import { thumbnail } from './composer';
 import { pieces } from './config';
-import { segments } from './rows';
+import { isFileBlock, segments } from './rows';
 import type { DeriveOptions, Row } from './rows';
-import { cn, isFileBlock } from './utils';
+import { cn } from '../utils/utils';
 
 export interface RowContext {
   readonly developer: boolean;

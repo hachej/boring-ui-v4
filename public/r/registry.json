@@ -4,6 +4,118 @@
   "homepage": "https://github.com/hachej/boring-ui-v4",
   "items": [
     {
+      "name": "theme",
+      "type": "registry:theme",
+      "title": "Theme",
+      "description": "The shadcn tokens every Tailwind item is styled with (neutral base, light and dark) and their Tailwind v4 `@theme inline` bindings. The CLI adds only the tokens the host does not define yet. The examples compile the same values (examples/studio/tailwind.mjs).",
+      "cssVars": {
+        "theme": {
+          "color-background": "var(--background)",
+          "color-foreground": "var(--foreground)",
+          "color-card": "var(--card)",
+          "color-card-foreground": "var(--card-foreground)",
+          "color-popover": "var(--popover)",
+          "color-popover-foreground": "var(--popover-foreground)",
+          "color-primary": "var(--primary)",
+          "color-primary-foreground": "var(--primary-foreground)",
+          "color-secondary": "var(--secondary)",
+          "color-secondary-foreground": "var(--secondary-foreground)",
+          "color-muted": "var(--muted)",
+          "color-muted-foreground": "var(--muted-foreground)",
+          "color-accent": "var(--accent)",
+          "color-accent-foreground": "var(--accent-foreground)",
+          "color-destructive": "var(--destructive)",
+          "color-border": "var(--border)",
+          "color-input": "var(--input)",
+          "color-ring": "var(--ring)",
+          "radius-sm": "calc(var(--radius) - 4px)",
+          "radius-md": "calc(var(--radius) - 2px)",
+          "radius-lg": "var(--radius)",
+          "radius-xl": "calc(var(--radius) + 4px)"
+        },
+        "light": {
+          "radius": "0.75rem",
+          "background": "oklch(1 0 0)",
+          "foreground": "oklch(0.141 0.005 285.823)",
+          "card": "oklch(1 0 0)",
+          "card-foreground": "oklch(0.141 0.005 285.823)",
+          "popover": "oklch(1 0 0)",
+          "popover-foreground": "oklch(0.141 0.005 285.823)",
+          "primary": "oklch(0.21 0.006 285.885)",
+          "primary-foreground": "oklch(0.985 0 0)",
+          "secondary": "oklch(0.967 0.001 286.375)",
+          "secondary-foreground": "oklch(0.21 0.006 285.885)",
+          "muted": "oklch(0.967 0.001 286.375)",
+          "muted-foreground": "oklch(0.52 0.016 285.938)",
+          "accent": "oklch(0.955 0.003 286.375)",
+          "accent-foreground": "oklch(0.21 0.006 285.885)",
+          "destructive": "oklch(0.577 0.245 27.325)",
+          "border": "oklch(0.92 0.004 286.32)",
+          "input": "oklch(0.89 0.005 286.32)",
+          "ring": "oklch(0.55 0.02 286.067)",
+          "shell": "oklch(0.975 0.002 286)"
+        },
+        "dark": {
+          "background": "oklch(0.175 0.006 285.885)",
+          "foreground": "oklch(0.985 0 0)",
+          "card": "oklch(0.205 0.006 285.885)",
+          "card-foreground": "oklch(0.985 0 0)",
+          "popover": "oklch(0.205 0.006 285.885)",
+          "popover-foreground": "oklch(0.985 0 0)",
+          "primary": "oklch(0.92 0.004 286.32)",
+          "primary-foreground": "oklch(0.21 0.006 285.885)",
+          "secondary": "oklch(0.274 0.006 286.033)",
+          "secondary-foreground": "oklch(0.985 0 0)",
+          "muted": "oklch(0.255 0.006 286.033)",
+          "muted-foreground": "oklch(0.72 0.015 286.067)",
+          "accent": "oklch(0.3 0.006 286.033)",
+          "accent-foreground": "oklch(0.985 0 0)",
+          "destructive": "oklch(0.704 0.191 22.216)",
+          "border": "oklch(1 0 0 / 11%)",
+          "input": "oklch(1 0 0 / 16%)",
+          "ring": "oklch(0.65 0.02 286.067)",
+          "shell": "oklch(0.13 0.005 285.823)"
+        }
+      }
+    },
+    {
+      "name": "utils",
+      "type": "registry:lib",
+      "title": "Shared helpers",
+      "description": "The class merge helper `cn` and `copyText` (host callback, Clipboard API, then a selection copy that works over plain HTTP) shared by every Tailwind item, installed once in components/utils/.",
+      "dependencies": [
+        "clsx@2.1.1",
+        "tailwind-merge@3.7.0"
+      ],
+      "files": [
+        {
+          "path": "registry/utils/utils.ts",
+          "type": "registry:lib",
+          "target": "components/utils/utils.ts"
+        }
+      ]
+    },
+    {
+      "name": "button",
+      "type": "registry:ui",
+      "title": "Button",
+      "description": "The one shadcn-style button of the Tailwind items (chat and viewer bar sizes, touch targets of 40-44px) and IconButton, installed in components/button/ so it never overwrites the host's own button.",
+      "dependencies": [
+        "react@19.3.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/theme",
+        "@boring-ui/utils"
+      ],
+      "files": [
+        {
+          "path": "registry/button/button.tsx",
+          "type": "registry:ui",
+          "target": "components/button/button.tsx"
+        }
+      ]
+    },
+    {
       "name": "markdown-editor",
       "type": "registry:component",
       "title": "Markdown editor",
@@ -30,7 +142,8 @@
       "files": [
         {
           "path": "registry/markdown-editor/markdown-editor.tsx",
-          "type": "registry:component"
+          "type": "registry:component",
+          "target": "components/markdown-editor/markdown-editor.tsx"
         }
       ],
       "css": {
@@ -230,7 +343,8 @@
       "files": [
         {
           "path": "registry/html-viewer/html-viewer.tsx",
-          "type": "registry:component"
+          "type": "registry:component",
+          "target": "components/html-viewer/html-viewer.tsx"
         }
       ],
       "css": {
@@ -309,7 +423,7 @@
     },
     {
       "name": "pi-chat",
-      "type": "registry:component",
+      "type": "registry:block",
       "title": "Pi chat",
       "description": "A complete Tailwind chat over the borrowed native chat controller: composer, messages, one collapsible activity block per turn (tool calls and reasoning), message queue, history, a human-in-the-loop question card, an Approve / Deny card for host tools wrapped with requireApproval optional artifact cards that open generated content in the host's panel, and feedback cards for the opt-in feedback tool (lists, and Show offers that the host page resolves). Chat only: no layout. Owned, editable source; no AI SDK. The optional pi-ambient and pi-workspace blocks build on it.",
       "dependencies": [
@@ -324,9 +438,12 @@
         "@earendil-works/pi-ai@1.0.1",
         "@modelcontextprotocol/sdk@1.32.0",
         "lucide-react@1.51.0",
-        "use-stick-to-bottom@1.1.6",
-        "clsx@2.1.1",
-        "tailwind-merge@3.7.0"
+        "use-stick-to-bottom@1.1.6"
+      ],
+      "registryDependencies": [
+        "@boring-ui/theme",
+        "@boring-ui/utils",
+        "@boring-ui/button"
       ],
       "files": [
         {
@@ -346,13 +463,8 @@
         },
         {
           "path": "registry/pi-chat/artifact.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/pi-chat/artifact.ts"
-        },
-        {
-          "path": "registry/pi-chat/button.tsx",
-          "type": "registry:component",
-          "target": "components/pi-chat/button.tsx"
         },
         {
           "path": "registry/pi-chat/code-block.tsx",
@@ -366,7 +478,7 @@
         },
         {
           "path": "registry/pi-chat/config.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/pi-chat/config.ts"
         },
         {
@@ -411,7 +523,7 @@
         },
         {
           "path": "registry/pi-chat/picker-keyboard.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/pi-chat/picker-keyboard.ts"
         },
         {
@@ -431,7 +543,7 @@
         },
         {
           "path": "registry/pi-chat/rows.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/pi-chat/rows.ts"
         },
         {
@@ -453,11 +565,6 @@
           "path": "registry/pi-chat/tool.tsx",
           "type": "registry:component",
           "target": "components/pi-chat/tool.tsx"
-        },
-        {
-          "path": "registry/pi-chat/utils.ts",
-          "type": "registry:component",
-          "target": "components/pi-chat/utils.ts"
         }
       ],
       "css": {
@@ -526,7 +633,7 @@
     },
     {
       "name": "pi-ambient",
-      "type": "registry:component",
+      "type": "registry:block",
       "title": "Pi ambient agent",
       "description": "AmbientChat, a compact floating agent bar that grows into a chat window over an existing page, and AgentNotifications, toasts for finished, failed and waiting tasks (with the one guarded browser Notification helper). A block over the pi-chat item; its in-window artifact panel uses the pi-workspace layout.",
       "dependencies": [
@@ -539,7 +646,9 @@
       ],
       "registryDependencies": [
         "@boring-ui/pi-chat",
-        "@boring-ui/pi-workspace"
+        "@boring-ui/pi-workspace",
+        "@boring-ui/utils",
+        "@boring-ui/button"
       ],
       "files": [
         {
@@ -549,7 +658,7 @@
         },
         {
           "path": "registry/pi-ambient/browser-notify.ts",
-          "type": "registry:component",
+          "type": "registry:hook",
           "target": "components/pi-ambient/browser-notify.ts"
         },
         {
@@ -586,7 +695,7 @@
     },
     {
       "name": "pi-workspace",
-      "type": "registry:component",
+      "type": "registry:block",
       "title": "Pi workspace layout",
       "description": "ArtifactWorkspace: the chat with a right-hand panel that slides in at full height, a resizable divider, full screen, a full-screen sheet on a phone and an opt-in float-when-narrow (the host swaps in AmbientChat from pi-ambient). Layout only; what is open is the host's. Pair it with the viewers item for the panel contents.",
       "dependencies": [
@@ -594,7 +703,8 @@
         "react-dom@19.3.0"
       ],
       "registryDependencies": [
-        "@boring-ui/pi-chat"
+        "@boring-ui/pi-chat",
+        "@boring-ui/utils"
       ],
       "files": [
         {
@@ -627,19 +737,17 @@
         "@tiptap/extension-highlight@3.31.4",
         "@tiptap/extension-bubble-menu@3.31.4",
         "@tiptap/extension-floating-menu@3.31.4",
-        "lucide-react@1.51.0",
-        "clsx@2.1.1",
-        "tailwind-merge@3.7.0"
+        "lucide-react@1.51.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/theme",
+        "@boring-ui/utils",
+        "@boring-ui/button"
       ],
       "files": [
         {
-          "path": "registry/viewers/button.tsx",
-          "type": "registry:component",
-          "target": "components/viewers/button.tsx"
-        },
-        {
           "path": "registry/viewers/download.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/viewers/download.ts"
         },
         {
@@ -664,7 +772,7 @@
         },
         {
           "path": "registry/viewers/media.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/viewers/media.ts"
         },
         {
@@ -679,13 +787,8 @@
         },
         {
           "path": "registry/viewers/share.ts",
-          "type": "registry:component",
+          "type": "registry:lib",
           "target": "components/viewers/share.ts"
-        },
-        {
-          "path": "registry/viewers/utils.ts",
-          "type": "registry:component",
-          "target": "components/viewers/utils.ts"
         },
         {
           "path": "registry/viewers/viewer-frame.tsx",
@@ -1249,20 +1352,17 @@
       "dependencies": [
         "react@19.3.0",
         "react-dom@19.3.0",
-        "lucide-react@1.51.0",
-        "clsx@2.1.1",
-        "tailwind-merge@3.7.0"
+        "lucide-react@1.51.0"
+      ],
+      "registryDependencies": [
+        "@boring-ui/theme",
+        "@boring-ui/utils"
       ],
       "files": [
         {
           "path": "registry/provider-setup/provider-setup.tsx",
           "type": "registry:component",
           "target": "components/provider-setup/provider-setup.tsx"
-        },
-        {
-          "path": "registry/provider-setup/utils.ts",
-          "type": "registry:component",
-          "target": "components/provider-setup/utils.ts"
         }
       ]
     },
@@ -1277,6 +1377,43 @@
         "@boring/files@0.0.0",
         "react@19.3.0",
         "react-dom@19.3.0"
+      ],
+      "files": [
+        {
+          "path": "registry/feedback/feedback-session.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/feedback-session.tsx"
+        },
+        {
+          "path": "registry/feedback/point-button.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/point-button.tsx"
+        },
+        {
+          "path": "registry/feedback/picker-overlay.ts",
+          "type": "registry:lib",
+          "target": "components/feedback/picker-overlay.ts"
+        },
+        {
+          "path": "registry/feedback/annotate-sheet.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/annotate-sheet.tsx"
+        },
+        {
+          "path": "registry/feedback/feedback-list.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/feedback-list.tsx"
+        },
+        {
+          "path": "registry/feedback/feedback-report.tsx",
+          "type": "registry:component",
+          "target": "components/feedback/feedback-report.tsx"
+        },
+        {
+          "path": "registry/feedback/use-external.ts",
+          "type": "registry:hook",
+          "target": "components/feedback/use-external.ts"
+        }
       ],
       "css": {
         "[data-boring=\"feedback\"]": {
@@ -1874,44 +2011,7 @@
           "color": "var(--boring-feedback-text)",
           "font": "inherit"
         }
-      },
-      "files": [
-        {
-          "path": "registry/feedback/feedback-session.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/feedback-session.tsx"
-        },
-        {
-          "path": "registry/feedback/point-button.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/point-button.tsx"
-        },
-        {
-          "path": "registry/feedback/picker-overlay.ts",
-          "type": "registry:component",
-          "target": "components/feedback/picker-overlay.ts"
-        },
-        {
-          "path": "registry/feedback/annotate-sheet.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/annotate-sheet.tsx"
-        },
-        {
-          "path": "registry/feedback/feedback-list.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/feedback-list.tsx"
-        },
-        {
-          "path": "registry/feedback/feedback-report.tsx",
-          "type": "registry:component",
-          "target": "components/feedback/feedback-report.tsx"
-        },
-        {
-          "path": "registry/feedback/use-external.ts",
-          "type": "registry:component",
-          "target": "components/feedback/use-external.ts"
-        }
-      ]
+      }
     },
     {
       "name": "feedback-preview",
@@ -1927,7 +2027,7 @@
         {
           "path": "registry/feedback-preview/preview-banner.tsx",
           "type": "registry:component",
-          "target": "components/feedback/preview-banner.tsx"
+          "target": "components/feedback-preview/preview-banner.tsx"
         }
       ]
     }

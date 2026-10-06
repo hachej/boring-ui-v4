@@ -26,7 +26,7 @@
     {
       "path": "registry/feedback/picker-overlay.ts",
       "content": "// PickerOverlay: styles only. The overlay itself (its shadow root, pointer-events: none, and what it draws) is `createOverlay` from\n// `@boring/feedback/page`; this file is the editable look, passed into that shadow root. Labels come from the privacy policy there, so\n// restyling cannot change what they say. The host keeps one overlay per page and shares it between PointButton and FeedbackReport.\nimport { useEffect, useState } from 'react';\nimport { createOverlay, type PickerOverlay } from '@boring/feedback/page';\n\n/** CSS added to the overlay's shadow root. Parts: `box`, `label`, `toolbar` (and `box-<tone>`, `label-<tone>` for hover, pinned,\n * reveal and candidate). The colors read the host's `--boring-feedback-*` variables, which inherit through the shadow boundary. */\nexport const pickerOverlayStyles = `\n.box { border-radius: 6px; }\n.box[data-tone=\"hover\"] { border-width: 2px; }\n.box[data-tone=\"pinned\"] { box-shadow: 0 0 0 3px color-mix(in srgb, var(--boring-feedback-accent, #2563eb) 25%, transparent); }\n.box[data-tone=\"reveal\"] { animation: boring-feedback-pulse 1.2s ease-out 2; }\n.label { border-radius: 6px; box-shadow: 0 2px 8px rgb(0 0 0 / 25%); }\n.toolbar { box-shadow: 0 8px 24px rgb(0 0 0 / 30%); }\n@keyframes boring-feedback-pulse { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--boring-feedback-reveal, #d97706) 55%, transparent); } to { box-shadow: 0 0 0 14px transparent; } }\n@media (prefers-reduced-motion: reduce) { .box[data-tone=\"reveal\"] { animation: none; } }\n`;\n\n/** One overlay for the page, created after mount and removed on unmount. */\nexport function usePickerOverlay(styles: string = pickerOverlayStyles): PickerOverlay | undefined {\n  const [overlay, setOverlay] = useState<PickerOverlay>();\n  useEffect(() => {\n    const created = createOverlay({ document, styles });\n    setOverlay(created);\n    return () => { created.dispose(); };\n  }, [styles]);\n  return overlay;\n}\n",
-      "type": "registry:component",
+      "type": "registry:lib",
       "target": "components/feedback/picker-overlay.ts"
     },
     {
@@ -50,7 +50,7 @@
     {
       "path": "registry/feedback/use-external.ts",
       "content": "// Subscribes a component to one of the headless states of `@boring/feedback/ui` (annotate, list, report).\nimport { useSyncExternalStore } from 'react';\nimport type { ExternalState } from '@boring/feedback/ui';\n\nexport function useExternal<State>(state: ExternalState<State>): State {\n  return useSyncExternalStore(state.subscribe, state.getSnapshot, state.getSnapshot);\n}\n",
-      "type": "registry:component",
+      "type": "registry:hook",
       "target": "components/feedback/use-external.ts"
     }
   ],

@@ -19,7 +19,7 @@ const withoutCanvas = { name: 'without-canvas', setup(builder) {
 const bundle = await build({ entryPoints: [here('../browser/app.jsx')], plugins: [withoutCanvas], bundle: true, write: false, outdir: out, format: 'esm', platform: 'browser', jsx: 'automatic',
   minify: true, loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' }, define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
 const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
-const tailwind = await buildTailwind({ themeCss: readFileSync(here('../../studio/theme.css'), 'utf8') });
+const tailwind = await buildTailwind();
 const styles = [tailwind, ...bundle.outputFiles.filter(file => file.path.endsWith('.css')).map(file => file.text), readFileSync(here('../browser/styles.css'), 'utf8')].join('\n');
 
 // The scenario list is data: the same files the studio lists and the journey executes, described without their code or fixtures.

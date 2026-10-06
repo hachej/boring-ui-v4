@@ -127,8 +127,7 @@ export async function startAmbient({ directory, port = 0, provider = process.env
   const bundle = await build({ entryPoints: [here('./browser.jsx')], bundle: true, write: false, outdir: here('./out'), format: 'esm', platform: 'browser', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
   const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
-  const theme = readFileSync(fileURLToPath(new URL('../studio/theme.css', import.meta.url)), 'utf8');
-  const styles = [await buildTailwind({ themeCss: theme }), readFileSync(here('./host.css'), 'utf8')].join('\n');
+  const styles = [await buildTailwind(), readFileSync(here('./host.css'), 'utf8')].join('\n');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"><title>Northwind Console (fictional)</title>
 <link rel="stylesheet" href="/styles.css"></head><body><div id="root"></div>
 <script>window.__AMBIENT__=${JSON.stringify({ token, identity: { runtimeId: 'ambient', ...human } })}</script>

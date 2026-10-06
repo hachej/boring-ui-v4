@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
-import { cn } from '../pi-chat/utils';
+import { cn } from '../utils/utils';
 
 /** What the open panel can do to its workspace. Pass `onFullscreenChange` on to the viewer's top bar; it is absent in the phone sheet. */
 export interface WorkspacePanelApi {

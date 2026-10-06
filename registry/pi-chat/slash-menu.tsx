@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePickerKeyboard } from './picker-keyboard';
 import { slashGroup } from './config';
 import type { SlashItem } from './config';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 const ALL = '__all__';
 

@@ -18,7 +18,7 @@ const TYPES = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=
 
 export async function buildSite({ minify = false } = {}) {
   const files = await buildBrowserAgent({ minify });
-  const css = [await buildTailwind({ themeCss: readFileSync(here('../studio/theme.css'), 'utf8'), extraDirectories: ['registry/provider-setup'] }), files['/app-bundle.css'], readFileSync(here('./page/app.css'), 'utf8')].join('\n');
+  const css = [await buildTailwind({ extraDirectories: ['registry/provider-setup'] }), files['/app-bundle.css'], readFileSync(here('./page/app.css'), 'utf8')].join('\n');
   delete files['/app-bundle.css'];
   files['/styles.css'] = css;
   files['/index.html'] = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Browser agent (fictional)</title>

@@ -14,7 +14,7 @@ import { ViewerFrame } from '../../registry/viewers/viewer-frame.tsx';
 import { downloadFile } from '../../registry/viewers/download.ts';
 import { Canvas } from './panels/canvas.jsx';
 import { formatBytes } from '../../registry/viewers/media.ts';
-import { copyText } from '../../registry/viewers/utils.ts';
+import { copyText } from '../../registry/utils/utils.ts';
 import { kindOf, mediaTypeOf } from './file-types.mjs';
 import { shareStudioLink } from './share-link.mjs';
 import { INTERACTIVE_HTML } from './interactive.mjs';

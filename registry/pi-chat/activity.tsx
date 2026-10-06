@@ -7,7 +7,7 @@ import { Shimmer } from './shimmer';
 import { ToolCard, liveLabel } from './tool';
 import type { ToolStatus } from './tool';
 import type { Step } from './rows';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 type Image = Extract<ToolResultMessage['content'][number], { type: 'image' }>;
 export type ActivityState = 'running' | 'done' | 'failed' | 'stopped';

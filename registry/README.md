@@ -10,16 +10,22 @@ The `markdown-editor` and `html-viewer` items copy thin React wrappers and scope
 | `pi-ambient` | copied source in `components/pi-ambient/` | the same `NativeChatController` as `pi-chat` |
 | `pi-workspace` | copied source in `components/pi-workspace/` | none: layout driven by props |
 | `provider-setup` | copied source in `components/provider-setup/` | none: props and callbacks only |
+| `theme` | the shadcn tokens (light, dark) and their `@theme inline` bindings, merged into the host's CSS | none |
+| `utils`, `button` | `cn`/`copyText` and the one shared `Button`/`IconButton`, in `components/utils/` and `components/button/` | none |
 
 ## Blocks: what to install
 
-`pi-chat` is the chat and nothing else. `pi-ambient` and `pi-workspace` are optional blocks over it; install only what the page needs. A block imports its dependency by the installed sibling folder (`../pi-chat/utils`), so there is one copy of each helper, and `scripts/check-registry-blocks.mjs` (in `npm run check`) fails if `pi-chat` imports a block, `pi-workspace` imports `pi-ambient`, or a source file is not listed in its item.
+`pi-chat` is the chat and nothing else. `pi-ambient` and `pi-workspace` are optional blocks over it; install only what the page needs. A block imports its dependency by the installed sibling folder (`../pi-chat/rows`, `../utils/utils`, `../button/button`), so there is one copy of each helper, and `scripts/check-registry-blocks.mjs` (in `npm run check`) fails if `pi-chat` imports a block, `pi-workspace` imports `pi-ambient`, a source file is not listed in its item, a file's type or target is off, or two items ship the same file name.
+
+Item and file types follow the shadcn schema: the multi-file chat items are `registry:block`, the viewer wrappers and component sets `registry:component`, the shared button `registry:ui`, the shared helpers `registry:lib`, the tokens `registry:theme`. Within an item a `.tsx` file is `registry:component` (`registry:ui` for the button), a `use*.ts` file (and `pi-ambient/browser-notify.ts`) is `registry:hook`, and any other `.ts` file is `registry:lib`. Every file has the target `components/<item>/<file>`, so the installed folders mirror `registry/` (the Markdown and HTML wrappers land in `components/markdown-editor/markdown-editor.tsx` and `components/html-viewer/html-viewer.tsx`, the preview banner in `components/feedback-preview/`).
 
 | Block | Install | Pick it when |
 | --- | --- | --- |
 | `pi-chat` | `npx shadcn@4.21.1 add <registry>/pi-chat.json` | you lay out the page yourself and only need the conversation (`PiChat`) |
 | `pi-ambient` | `... add <registry>/pi-ambient.json` (also installs `pi-chat` and `pi-workspace`) | an agent sits beside an existing site: `AmbientChat` bar and `AgentNotifications` toasts |
 | `pi-workspace` | `... add <registry>/pi-workspace.json` (also installs `pi-chat`) | the page is the chat plus a resizable artifact panel (`ArtifactWorkspace`); add `viewers` for the panel contents and `pi-ambient` for float-when-narrow |
+
+Every Tailwind item depends on `theme` (`pi-chat`, `viewers`, `provider-setup` and `button` directly, the blocks over `pi-chat` through it), imports `cn` from `utils` and, when it renders buttons, `Button` from `button`; the CLI installs each once. Checked by hand with the pinned CLI over HTTP and the namespace mapped: `pi-chat` creates 26 files (its 24, `button/button.tsx`, `utils/utils.ts`), `pi-workspace` adds `workspace.tsx` (27), `pi-ambient` its three files and `workspace.tsx` (30), `viewers` 12; each also merges the theme tokens into the CSS file, keeping tokens the host already defines.
 
 `<registry>` is wherever `public/r/` is served. `pi-ambient` and `pi-workspace` name their dependencies as `@boring-ui/pi-chat` and `@boring-ui/pi-workspace`, so map the namespace once in the app's `components.json`: `"registries": { "@boring-ui": "<registry>/{name}.json" }` (a bare name would resolve against shadcn's own registry and fail). `pi-ambient` needs `pi-workspace` because the ambient window opens artifacts in the same panel layout; `pi-workspace` never needs `pi-ambient` (the host chooses to render `AmbientChat` when the chat floats). Examples: [`examples/studio`](../examples/studio/README.md) assembles every block; [`examples/ambient`](../examples/ambient/README.md) uses `pi-chat` and `pi-ambient` only.
 
@@ -51,7 +57,7 @@ Nothing is published, so a consumer needs a package source for the private `@bor
 
 1. In this repository: `npm ci && npm run build && npm run registry:build`, then `npm pack ./packages/ui ./packages/files ./packages/agent --pack-destination <dir>`.
 2. Serve the tarballs as an npm registry for the `@boring` scope (a ten-line static registry that returns a packument with `dist.tarball`, `dist.integrity` and the package's own manifest is enough) and put `@boring:registry=http://127.0.0.1:<port>/` in the app's `.npmrc`. This is required because every item lists `@boring/ui@0.0.0` as a dependency and the CLI runs `npm install` for it. `file:` tarball specs in `package.json` do not help: the CLI still installs `@boring/ui@0.0.0` by name.
-3. Serve `public/r/` over HTTP and run `npx shadcn@4.21.1 add http://127.0.0.1:<port>/r/pi-chat.json http://127.0.0.1:<port>/r/viewers.json http://127.0.0.1:<port>/r/markdown-editor.json -y`. Files land in `src/components/pi-chat/`, `src/components/viewers/` and `src/components/markdown-editor.tsx`; scoped CSS is merged into the app's CSS file. Re-running with `-o` is idempotent.
+3. Serve `public/r/` over HTTP and run `npx shadcn@4.21.1 add http://127.0.0.1:<port>/r/pi-chat.json http://127.0.0.1:<port>/r/viewers.json http://127.0.0.1:<port>/r/markdown-editor.json -y`. Files land in `src/components/pi-chat/`, `src/components/viewers/`, `src/components/button/`, `src/components/utils/` and `src/components/markdown-editor/markdown-editor.tsx` (map the `@boring-ui` namespace first, see above); scoped CSS is merged into the app's CSS file. Re-running with `-o` is idempotent.
 4. Install the server side with exact pins: `@boring/agent`, `@boring/files`, `react@19.3.0`, `react-dom@19.3.0`, `@earendil-works/pi-durable@1.0.1`, `@earendil-works/pi-ai@1.0.1` and `@earendil-works/chord@1.0.1`. Node 22.19 or newer runs a TypeScript server with `node server/main.ts` (SQLite resources use `node:sqlite`).
 5. The shadcn Vite template's `npm run typecheck` is `tsc --noEmit` over a solution file with `"files": []` and checks nothing. Use `tsc -p tsconfig.app.json --noEmit`; the installed source passes the template's `strict`, `noUnusedLocals` and `noUnusedParameters`.
 
@@ -112,7 +118,7 @@ The HTML installation fixture repeats public controller/renderer behavior throug
 | Queue read from the view's `pi.inbox` document | `queue.tsx` |
 | Human-in-the-loop `ask_user` card | `question-card.tsx` |
 | Feedback card: `feedback` list results and offers with hoverable element lines, report mentions | `feedback-card.tsx` |
-| Empty state, read-only history, button, class merge helper | `empty-state.tsx`, `history.tsx`, `button.tsx`, `utils.ts` |
+| Empty state, read-only history (the shared `Button` and `cn` come from the `button` and `utils` items) | `empty-state.tsx`, `history.tsx` |
 | Shared chat behaviour for every surface (send, queue actions, uploads, pickers, rows, paged transcript), send/stop notices | `session.tsx`, `notice.tsx` |
 
 Pass `actions={{ answer, withdraw }}` with the matching functions from `createRemoteChat()` (feature-detect them: a transport without them leaves question cards and queued messages read-only). `answer(callId, answer)` resolves to `{ kind: 'answered' }` or a refusal that the card shows inline.
@@ -121,9 +127,22 @@ Each turn's tool calls and reasoning are folded into one activity block (after V
 
 Composer features are switched on by props, and each is absent without its prop (no menu, button or key trigger): `slash={{ commands, skills }}` (`/` at the start of the message: a searchable menu with source chips; a command runs `run({ setText, text })`, a skill inserts a `/skill-name ` token), `mentions={{ search }}` (`@` picker, composer chips, styled mentions in sent messages; the mention is plain text for the model), `attachments={{ accept, upload }}` (attach, paste and drop; a returned `path` becomes an `@path` mention, a returned `image` a native image attachment; progress and failure chips), `model={{ options, change }}` and `effort={{ options, change }}` (compact pickers showing the view's `pi.agent` model and thinking level; disabled while a change is in flight; a rejected `change` shows its message inline). With `createRemoteChat()` use `remote.configure` inside `change` and throw on a refusal. The studio wires these per demo (`examples/studio/demos/index.mjs`).
 
-The host supplies Tailwind v4 and the standard shadcn tokens (`--background`, `--foreground`, `--muted`, `--border`, `--ring`, `--primary`, `--destructive` and the `--color-*` bindings). The item's `css` adds only `@layer base` rules scoped to `.pi-chat`, the shimmer and caret rules and their keyframes; it needs no preflight. Tailwind must scan the installed folder for classes. Dark mode follows the host's tokens (the studio uses `prefers-color-scheme`). `examples/studio/tailwind.mjs` is a working library-API build.
+The tokens (`--background`, `--foreground`, `--muted`, `--border`, `--ring`, `--primary`, `--destructive`, `--radius` and the `--color-*`/`--radius-*` bindings) are the `theme` item; see [Theme and Tailwind](#theme-and-tailwind). The item's `css` adds only `@layer base` rules scoped to `.pi-chat`, the shimmer and caret rules and their keyframes; it needs no preflight.
 
-Markdown output stays inert: raw HTML is text, images are alt text and only plain `http(s)` links render. `test/contracts/pi-chat-source.test.mjs` compiles the source and checks that, plus the row model. The studio (`examples/studio`) renders this item and the studio scenarios (`examples/studio/scenarios/chat-basics.mjs` and the others) drive it in a real browser. Local tarball installation of the chat blocks through the shadcn CLI is not covered by `test:registry-consumer`; the block split was checked once by hand (`pi-chat` alone installs 25 files and no ambient or workspace file; `pi-workspace` adds `workspace.tsx`; `pi-ambient` adds its three files and `workspace.tsx`).
+Markdown output stays inert: raw HTML is text, images are alt text and only plain `http(s)` links render. `test/contracts/pi-chat-source.test.mjs` compiles the source and checks that, plus the row model. The studio (`examples/studio`) renders this item and the studio scenarios (`examples/studio/scenarios/chat-basics.mjs` and the others) drive it in a real browser. Local tarball installation of the chat blocks through the shadcn CLI is not covered by `test:registry-consumer`; the block split was checked by hand (see [Blocks](#blocks-what-to-install)).
+
+## Theme and Tailwind
+
+The `theme` item (`registry:theme`) is the one source of the shadcn tokens: `cssVars.light`, `cssVars.dark` and the Tailwind v4 bindings in `cssVars.theme`. Every Tailwind item depends on it, so `shadcn add` merges the tokens into the app's CSS file (light on `:root`, dark on `.dark`, bindings in `@theme inline`) and keeps any token the host already defines; the host's theme wins. The examples compile the same values: `themeCss()` in `examples/studio/tailwind.mjs` renders the item (dark under `prefers-color-scheme`), and `scripts/check-registry-blocks.mjs` plus `test/contracts/registry-source.test.mjs` keep the item complete.
+
+A consumer needs only Tailwind v4's standard build, nothing from this repository:
+
+1. Tailwind v4 through its Vite plugin (`@tailwindcss/vite`, already set up by `shadcn init -t vite`) or its CLI (`npx @tailwindcss/cli -i src/index.css -o dist/app.css`).
+2. `src/index.css` starts with `@import "tailwindcss";` and holds the tokens the CLI merged in.
+3. Sources: Tailwind's automatic detection scans the project, which includes the installed `src/components/` folders. When the components live outside the scanned base (a monorepo package, a folder in `.gitignore`), add `@source "../path/to/components";` after the import.
+4. Dark mode is the `.dark` class (`@custom-variant dark (&:is(.dark *))`, added by the CLI). For the system setting instead, put the `.dark` tokens under `@media (prefers-color-scheme: dark) { :root { ... } }` as the studio does.
+
+`examples/studio/tailwind.mjs` is this repository's library-API build for the examples (no CLI, no PostCSS, only the theme and utilities layers because preflight would restyle the viewer panels); it is not part of an installation.
 
 ## Ambient agent (`pi-ambient`: `AmbientChat`, `AgentNotifications`)
 
@@ -170,7 +189,7 @@ One Tailwind item (owned source, shadcn tokens, light and dark, 44px targets on 
 | --- | --- |
 | Bar (`ViewerFrame`, `ViewerToggle`, `ViewerIconButton`): always one row; title and facts, icon-only mode toggle with tooltips, Save only while there are edits, a status dot only when not "Saved" (read-only is a word in the subtitle), then Share, full screen and Close; Reload, Copy, Download, Open in new tab and viewer extras sit in the "…" menu (a bottom sheet on a phone) | `viewer-frame.tsx` |
 | Menu (`ViewerMenu`, `ViewerVersions`): icon trigger, `menu` roles, arrow keys, Home/End, Escape returning focus; `ViewerVersions` is the version history (newest first, latest marked, current checked) | `menu.tsx` |
-| Share: `createLinkShare(link)` uses the Web Share API, otherwise copies the link and the bar says "Link copied"; plain-HTTP origins lack `navigator.clipboard`, so `copyText` falls back to `execCommand('copy')`, and if the browser allows no copy at all the bar shows the link selected for a manual copy | `share.ts`, `utils.ts` (`copyText`, `ManualCopyError`) |
+| Share: `createLinkShare(link)` uses the Web Share API, otherwise copies the link and the bar says "Link copied"; plain-HTTP origins lack `navigator.clipboard`, so `copyText` falls back to `execCommand('copy')`, and if the browser allows no copy at all the bar shows the link selected for a manual copy | `share.ts`, `utils/utils.ts` of the `utils` item (`copyText`, `ManualCopyError`) |
 | Markdown editor with toolbar, prose styling, Rich/Source toggle, Save | `markdown-pane.tsx` (over `@boring/ui/markdown-editor`) |
 | HTML preview and source; passive preview by default, optional interactive preview (below) | `html-pane.tsx` (over `@boring/ui/html-viewer`), `interactive-html.tsx` |
 | Image viewer: fit, zoom, pan, checkerboard; every type through an `<img>` from an object URL | `image-pane.tsx` |

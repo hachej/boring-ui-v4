@@ -5,8 +5,7 @@ import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table';
 import Image from '@tiptap/extension-image';
 import Highlight from '@tiptap/extension-highlight';
-import type { Extensions, JSONContent } from '@tiptap/core';
-import type { Schema } from '@tiptap/pm/model';
+import type { Editor, Extensions, JSONContent } from '@tiptap/core';
 import { createMarkdownParser } from './markdown-parser.js';
 
 type TextEncoder = (text: string, node: { marks?: readonly unknown[] }, parent: { type?: string } | null) => string;
@@ -28,6 +27,8 @@ const PlainTextMarkdown = Markdown.extend({
     };
   },
 });
+
+type Schema = Editor['schema'];
 
 /**
  * A GFM table keeps the exact text it was written in (unpadded `|a|b|`, `:---:` alignment rows, `_emphasis_`, escaped pipes, empty

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { CheckIcon, MessageCircleQuestionIcon, SendIcon } from 'lucide-react';
-import { Button } from './button';
-import { cn } from './utils';
+import { Button } from '../button/button';
+import { cn } from '../utils/utils';
 
 /** What the host answers when asked to resolve a pending question. */
 export type AnswerOutcome = { readonly kind: 'answered' } | { readonly kind: 'denied' | 'conflict' | 'unknown-question'; readonly reason?: string };

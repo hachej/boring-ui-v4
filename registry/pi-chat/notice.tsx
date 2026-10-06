@@ -2,8 +2,8 @@
 
 import type { ReactNode } from 'react';
 import type { NativeChatSnapshot } from '@boring/ui/native-chat';
-import { Button } from './button';
-import { cn } from './utils';
+import { Button } from '../button/button';
+import { cn } from '../utils/utils';
 
 export function Notice({ tone = 'error', children, testid }: { readonly tone?: 'error' | 'info'; readonly children: ReactNode; readonly testid?: string }) {
   return <div role={tone === 'error' ? 'alert' : 'status'} {...(testid ? { 'data-testid': testid } : {})}

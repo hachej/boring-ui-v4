@@ -111,11 +111,11 @@ try {
     const installed = JSON.parse(readFileSync(join(directory, 'node_modules', name, 'package.json'), 'utf8'));
     assert.equal(installed.name, name); assert.equal(installed.version, version);
   }
-  const component = 'src/components/' + recipe.name + '.tsx';
+  const component = 'src/components/' + recipe.name + '/' + recipe.name + '.tsx';
   assert.ok(existsSync(join(directory, component)), 'Real CLI must create the wrapper');
   assert.ok(readFileSync(join(directory, component), 'utf8').includes('@boring/ui/' + recipe.name));
   assert.ok(readFileSync(join(directory, 'src/index.css'), 'utf8').includes(recipe.className));
-  writeFileSync(join(directory, 'consumer.ts'), html ? `import { HtmlViewer, type HtmlViewerProps } from './src/components/html-viewer';
+  writeFileSync(join(directory, 'consumer.ts'), html ? `import { HtmlViewer, type HtmlViewerProps } from './src/components/html-viewer/html-viewer';
 import type { HtmlController } from '@boring/ui/html';
 import { createElement } from 'react';
 declare const controller: HtmlController;
@@ -123,7 +123,7 @@ const props: HtmlViewerProps = { controller, title: 'Fictional registry HTML' };
 createElement(HtmlViewer, props);
 controller.flush(controller.actions.selection());
 controller.actions.reconcile();
-` : `import { MarkdownEditor, type MarkdownEditorProps } from './src/components/markdown-editor';
+` : `import { MarkdownEditor, type MarkdownEditorProps } from './src/components/markdown-editor/markdown-editor';
 import type { MarkdownController } from '@boring/ui/markdown';
 import { createElement } from 'react';
 declare const controller: MarkdownController;

@@ -8,7 +8,7 @@ import { notifyWhenHidden } from './browser-notify';
 import { parseQuestion } from '../pi-chat/question-card';
 import { derive, object } from '../pi-chat/rows';
 import type { Row } from '../pi-chat/rows';
-import { cn } from '../pi-chat/utils';
+import { cn } from '../utils/utils';
 
 /** `done`: a run finished. `input`: the agent waits for an answer (never auto-dismissed). `error`: a run failed. */
 export type NotificationKind = 'done' | 'input' | 'error';

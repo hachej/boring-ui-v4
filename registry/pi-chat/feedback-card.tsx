@@ -6,7 +6,7 @@ import type { ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { FEEDBACK_ID, readableElement } from '@boring/feedback/format';
 import { CheckIcon, LocateFixedIcon, MessageSquareTextIcon, ShieldAlertIcon } from 'lucide-react';
 import type { ChatCard } from './rows';
-import { cn } from './utils';
+import { cn } from '../utils/utils';
 
 /*
  * The feedback card (FEEDBACK.md, "Activating it on an agent" and "UX"): `feedback` tool results in the transcript. A `list`

@@ -8,6 +8,9 @@ import { ASK_USER_TOOL } from './question-card';
 import { PRESENT_TOOL, artifactKey, detectArtifact, pendingId, pendingTitle } from './artifact';
 import type { ArtifactDescriptor, ArtifactsConfig } from './artifact';
 
+/** The host adds file content for `@path` mentions as parts that start like this; the message already shows the mention itself. */
+export const isFileBlock = (text: string): boolean => text.startsWith('<file path="');
+
 /*
  * The one message model is the native Pi view: entries (with their model messages) plus the live `pi.live` document.
  * This module turns a view into display rows with these semantics: tool calls are matched with tool results, expert mode hides successful tool details, the live
