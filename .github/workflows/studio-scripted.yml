@@ -30,7 +30,7 @@ jobs:
       - run: npm run build
       - name: Cache the pinned Chromium headless shell
         id: chromium
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/ms-playwright
           key: chromium-headless-shell-1243-playwright-${{ env.PLAYWRIGHT_VERSION }}
