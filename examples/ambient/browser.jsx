@@ -21,7 +21,9 @@ const remember = id => { try { sessionStorage.setItem(STORED, id); } catch { /* 
 
 /** A connected controller for a background task's conversation; the host owns and disposes it. */
 async function connect(conversationId) {
-  const remote = await createRemoteChat({ endpoint: new URL(`/api/chat?conversation=${conversationId}`, location.href), fetch: authorized });
+  // Every connection here feeds the notification store, and system notifications show only while the page is hidden: the stream
+  // must stay open in the background, or a run that finishes there would raise nothing until the tab is visible again.
+  const remote = await createRemoteChat({ endpoint: new URL(`/api/chat?conversation=${conversationId}`, location.href), fetch: authorized, pauseWhenHidden: false });
   const controller = createNativeChatController({ identity, ...remote });
   try { await controller.connect(); } catch (error) { controller.dispose(); void remote.close(); throw error; }
   return { controller, remote };

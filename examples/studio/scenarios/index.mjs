@@ -20,7 +20,7 @@
 //       { prompt, wait: false },                // the same, but go on while it works (stop it, queue messages, reload)
 //       { prompt, mention: 'notes/a.md' },      // the same with an @mention of a workspace file at the start
 //       { prompt, upload: { name, content, mimeType? } },   // attach this file with the paperclip first
-//       { prompt, answers: ['option:1', 'free text'] },     // answers to ask_user questions, in the order they are asked
+//       { prompt, answers: ['option:1', 'free text'] },     // answers to ask_user questions, in the order they are asked; 'approve' or 'deny' answers an approval card
 //       { run: async t => {} },                 // custom driving or checks at this point of the sequence (the escape hatch inside the steps)
 //       { action: 'stop' | 'reload' | 'restart' | 'idle' | 'streaming' | 'openPanel' | 'closePanel' },
 //     ],
@@ -37,7 +37,7 @@ import { readdirSync } from 'node:fs';
 import { answeredGenerically } from '../scripted-model.mjs';
 
 export const GROUPS = ['Chat basics', 'Ask the user', 'Attachments and mentions', 'Artifacts', 'Documents and files', 'Canvas', 'Workspace and shell', 'Git',
-  'Subagents', 'Code mode', 'Remote sandbox', 'Specialised team', 'Self-evolution', 'Phone layout', 'Share links'];
+  'Subagents', 'Code mode', 'MCP tools', 'Remote sandbox', 'Specialised team', 'Self-evolution', 'Phone layout', 'Share links'];
 const ACTIONS = new Set(['stop', 'reload', 'restart', 'idle', 'streaming', 'openPanel', 'closePanel']);
 
 export async function loadScenarios() {

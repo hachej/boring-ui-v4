@@ -12,7 +12,7 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "node scripts/check-docs.mjs && node scripts/check-platform-apis.mjs && node scripts/check-handlers.mjs && node scripts/check-registry-blocks.mjs && node scripts/check-pi-boundary.mjs",
+    "check": "node scripts/check-docs.mjs && node scripts/check-platform-apis.mjs && node scripts/check-handlers.mjs && node scripts/check-registry-blocks.mjs && node scripts/check-pi-boundary.mjs && node scripts/check-doc-drafts.mjs",
     "build": "node scripts/build.mjs",
     "typecheck": "npm run build && tsc --project tsconfig.contract-tests.json --noEmit",
     "pretest": "npm run build",
@@ -65,6 +65,7 @@
     "@earendil-works/chord": "1.0.1",
     "@earendil-works/pi-ai": "1.0.1",
     "@earendil-works/pi-codemode": "1.0.1",
+    "@earendil-works/pi-mcp": "1.0.4",
     "@earendil-works/pi-durable": "1.0.1",
     "@json-render/core": "0.21.0",
     "@json-render/react": "0.21.0",

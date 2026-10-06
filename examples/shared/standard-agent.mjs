@@ -5,7 +5,7 @@
 //   parts, when the host has what they need (each is `{ capabilities: [...], tools?: [...], extensions?: [...] }`):
 //     workspace (Pi's read, write and edit over the host's ExecutionEnv, through the file guard of @boring/agent/file-guard,
 //     plus `present` and the shared notes.md), canvas (board.tldraw), shell (bash), git (working_git),
-//     subagents (foreground and background), codemode (run_code over a fictional ledger)
+//     subagents (foreground and background), codemode (run_code over a fictional ledger), mcp (a host's MCP tools, ./mcp-tools.mjs)
 //   A host without a workspace has neither file tools nor `present`: there is one tool set for files, and it needs a workspace.
 //   self-evolving, when the host names the workspace (`selfEvolving`): the agent keeps its own instructions, skills and tools in `.agent/` and
 //     applies them with `reload` (docs/architecture/SELF-EVOLUTION.md); its tools run through the same ExecutionEnv `exec` as bash.
@@ -63,11 +63,12 @@ ${HTML_RUNTIME_NOTE}`,
   git: () => `Git: the workspace is a git repository. Use working_git for version control: status, add (one path per call), commit (with a message), log, branches, branch (create), checkout (switch) and diff. Add each changed file before committing; there is no "commit -a". There is no remote: push, pull, fetch, merge, rebase and reset do not exist. Only stage or commit when asked.`,
   subagents: () => `Delegating: you cannot always read everything yourself. Use subagent with a short self-contained task that names the file paths; it waits and returns the subagent's answer, and you give the person the concrete facts it returned (not just that it finished). With background true it returns at once with a number and you reply with one short sentence naming it; never wait for it and never poll list_subagents in a loop. A message starting with "[Background subagent #N finished]" is that subagent's report, not something the person wrote: tell the person in one or two sentences what it found, without repeating the bracketed marker. Use list_subagents and stop_subagent only when asked.`,
   codemode: () => `Code: run_code runs JavaScript in a sandbox over a ledger of fictional records (id, status, region, amount in whole fictional credits). The ledger is paginated, so never read it one page per tool call: write ONE script that loops over every page with tools.list_records, filters and aggregates in code, and returns only the small final result. Aim for a single run_code call per question. Never estimate numbers: report exactly what the code returned, as plain digits without thousands separators.`,
+  mcp: () => `Connected services: tools named <service>_<tool> call an external service through MCP. One that changes something asks the person first; when they deny it, say so and do not retry.`,
   'self-evolving': () => `Improving yourself: you may keep standing instructions, skills and tools of your own in the .agent/ folder of the workspace (the reload tool describes the format). Change them when the person asks, write them with your ordinary file tools, then call reload and report what it says, errors included. Your tools run in the workspace like bash, never in the host.`,
   ask: () => `Asking: when a choice is the person's to make, or you need a detail that changes the result, call ask_user and wait for the answer, one question per call. Offer a few short options when they fit and allow free text when they do not.`,
 };
 // The order the sections read in: what the agent produces, then where it works, then how it coordinates.
-const ORDER = ['intro', 'present', 'notes', 'canvas', 'workspace', 'shell', 'git', 'subagents', 'codemode', 'self-evolving', 'ask'];
+const ORDER = ['intro', 'present', 'notes', 'canvas', 'workspace', 'shell', 'git', 'subagents', 'codemode', 'mcp', 'self-evolving', 'ask'];
 const ALWAYS = new Set(['intro', 'ask']);
 
 /**

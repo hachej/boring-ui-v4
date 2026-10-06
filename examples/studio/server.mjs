@@ -27,6 +27,7 @@ import { defineStandardAgent } from '../shared/standard-agent.mjs';
 import { createCanvasTools } from '../shared/canvas-tools.mjs';
 import { runCodeTool } from '../shared/codemode-tools.mjs';
 import { createSubagents } from '../shared/subagent-tools.mjs';
+import { connectMcpTools } from '../shared/mcp-tools.mjs';
 import { readFiles, shell, writeFiles } from '../shared/workspace-tools.mjs';
 import { buildTailwind } from './tailwind.mjs';
 import { loadVariants } from './variants/index.mjs';
@@ -113,10 +114,14 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       { capabilities: ['subagents'], tools: subagents.tools, extensions: subagents.extensions },
       { capabilities: ['codemode'], tools: [runCodeTool] },
     ];
+    // MCP servers the variant names (off unless it does): their allowed tools become native tools of the agent (../shared/mcp-tools.mjs).
+    const mcp = [];
+    for (const server of descriptor.mcp?.servers ?? []) mcp.push(await connectMcpTools({ ...server, transport: server.transport() }));
+    if (mcp.length) parts.push({ capabilities: ['mcp'], tools: mcp.flatMap(connection => connection.tools) });
     const { agent, capabilities: all } = defineStandardAgent({ id: `standard-${descriptor.id}`, model: { provider, modelId: offered[0].modelId }, cwd: infra.cwd ?? root,
       root, files, access: agentAccess, parts, ...(descriptor.selfEvolving ? { selfEvolving: descriptor.id } : {}) });
     // What the agent has, plus what the environment itself offers beyond tools (for example a remote sandbox's status tab).
-    const variant = { id: descriptor.id, descriptor, infra, env, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], files, subagents, notes: target('notes.md'), canvas: canvasTarget,
+    const variant = { id: descriptor.id, descriptor, infra, mcp, env, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], files, subagents, notes: target('notes.md'), canvas: canvasTarget,
       resourceHandler: createResourceHandler({ authenticate: async request => authenticated(request) ? human : null, reader: files, publisher: files.publication, lookup: files.reconciliation }),
       mentions: createMentionResolver({ read: mentionReader(files) }) };
     variants.set(descriptor.id, variant);
@@ -348,7 +353,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       await new Promise(resolve => server.close(resolve));
       await channels?.close();
       await harness.close(context);
-      for (const variant of entries) { await variant.infra.close?.(); }
+      for (const variant of entries) { for (const connection of variant.mcp) await connection.close(); await variant.infra.close?.(); }
       workspaceDb.close();
     },
   };
