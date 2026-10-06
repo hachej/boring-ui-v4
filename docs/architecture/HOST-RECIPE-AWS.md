@@ -48,7 +48,9 @@ library adapters listed under "Library work".
 6. **Transport over `/invocations`.** AgentCore routes only `/invocations`, `/ping` and `/ws` to the container. The
    chat transport today selects the operation with a `?op=` query parameter on one endpoint; verify that query strings
    reach the container, otherwise move the operation into the request body for this recipe. `watch` needs a streaming
-   response (or `/ws`); verify streaming limits through the AgentCore endpoint.
+   response (or `/ws`); verify streaming limits through the AgentCore endpoint. Behind an ALB (or any proxy) the idle watch
+   stays open only through the transport's heartbeat (`heartbeatMs`, default 15 s): set the ALB idle timeout to at least twice
+   the heartbeat (the 60 s default works) and see [Testing behind a proxy](../../examples/studio/README.md#testing-behind-a-proxy-headless).
 7. **Models.** Bedrock models through Pi AI's provider configuration, or the host's existing OpenAI/Anthropic keys from
    Secrets Manager. No credentials in the image or in tool-visible files.
 

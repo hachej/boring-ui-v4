@@ -18,7 +18,7 @@ const identity = { runtimeId: 'browser', scopeId: 'this-tab', principalId: 'you'
 function useChat() {
   const [chat, setChat] = useState({ status: 'connecting' });
   useEffect(() => {
-    let disposed = false, controller, timer;
+    let disposed = false, controller;
     (async () => {
       try {
         await agent.ready;
@@ -31,10 +31,9 @@ function useChat() {
         if (typeof remote.answer === 'function') actions.answer = remote.answer;
         if (typeof remote.withdraw === 'function') actions.withdraw = remote.withdraw;
         setChat({ status: 'ready', controller, actions });
-        timer = setInterval(() => { const kind = controller.getSnapshot().connection.kind; if (kind === 'closed' || kind === 'error') controller.connect().catch(() => {}); }, 1000);
       } catch (error) { if (!disposed) setChat({ status: 'failed', error: String(error?.message ?? error), code: error?.code }); }
     })();
-    return () => { disposed = true; clearInterval(timer); controller?.dispose(); };
+    return () => { disposed = true; controller?.dispose(); };
   }, []);
   return chat;
 }

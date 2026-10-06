@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configureOffered, firstMessageTitle } from '../shared/conversation-host.mjs';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Harness, createRegistry, defineTool } from '@earendil-works/pi-durable';
@@ -145,9 +145,7 @@ export async function startAmbient({ directory, port = 0, provider = process.env
       const request = await webRequest(incoming, url, { signal: closed.signal });
       if (!request) return void outgoing.writeHead(413).end();
       const response = url.pathname === '/api/chat' ? await chat(request) : url.pathname === '/api/resources' ? await resourceHandler(request) : await api(request, url);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();

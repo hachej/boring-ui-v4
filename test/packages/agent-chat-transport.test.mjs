@@ -113,6 +113,68 @@ test('transport refuses unauthenticated, revoked and disallowed callers and proj
   assert.equal((await fetch(new Request(`${endpoint}?op=watch`))).status, 403);
 });
 
+test('the watch heartbeats while idle and the remote chat reopens a dropped or silent stream without duplicates', async t => {
+  const fake = createFakeChatModel();
+  const harness = await Harness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);
+  t.after(() => harness.close(context));
+  const conversation = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { model: fake.model } }, context);
+  let open = 0;
+  const handler = createChatTransportHandler({ heartbeatMs: 40, authenticate: async () => ({ conversation, context }) });
+  // Raw stream: proxy-safe headers, the first heartbeat right after the view, then heartbeats while idle; cancelling stops them.
+  const raw = await handler(new Request(`${endpoint}?op=watch`));
+  assert.equal(raw.headers.get('cache-control'), 'no-store, no-transform');
+  assert.equal(raw.headers.get('x-accel-buffering'), 'no');
+  const reader = raw.body.pipeThrough(new TextDecoderStream()).getReader();
+  let text = '';
+  while (text.split('\n').length < 4) text += (await reader.read()).value;
+  const lines = text.split('\n').slice(0, 3).map(line => JSON.parse(line));
+  assert.deepEqual(lines.map(line => line.kind), ['view', 'heartbeat', 'heartbeat']);
+  assert.equal(lines[1].intervalMs, 40);
+  await reader.cancel();
+
+  // A fetch that lets the test cut the current watch (a proxy closing it) or freeze it (a proxy dropping it silently).
+  const watches = [];
+  const fetch = async request => {
+    const response = await handler(request);
+    if (new URL(request.url).searchParams.get('op') !== 'watch') return response;
+    open++;
+    let cut, frozen = false;
+    const body = response.body.pipeThrough(new TransformStream({
+      start: controller => { cut = () => controller.error(new TypeError('Fictional proxy closed the connection')); },
+      transform: (chunk, controller) => { if (!frozen) controller.enqueue(chunk); },
+    }));
+    watches.push({ cut: () => cut(), freeze: () => { frozen = true; } });
+    return new Response(body, { headers: response.headers });
+  };
+  const remote = await createRemoteChat({ endpoint, fetch, reconnect: { baseDelayMs: 10, maxDelayMs: 40 } });
+  const controller = createNativeChatController({ identity, ...remote });
+  t.after(() => controller.dispose());
+  await controller.connect();
+  const states = [];
+  controller.subscribe(() => { const kind = controller.getSnapshot().connection.kind; if (states.at(-1) !== kind) states.push(kind); });
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.equal(open, 1, 'an idle stream with heartbeats is not reopened');
+
+  watches.at(-1).cut();
+  await until('reopened after a drop', () => open === 2 && controller.getSnapshot().connection.kind === 'connected');
+  watches.at(-1).freeze();
+  await until('reopened after 2.5 silent heartbeat intervals', () => open === 3 && controller.getSnapshot().connection.kind === 'connected');
+  assert.deepEqual(states, ['reconnecting', 'connected', 'reconnecting', 'connected'], 'the controller reports reconnecting honestly');
+
+  controller.setText('Still there?');
+  await controller.send();
+  (await fake.nextCall()).respond('Fictional reply after reconnects.');
+  await until('the reply arrives once', () => texts(controller.getSnapshot().view).includes('Fictional reply after reconnects.'));
+  assert.equal(texts(controller.getSnapshot().view).filter(item => item === 'Fictional reply after reconnects.').length, 1);
+  assert.equal(controller.getSnapshot().view.entries.flatMap(entry => entry.model ?? []).filter(message => message.role === 'user').length, 1);
+
+  // Dispose stops reopening: a drop after it opens nothing.
+  await controller.dispose();
+  watches.at(-1).cut();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(open, 3);
+});
+
 test('defineAgent maps data to native extensions, agent configuration and on-demand skills', async t => {
   const fake = createFakeChatModel();
   const echo = defineTool({ name: 'echo', description: 'Echo text.', parameters: Type.Object({ text: Type.String() }), replay: 'safe',

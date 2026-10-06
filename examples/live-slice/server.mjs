@@ -2,7 +2,7 @@
 // Fictional content only. The bearer token is a per-process local fixture, not an identity provider.
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { webRequest } from '../shared/node-request.mjs';
+import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Harness, MemoryStorage, createRegistry, defineExtension, defineTool, UserEntry, AssistantEntry } from '@earendil-works/pi-durable';
@@ -105,10 +105,7 @@ section{border:1px solid #ccc;border-radius:8px;padding:12px;min-height:80vh}tex
       const request = await webRequest(incoming, url, { signal: closed.signal });
       if (!request) return void outgoing.writeHead(413).end();
       const response = await handler(request);
-      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
-      if (!response.body) return void outgoing.end();
-      for await (const chunk of response.body) outgoing.write(chunk);
-      outgoing.end();
+      await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
       outgoing.end();
