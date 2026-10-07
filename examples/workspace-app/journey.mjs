@@ -1,6 +1,6 @@
 // Real-browser journey for the workspace app (scripted model, no key): the page is only the pi-app block over the host handlers of
 // ./server.mjs. It proves: the sessions pane lists the chats, search filters them, choosing one changes the chat in the center, an
-// artifact the agent presents opens in the panel on the right, the pane collapses, and on a phone (390x844) the sessions are a drawer and
+// artifact the agent presents opens in the panel on the right, the pane collapses right after a switch (the toggle is one button across it), and on a phone (390x844) the sessions are a drawer and
 // the artifact a full-screen sheet with no horizontal scroll. Screenshots go to .cache/evidence/workspace-app/.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync } from 'node:fs';
@@ -81,17 +81,21 @@ try {
     await browser.until('the first chat', `${ACTIVE} === ${JSON.stringify(first)} && /AMBER-HARBOUR/.test(${LOG}) && !/picnic/i.test(${LOG})`, 20000);
     assert.equal(await browser.evaluate(`!${q('[data-testid=artifact-panel]')}`), true, 'the other chat\'s artifact is not shown');
     assert.equal(await browser.evaluate(`${q('[data-testid=conversation-row][data-active=true]')}.dataset.conversationId`), first);
+    // The sessions toggle is one button for the page's life: the chat header is replaced on a switch (connecting, then the new chat), the
+    // toggle is not, so a press during the swap still clicks.
+    await browser.evaluate(`${q('[data-testid=sessions-toggle]')}.dataset.mark = 'kept'`);
     await browser.click(row('picnic plan'));
     await browser.until('back to the second chat with its artifact', `${ACTIVE} === ${JSON.stringify(second)} && !!${q('[data-testid=artifact-panel]')}`, 20000);
-    // The chat reconnects after a switch: its header (with the sessions toggle) is replaced once it is live.
-    await live();
   });
 
-  await step('the sessions pane collapses and comes back', async () => {
+  await step('the sessions pane collapses and comes back, right after a switch', async () => {
+    // No wait for the chat to be live: the toggle works while the chat connects.
     await browser.click(q('[data-testid=sessions-toggle]'));
     await browser.until('hidden', `!${q('[data-testid=conversations]')} && ${q('[data-boring=agent-workspace]')}.dataset.sessions === 'hidden'`, 5000);
     await browser.click(q('[data-testid=sessions-toggle]'));
     await browser.until('shown', `!!${q('[data-testid=conversations]')}`, 5000);
+    await live();
+    assert.equal(await browser.evaluate(`${q('[data-testid=sessions-toggle]')}.dataset.mark`), 'kept', 'the toggle survived the switch and the connect');
   });
 
   await step('phone: sessions are a drawer, the artifact a full-screen sheet, no horizontal scroll', async () => {
