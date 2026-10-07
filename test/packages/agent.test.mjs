@@ -540,6 +540,53 @@ test('metering: reserve with the host scope, the resolved model and the kind, re
   }
 });
 
+// Several processes reserving against one ledger file at once: every write is a write transaction, so they serialize (busy
+// timeout) instead of failing with SQLITE_BUSY, and a balance check and its hold commit together (no credit spent twice).
+for (const [label, sqlite] of [['local disk WAL (default)', {}], ['rollback journal, shared locking (several processes on a network file system)', { journalMode: 'delete', lockingMode: 'normal', busyTimeoutMs: 20000 }]]) {
+  test(`metering: four processes reserving concurrently on one SQLite ledger file, ${label}: no busy error, no overspend`, { timeout: 60000 }, async t => {
+    const { spawn } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const { createSqliteLedger } = await import('@boring/agent/metering');
+    const directory = mkdtempSync(join(tmpdir(), 'boring-metering-concurrent-'));
+    const filename = join(directory, 'credits.sqlite'), go = join(directory, 'go');
+    const HOLD = 1000, AFFORDABLE = 150, PROCESSES = 4, EACH = 100;
+    const ledger = createSqliteLedger({ filename, sqlite, holdMicros: HOLD });
+    t.after(() => { ledger.close(); rmSync(directory, { recursive: true, force: true }); });
+    await ledger.grant('fictional-account', HOLD * AFFORDABLE, 'signup');
+    const script = `import { existsSync } from 'node:fs';
+import { createSqliteLedger } from '@boring/agent/metering';
+const [filename, go, worker, each, sqlite] = process.argv.slice(1);
+const ledger = createSqliteLedger({ filename, sqlite: JSON.parse(sqlite), holdMicros: ${HOLD} });
+while (!existsSync(go)) await new Promise(resolve => setTimeout(resolve, 5));
+const outcomes = { admitted: 0, refused: 0, errors: [] };
+for (let index = 0; index < Number(each); index++) {
+  try {
+    const reservation = await ledger.reserveRun({ userId: 'fictional-account', kind: 'input', message: 'Fictional question', content: 'Fictional question', conversationId: Number(worker), requestId: 'r' + index, runId: 'run:' + worker + ':' + index });
+    if (reservation.kind === 'refused') outcomes.refused++; else outcomes.admitted++;
+  } catch (error) { outcomes.errors.push(String(error.message)); }
+}
+ledger.close();
+console.log(JSON.stringify(outcomes));`;
+    const root = fileURLToPath(new URL('../../', import.meta.url));
+    const children = Array.from({ length: PROCESSES }, (_, worker) => {
+      const child = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', script, filename, go, String(worker + 1), String(EACH), JSON.stringify(sqlite)], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '', err = '';
+      child.stdout.on('data', chunk => { out += chunk; }); child.stderr.on('data', chunk => { err += chunk; });
+      return new Promise(resolve => child.on('close', code => resolve({ code, out, err })));
+    });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    writeFileSync(go, '');
+    const results = await Promise.all(children);
+    for (const result of results) assert.equal(result.code, 0, result.err);
+    const outcomes = results.map(result => JSON.parse(result.out.trim()));
+    assert.deepEqual(outcomes.flatMap(outcome => outcome.errors), [], 'no reservation failed (no SQLITE_BUSY)');
+    assert.equal(outcomes.reduce((total, outcome) => total + outcome.admitted, 0), AFFORDABLE, 'exactly the affordable number of runs was admitted');
+    assert.equal(outcomes.reduce((total, outcome) => total + outcome.refused, 0), PROCESSES * EACH - AFFORDABLE, 'every other reservation was refused');
+    assert.deepEqual(await ledger.balance('fictional-account'), { balanceMicros: HOLD * AFFORDABLE, heldMicros: HOLD * AFFORDABLE, availableMicros: 0 });
+    assert.equal((await ledger.openRuns()).length, AFFORDABLE);
+  });
+}
+
 for (const phase of ['interrupt', 'settle']) test(`metering: a run killed ${phase === 'interrupt' ? 'mid-generation is charged its hold (unknown usage)' : 'between record and settle is settled once'} after a restart`, { timeout: 30000 }, async t => {
   const { spawn } = await import('node:child_process');
   const directory = mkdtempSync(join(tmpdir(), 'boring-metering-crash-'));

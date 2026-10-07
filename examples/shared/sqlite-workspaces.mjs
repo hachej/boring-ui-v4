@@ -12,8 +12,9 @@ import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider } from '@boring/files/workspace';
 import { accessSnapshot, publicationSnapshot } from '@boring/files/publication';
 
-export function openSqliteWorkspaces({ filename, providerId, authorize = () => true }) {
-  const connection = openNodeConnection(filename);
+/** `sqlite`: the connection's settings (`sqliteSettings.networkFilesystem` from `@boring/files/sqlite` on EFS); local disk by default. */
+export function openSqliteWorkspaces({ filename, providerId, authorize = () => true, sqlite = {} }) {
+  const connection = openNodeConnection(filename, sqlite);
   let journal;
   try { journal = createWorkspaceJournal(connection); } catch (error) { connection.close(); throw error; }
   const workspaces = new Map();

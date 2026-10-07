@@ -47,17 +47,12 @@ if (mode === 'sqlite-workspace') {
 
 if (mode === 'workspace') {
   // A conditional write on disk, stopped for good between the journal intent and the rename.
-  const db = new DatabaseSync(join(directory, 'journal.sqlite'));
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
-  const connection = {
-    exec: sql => { db.exec(sql); }, run: (sql, ...params) => { db.prepare(sql).run(...params); },
-    get: (sql, ...params) => db.prepare(sql).get(...params), all: (sql, ...params) => db.prepare(sql).all(...params),
-    transaction: (kind, work) => { db.exec(kind === 'write' ? 'BEGIN IMMEDIATE' : 'BEGIN'); try { const result = work(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; } },
-  };
+  // The default settings (WAL, full sync), as every opener applies them.
+  const connection = openNodeConnection(join(directory, 'journal.sqlite'));
   const env = new NodeExecutionEnv({ cwd: join(directory, 'workspace') });
   const fs = new Proxy(env, { get: (target, name) => {
     if (name === 'renameFile') return () => {
-      writeFileSync(join(directory, 'intent.json'), JSON.stringify({ intents: db.prepare('SELECT count(*) AS n FROM boring_intents').get().n, receipts: db.prepare('SELECT count(*) AS n FROM boring_operations').get().n }));
+      writeFileSync(join(directory, 'intent.json'), JSON.stringify({ intents: connection.get('SELECT count(*) AS n FROM boring_intents').n, receipts: connection.get('SELECT count(*) AS n FROM boring_operations').n }));
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     };
     const value = Reflect.get(target, name);

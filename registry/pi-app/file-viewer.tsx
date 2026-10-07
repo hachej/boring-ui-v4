@@ -5,7 +5,6 @@
 // a conflict), images and PDFs read-only from the file's bytes, anything else as text. A host viewer (`viewers[kind]`) takes precedence.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeftIcon } from 'lucide-react';
 import { randomUUID } from '@boring/files/platform';
 import type { ResourceLocator, ResourceSnapshot } from '@boring/files';
 import { createMarkdownController } from '@boring/ui/markdown';
@@ -24,6 +23,7 @@ import { KIND_LABEL, decodeText, kindOf, mediaTypeOf } from './file-kinds';
 import type { FileKind } from './file-kinds';
 import type { ViewerOptions } from './artifact-panel';
 import { useSaved } from './use-saved';
+import { useAppText } from './app-labels';
 
 const POLL_MS = 1500;
 const nameOf = (path: string) => path.split('/').pop() || path;
@@ -45,12 +45,13 @@ function FileDocument({ path, kind, locator, options, onClose, back }: Common) {
   const create = useMemo(() => (snapshot: ResourceSnapshot): MarkdownController | HtmlController => (kind === 'markdown' ? createMarkdownController : createHtmlController)({
     identity, client, instanceId: randomUUID(), epoch: 'workspace', source: { kind: 'saved', snapshot } }), [kind, client, identity]);
   const saved = useSaved({ client, target: locator, create });
+  const { labels } = useAppText();
   const [mode, setMode] = useState<string>(kind === 'markdown' ? 'rich' : 'preview');
   const common = { title: nameOf(path), subtitle: subtitleOf(locator), target: { file: path }, onClose, titleTestId: 'file-title', controls: back, ...(options.share ? { onShare: options.share } : {}) };
   // Until the document is open the bar offers no Share, Copy or menu actions of its own: they would act on a document that is not shown.
   if (saved.kind !== 'open' || !saved.controller) {
     return <ViewerFrame title={common.title} subtitle={common.subtitle} onClose={onClose} controls={back}>
-      <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{saved.kind === 'loading' ? 'Loading…' : saved.kind === 'missing' ? 'This file no longer exists.' : 'This file cannot be shown as text.'}</p>
+      <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{saved.kind === 'loading' ? labels.loading : saved.kind === 'missing' ? labels.fileMissing : labels.fileNotText}</p>
     </ViewerFrame>;
   }
   const revision = saved.snapshot.ref.revision;
@@ -66,6 +67,7 @@ type Loaded = { readonly kind: 'loading' | 'missing' } | { readonly kind: 'ready
 
 /** Image, PDF and text files: read through the resource client, refreshed on demand (and followed while open, for text). */
 function FileBytes({ path, kind, locator, options, onClose, back }: Common) {
+  const { labels } = useAppText();
   const [file, setFile] = useState<Loaded>({ kind: 'loading' });
   const held = useRef(file);
   held.current = file;
@@ -88,7 +90,7 @@ function FileBytes({ path, kind, locator, options, onClose, back }: Common) {
   // when the bytes arrive, and a Share pressed just then would copy the link with its "Link copied" notice lost with the old frame.
   if (file.kind !== 'ready') {
     return <ViewerFrame title={nameOf(path)} subtitle={common.subtitle} onClose={onClose} titleTestId="file-title" controls={back}>
-      <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{file.kind === 'loading' ? 'Loading…' : 'This file no longer exists.'}</p>
+      <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{file.kind === 'loading' ? labels.loading : labels.fileMissing}</p>
     </ViewerFrame>;
   }
   if (kind === 'image') return <ImagePane name={nameOf(path)} mediaType={mediaTypeOf(path)} bytes={file.bytes} onRefresh={load} {...common} />;
@@ -97,7 +99,7 @@ function FileBytes({ path, kind, locator, options, onClose, back }: Common) {
   return <ViewerFrame title={nameOf(path)} {...common} subtitle={<>{subtitleOf(locator)}<span aria-hidden="true">·</span><span>{formatBytes(size)}</span></>}
     onRefresh={load} {...(text === undefined ? {} : { onCopy: () => copyText(text), onDownload: () => downloadFile(nameOf(path), text, 'text/plain;charset=utf-8') })}>
     {text === undefined
-      ? <p role="status" className="m-0 p-4 text-sm text-muted-foreground">This is a binary file ({formatBytes(size)}); it cannot be shown as text.</p>
+      ? <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{labels.binaryFile(formatBytes(size))}</p>
       : <div className="min-h-0 flex-1 overflow-auto p-3"><pre data-testid="file-preview" className="m-0 rounded-lg bg-muted p-3 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap">{text}</pre></div>}
   </ViewerFrame>;
 }
@@ -115,13 +117,14 @@ export function FileViewer({ path, locator, options, onClose, onBack, backLabel 
   readonly backLabel?: string | undefined;
 }) {
   const kind = kindOf(path);
-  const back = onBack ? <button type="button" data-testid="file-back" onClick={onBack} className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-lg border border-border bg-background px-2 text-sm md:h-8 md:text-xs"><ArrowLeftIcon className="size-3.5" aria-hidden="true" />{backLabel ?? 'Back'}</button> : undefined;
+  const { labels, icons } = useAppText();
+  const back = onBack ? <button type="button" data-testid="file-back" onClick={onBack} className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-lg border border-border bg-background px-2 text-sm md:h-8 md:text-xs"><icons.back className="size-3.5" aria-hidden="true" />{backLabel ?? labels.back}</button> : undefined;
   const custom = options.viewers?.[kind];
   const common: Common = { path, kind, locator, options, onClose, back };
-  return <div data-testid="file-viewer" data-kind={kind} data-path={path} aria-label={`${KIND_LABEL[kind]} viewer`} className="flex h-full min-h-0 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">
+  return <div data-testid="file-viewer" data-kind={kind} data-path={path} aria-label={labels.fileViewer(KIND_LABEL[kind])} className="flex h-full min-h-0 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">
     {custom ? custom({ target: locator, title: nameOf(path), frame: { titleTestId: 'file-title', onClose, target: { file: path }, controls: back } })
       : kind === 'markdown' || kind === 'html' ? <FileDocument {...common} />
-      : kind === 'canvas' ? <ViewerFrame title={nameOf(path)} subtitle={subtitleOf(locator)} onClose={onClose} controls={back}><p role="status" className="m-0 p-4 text-sm text-muted-foreground">This host has no canvas viewer.</p></ViewerFrame>
+      : kind === 'canvas' ? <ViewerFrame title={nameOf(path)} subtitle={subtitleOf(locator)} onClose={onClose} controls={back}><p role="status" className="m-0 p-4 text-sm text-muted-foreground">{labels.noCanvasViewer}</p></ViewerFrame>
       : <FileBytes {...common} />}
   </div>;
 }

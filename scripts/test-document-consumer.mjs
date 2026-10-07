@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'boring-document-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned TypeScript registry archive');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -26,7 +26,7 @@ try {
   }
   const source = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: 'isolated-document-consumer', private: true, type: 'module' }));
-  run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives, `typescript@${source.devDependencies.typescript}`, `esbuild@${source.devDependencies.esbuild}`]);
+  run('npm', ['install', ...npmInstallFlags(cache), ...archives, `typescript@${source.devDependencies.typescript}`, `esbuild@${source.devDependencies.esbuild}`]);
   for (const name of ['@earendil-works/pi-durable', '@boring/agent', 'react']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', lib: ['ES2023', 'DOM'], strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: [] }, include: ['consumer.ts'] }));
   for (const extension of ['mjs', 'ts']) copyFileSync(join(root, `test/fixtures/isolated-document-consumer.${extension}`), join(directory, `consumer.${extension}`));

@@ -1,3 +1,5 @@
+import type { BlockAction } from '../button/actions';
+
 /*
  * Composer features the host switches on by configuration. Each prop is optional: leave it out and the composer has
  * no menu, no button and no keyboard trigger for it. The current model and thinking level are read from the native
@@ -80,7 +82,15 @@ export interface ConversationsConfig {
   readonly remove?: ((id: string) => Promise<void>) | undefined;
   /** Fork the open conversation after the entry of a settled reply: the reply's Fork button. */
   readonly fork?: ((atEntryId: string) => Promise<void>) | undefined;
+  /**
+   * Host actions on each row, after rename, archive and delete: `header` ones as buttons, `menu` ones in a "…" menu. Test ids
+   * `conversation-action-<id>`, the menu `conversation-action-more`.
+   */
+  readonly rowActions?: ((item: ConversationItem) => readonly BlockAction[]) | undefined;
 }
+
+/** A settled reply, as host message actions receive it: its row key, its text and the native entry it ends with. */
+export interface ReplyRef { readonly key: string; readonly text: string; readonly entryId?: string | undefined }
 
 export interface ModelRef { readonly provider: string; readonly modelId: string }
 export interface ModelConfig {

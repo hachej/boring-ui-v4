@@ -14,7 +14,11 @@ import { ViewerWindowProvider } from '../viewers/viewer-frame';
 import type { ViewerShare } from '../viewers/viewer-frame';
 import type { InteractiveHtml } from '../viewers/interactive-html';
 import { Button } from '../button/button';
-import { cn } from '../utils/utils';
+import type { BlockAction } from '../button/actions';
+import { ChatTextProvider, useMergedText } from '../pi-chat/labels';
+import { cn, withDefaults } from '../utils/utils';
+import { AppTextProvider, defaultAppIcons, defaultAppLabels } from './app-labels';
+import type { AppIcons, AppLabels } from './app-labels';
 import { ArtifactPanel, useArtifactVersions, useTurn } from './artifact-panel';
 import type { CustomViewers, SavedRevision, ViewerOptions } from './artifact-panel';
 import { FileViewer } from './file-viewer';
@@ -29,6 +33,8 @@ export { useRemoteChat } from './use-remote-chat';
 export type { RemoteChatState } from './use-remote-chat';
 export { savedLabel, useSaved } from './use-saved';
 export { kindOf, mediaTypeOf } from './file-kinds';
+export { defaultAppIcons, defaultAppLabels } from './app-labels';
+export type { AppIcons, AppLabels } from './app-labels';
 export type { FileKind } from './file-kinds';
 
 /** An artifact version in the panel: `follow` shows the latest saved revision, otherwise `descriptor.revision` is pinned and read-only. */
@@ -62,12 +68,23 @@ export interface AgentWorkspaceProps {
   readonly controller: NativeChatController | undefined;
   /** The open conversation: auto-opened artifacts and the artifact view belong to it. */
   readonly conversationId: string | undefined;
-  /** Everything else `PiChat` takes (title, mode, actions, slash, mentions, attachments, model, effort, emptyState, ...). */
+  /** Everything else `PiChat` takes (labels, icons, headerActions, messageActions, mode, actions, slash, mentions, attachments, model, effort, emptyState, ...). */
   readonly chat?: Omit<PiChatProps, 'controller' | 'artifacts' | 'conversations' | 'historyList'>;
+  /**
+   * The block's words (sessions pane, artifact panel, file viewer and the viewers' bars), over `defaultAppLabels`; for example
+   * `{ sessionsTitle: 'Projects', newChat: 'Start' }`. The chat's own go in `chat.labels`.
+   */
+  readonly labels?: Partial<AppLabels> | undefined;
+  /** The block's icons (sessions toggle, New, Float chat, the viewer bar's), over `defaultAppIcons`. The chat's go in `chat.icons`. */
+  readonly icons?: Partial<AppIcons> | undefined;
+  /**
+   * Host actions on the artifact panel's bar (every viewer it shows), after the built-in Float chat: `header` ones as buttons beside Share,
+   * `menu` ones in its "…" menu. A function receives what is open. Test ids `<viewer testId>-<id>` (`artifact-<id>` for an artifact).
+   */
+  readonly panelActions?: readonly BlockAction[] | ((view: OpenedView) => readonly BlockAction[]) | undefined;
   readonly connecting?: ReactNode;
   /** The sessions pane (`useConversations`). Omit it for a page without one. Replies keep their Fork button through `conversations.fork`. */
   readonly conversations?: ConversationsConfig | undefined;
-  readonly sessionsTitle?: string;
   readonly resources: WorkspaceResources;
   /** Recognise artifacts in tool results that carry no descriptor (`ArtifactsConfig.detect`). */
   readonly detect?: ArtifactsConfig['detect'] | undefined;
@@ -114,7 +131,7 @@ const defaultLocate = (path: string): ResourceLocator => ({ resource: { provider
  * its versions, the file viewer and the host's own views). Agent artifacts open the panel as they appear. Every prop is data or a callback:
  * the host owns the routes, authentication, the controller and what is open (when controlled).
  */
-export function AgentWorkspace({ controller, conversationId, chat = {}, connecting, conversations, sessionsTitle, resources, detect, viewers, interactive, share, opened: controlled,
+export function AgentWorkspace({ controller, conversationId, chat = {}, labels, icons, panelActions, connecting, conversations, resources, detect, viewers, interactive, share, opened: controlled,
   defaultOpened = null, onOpenedChange, panels, autoOpen = true, fileBack, floatingChat, chatTop, controls, storageKey = 'boring.agent-workspace', sheetBelow = 768, drawerBelow = 768, floatBelow, className }: AgentWorkspaceProps) {
   const [own, setOwn] = useState<OpenedView | null>(defaultOpened);
   const opened = controlled !== undefined ? controlled : own;
@@ -122,6 +139,9 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, connecti
   const isControlled = controlled !== undefined;
   const setOpened = useCallback((next: OpenedView | null) => { if (!isControlled) setOwn(next); change.current?.(next); }, [isControlled]);
   const [fullscreen, setFullscreen] = useState(false);
+  const text = useMemo(() => ({ labels: withDefaults(defaultAppLabels, labels), icons: withDefaults(defaultAppIcons, icons) }), [labels, icons]);
+  // The sessions pane shows the chat's conversation list, so it reads the chat's labels too.
+  const chatText = useMergedText(chat.labels, chat.icons);
 
   // One resource client and one history reader for every viewer, over the host's authenticated fetch.
   const fetcher = useRef(resources.fetch); fetcher.current = resources.fetch;
@@ -219,13 +239,18 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, connecti
   </div>;
 
   const kind = active ? 'artifact' : file ? 'file' : host?.kind;
-  return <div ref={root} data-boring="agent-workspace" data-sessions={!conversations ? undefined : narrow ? (drawer ? 'drawer' : 'closed') : docked ? 'docked' : 'hidden'}
+  const shown = active ?? file ?? host;
+  const actionsFor = (floatChat: (() => void) | undefined): readonly BlockAction[] => [
+    ...(floatChat ? [{ id: 'float-chat', label: text.labels.floatChat, icon: text.icons.floatChat, placement: 'menu' as const, onSelect: floatChat }] : []),
+    ...(shown ? typeof panelActions === 'function' ? panelActions(shown) : panelActions ?? [] : []),
+  ];
+  return <AppTextProvider value={text}><ChatTextProvider value={chatText}><div ref={root} data-boring="agent-workspace" data-sessions={!conversations ? undefined : narrow ? (drawer ? 'drawer' : 'closed') : docked ? 'docked' : 'hidden'}
     className={cn('relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden', className)}>
-    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} {...(sessionsTitle ? { title: sessionsTitle } : {})} drawer={narrow} onClose={() => setDrawer(false)} />}
-    <ArtifactWorkspace open={panelOpen} onClose={close} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey={`${storageKey}.panel-width`}
+    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} drawer={narrow} onClose={() => setDrawer(false)} />}
+    <ArtifactWorkspace open={panelOpen} onClose={close} panelLabel={text.labels.artifactPanel} labels={{ resize: text.labels.resizePanel, floatHint: text.labels.floatHint }} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey={`${storageKey}.panel-width`}
       sheetBelow={docked ? Math.max(0, sheetBelow - SESSIONS_WIDTH) : sheetBelow} {...(floatBelow === undefined ? {} : { floatBelow })}
       chat={layout => layout.floating && floatingChat && chatProps ? floatingChat(chatProps, layout.dock) : docked_chat}
-      panel={win => <ViewerWindowProvider value={{ fullscreen: win.fullscreen, onFullscreenChange: win.onFullscreenChange, onFloatChat: win.floatChat }}>
+      panel={win => <ViewerWindowProvider value={{ fullscreen: win.fullscreen, onFullscreenChange: win.onFullscreenChange, actions: actionsFor(win.floatChat), labels: text.labels, icons: text.icons }}>
         <div data-testid="viewer-panel" data-kind={kind} className="flex min-h-0 flex-1 flex-col overflow-hidden [&>*]:min-h-0 [&>*]:flex-1">
           {active
             ? <ArtifactPanel key={artifactKey(active.descriptor)} active={active} versions={newestOf(artifactKey(active.descriptor))} options={options} onClose={win.close}
@@ -236,5 +261,5 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, connecti
             : file ? <FileViewer key={file.path} path={file.path} locator={locate(file.path)} options={options} onClose={win.close} {...(fileBack ? { onBack: fileBack.onBack, backLabel: fileBack.label } : {})} />
             : host ? panels![host.kind]!(host, win) : null}
         </div></ViewerWindowProvider>} />
-  </div>;
+  </div></ChatTextProvider></AppTextProvider>;
 }

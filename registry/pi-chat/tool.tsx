@@ -5,11 +5,13 @@ import type { ReactNode } from 'react';
 import type { ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import { AlertCircleIcon, CheckCircle2Icon, ChevronDownIcon, CircleDashedIcon, Loader2Icon, WrenchIcon } from 'lucide-react';
 import { cn } from '../utils/utils';
+import { defaultChatLabels, useChatText } from './labels';
+import type { ChatLabels } from './labels';
 
 export type ToolStatus = 'running' | 'completed' | 'failed' | 'unfinished';
 export interface ToolEntry { readonly key: string; readonly call: ToolCall; readonly result: ToolResultMessage | undefined; readonly status: ToolStatus; readonly custom?: ReactNode }
 
-const STATUS_LABEL: Record<ToolStatus, string> = { running: 'Running', completed: 'Completed', failed: 'Failed', unfinished: 'No result' };
+const STATUS_LABEL = { running: 'toolRunning', completed: 'toolCompleted', failed: 'toolFailedStatus', unfinished: 'toolUnfinished' } as const satisfies Record<ToolStatus, keyof ChatLabels>;
 const PREVIEW_KEYS = ['path', 'file_path', 'filePath', 'command', 'query', 'pattern', 'name', 'url', 'id'];
 
 /** A short hint of what the call acts on, shown next to its name. */
@@ -32,11 +34,9 @@ function Section({ title, children }: { readonly title: string; readonly childre
   return <div className="space-y-1.5"><h4 className="m-0 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{title}</h4>{children}</div>;
 }
 
-const VERBS: Record<string, string> = { read: 'Reading', write: 'Writing', edit: 'Editing', ls: 'Listing', list_files: 'Listing', find: 'Searching', grep: 'Searching', load_skill: 'Loading skill', bash: 'Running bash' };
-/** A short live label for a call: "Reading notes/consultation.md", "Running bash", "Running working_git". */
-export function liveLabel(call: ToolCall): string {
-  const hint = preview(call.arguments), verb = VERBS[call.name] ?? `Running ${call.name}`;
-  return hint ? `${verb}${call.name === 'bash' ? ':' : ''} ${hint}` : verb;
+/** A short live label for a call: "Reading notes/consultation.md", "Running bash", "Running working_git" (`labels.toolActivity`). */
+export function liveLabel(call: ToolCall, labels: Pick<ChatLabels, 'toolActivity'> = defaultChatLabels): string {
+  return labels.toolActivity(call.name, preview(call.arguments));
 }
 
 /**
@@ -44,6 +44,7 @@ export function liveLabel(call: ToolCall): string {
  * `compact` renders it as a row of an activity block (no card border); `details: false` (expert mode, successful call) has nothing to expand.
  */
 export function ToolCard({ entry, onOpenImage, compact = false, details = true }: { readonly entry: ToolEntry; readonly compact?: boolean; readonly details?: boolean; readonly onOpenImage?: (image: Extract<ToolResultMessage['content'][number], { type: 'image' }>) => void }) {
+  const { labels } = useChatText();
   const { call, result, status } = entry;
   const [chosen, setChosen] = useState<boolean | undefined>();
   const open = details && (chosen ?? status === 'failed');
@@ -59,17 +60,17 @@ export function ToolCard({ entry, onOpenImage, compact = false, details = true }
       {hint && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{hint}</span>}
       {!hint && <span className="flex-1" />}
       <span data-testid="tool-status" className={cn('inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium', status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
-        <StatusIcon status={status} className="size-3" />{STATUS_LABEL[status]}</span>
+        <StatusIcon status={status} className="size-3" />{labels[STATUS_LABEL[status]]}</span>
       {details && <ChevronDownIcon aria-hidden="true" className={cn('size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none', open && 'rotate-180')} />}
     </button>
     {details && <div hidden={!open} data-testid="tool-details" className="space-y-3 border-t border-border bg-muted/20 p-3">
-      <Section title="Arguments"><pre className="m-0 max-h-60 overflow-auto rounded-md bg-muted/60 p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify(call.arguments, null, 2)}</pre></Section>
-      {result && <Section title={result.isError ? 'Error' : 'Result'}>
+      <Section title={labels.arguments}><pre className="m-0 max-h-60 overflow-auto rounded-md bg-muted/60 p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{JSON.stringify(call.arguments, null, 2)}</pre></Section>
+      {result && <Section title={result.isError ? labels.error : labels.result}>
         <div role={result.isError ? 'alert' : undefined} className={cn('space-y-2 rounded-md p-2.5', result.isError ? 'bg-destructive/10 text-destructive' : 'bg-muted/60')}>
           {result.content.map((part, index) => part.type === 'text'
             ? <pre key={index} className="m-0 max-h-72 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">{part.text}</pre>
-            : <button key={index} type="button" disabled={!onOpenImage} onClick={() => onOpenImage?.(part)} className="cursor-pointer rounded-md border border-border bg-background px-2 py-1 text-xs disabled:cursor-default">Open image result</button>)}
-          {result.content.length === 0 && <span className="text-xs text-muted-foreground">Empty result</span>}
+            : <button key={index} type="button" disabled={!onOpenImage} onClick={() => onOpenImage?.(part)} className="cursor-pointer rounded-md border border-border bg-background px-2 py-1 text-xs disabled:cursor-default">{labels.openImageResult}</button>)}
+          {result.content.length === 0 && <span className="text-xs text-muted-foreground">{labels.emptyResult}</span>}
         </div></Section>}
     </div>}
   </div>;

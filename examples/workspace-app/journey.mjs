@@ -1,7 +1,10 @@
 // Real-browser journey for the workspace app (scripted model, no key): the page is only the pi-app block over the host handlers of
 // ./server.mjs. It proves: the sessions pane lists the chats, search filters them, choosing one changes the chat in the center, an
 // artifact the agent presents opens in the panel on the right, the pane collapses right after a switch (the toggle is one button across it), and on a phone (390x844) the sessions are a drawer and
-// the artifact a full-screen sheet with no horizontal scroll. Screenshots go to .cache/evidence/workspace-app/.
+// the artifact a full-screen sheet with no horizontal scroll. Then the same app with `?configured` (labels, one icon and host actions passed as props): the
+// custom words and icon replace the defaults, each host action (chat header, its "…" menu by keyboard, a conversation row, a reply, the artifact panel, the
+// floating chat's bar) renders, is clickable and reaches the host, "Float chat" is one of the panel's actions, and it all holds at phone width.
+// Screenshots go to .cache/evidence/workspace-app/.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +26,16 @@ const row = text => `${ROWS}.find(row => row.innerText.includes(${JSON.stringify
 const idle = `${q('[data-testid=composer-submit]')}?.dataset.state === 'send'`;
 const noOverflow = `document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth`;
 const rect = selector => `(() => { const r = ${q(selector)}.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`;
+// The words and icons a host can change, as the page shows them.
+const TEXTS = `({ title: ${q('[data-boring=pi-chat] header h2')}?.textContent, placeholder: ${INPUT}?.placeholder, send: ${q('[data-testid=composer-submit]')}?.getAttribute('aria-label'),
+  sessions: ${q('[data-testid=conversations] header h2')}?.textContent, newChat: ${q('[data-testid=conversation-new]')}?.textContent, toggle: ${q('[data-testid=sessions-toggle]')}?.getAttribute('aria-label'),
+  customIcon: !!${q('[data-testid=composer-submit] [data-testid=custom-send-icon]')}, hostActions: ${qa('[data-boring=block-actions]')}.length })`;
+const LOGGED = `(${q('[data-testid=host-log]')}?.textContent ?? '').split(' ')`;
+const logged = id => `${LOGGED}.filter(entry => entry === ${JSON.stringify(id)}).length`;
+// Elements of the sessions pane that scroll sideways (a scroll container whose content is wider than it), as short descriptions.
+const SIDEWAYS = `(() => { const pane = ${q('[data-testid=conversations]')}; return [pane, ...pane.querySelectorAll('*')].filter(e => !e.matches('input')
+  && ['auto', 'scroll'].includes(getComputedStyle(e).overflowX) && e.scrollWidth > e.clientWidth + 1).map(e => \`\${e.tagName} \${e.dataset.testid ?? ''} \${e.scrollWidth}>\${e.clientWidth}\`); })()`;
+const inside = selector => `(() => { const r = ${q(selector)}?.getBoundingClientRect(); return !!r && r.width > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; })()`;
 
 const app = await startWorkspaceApp({ directory: mkdtempSync(join(tmpdir(), 'boring-workspace-app-')) });
 let browser;
@@ -36,6 +49,10 @@ try {
     assert.equal(await browser.evaluate(`${q('[data-boring=agent-workspace]')}.dataset.sessions`), 'docked');
     await browser.until('one chat listed', `${ROWS}.length === 1 && ${ROWS}[0].dataset.active === 'true'`, 10000);
     assert.equal(await browser.evaluate(`${q('[data-testid=sessions-toggle]')}.getAttribute('aria-expanded')`), 'true');
+  });
+
+  await step('defaults: without labels, icons or actions the blocks show their own words and no host actions', async () => {
+    assert.deepEqual(await browser.evaluate(TEXTS), { title: 'Writer', placeholder: 'Message the agent…', send: 'Send', sessions: 'Chats', newChat: 'New', toggle: 'Hide chats', customIcon: false, hostActions: 0 });
   });
 
   const first = await browser.evaluate(ACTIVE);
@@ -127,6 +144,74 @@ try {
     // A card opens the artifact as a sheet on a phone.
     await browser.tap(q('[data-testid=artifact-card]'));
     await sheet('workspace-app-phone-artifact-card.png');
+    await browser.emulate('desktop');
+  });
+
+  // ---- The same app, configured through the blocks' props only.
+  await step('configured: custom labels and one custom icon replace the defaults', async () => {
+    await browser.evaluate(`location.search = '?configured'`);
+    await browser.until('the configured page, live', `${q('[data-testid=app]')}?.dataset.configured === 'true' && ${q('[data-testid=connection]')}?.dataset.state === 'connected' && !!${INPUT}`, 20000);
+    await browser.until('the reply of the open chat', `${idle} && !!${q('[data-testid=reply-action-quote]')}`, 20000);
+    const texts = await browser.evaluate(TEXTS);
+    assert.deepEqual({ ...texts, hostActions: undefined }, { title: 'Fernhill writer', placeholder: 'Ask Fernhill anything…', send: 'Ask', sessions: 'Projects', newChat: 'Start', toggle: 'Hide chats', customIcon: true, hostActions: undefined });
+    assert.equal(await browser.evaluate(`${q('[data-testid=composer-submit]')}.title`), 'Send (Enter)', 'a label the host did not set keeps its default');
+    await browser.screenshot('workspace-app-configured.png');
+  });
+
+  await step('configured: a header action is a button, a menu action is reached by keyboard', async () => {
+    assert.equal(await browser.evaluate(`${q('[data-testid=chat-action-export]')}.getAttribute('aria-label')`), 'Export chat', 'icon button named by its label');
+    await browser.click(q('[data-testid=chat-action-export]'));
+    await browser.until('the host got export', `${logged('export')} === 1`, 5000);
+    await browser.evaluate(`${q('[data-testid=chat-action-more]')}.focus()`);
+    await browser.press('Enter');
+    await browser.until('the menu, its item focused', `document.activeElement === ${q('[data-testid=chat-action-report]')}`, 5000);
+    await browser.press('Enter');
+    await browser.until('the host got report, the menu closed', `${logged('report')} === 1 && !${q('[data-testid=chat-action-report]')}`, 5000);
+  });
+
+  await step('configured: actions on a conversation row and on a reply', async () => {
+    const ACTIONS = '[data-testid=conversation-row][data-active=true] ~ [data-testid=conversation-actions]';
+    await browser.click(q(`${ACTIONS} [data-testid=conversation-action-star]`));
+    await browser.until('the host got star', `${logged('star')} === 1`, 5000);
+    // A row action without an icon lives in the row's "…" menu, so the pane never scrolls sideways.
+    await browser.click(q(`${ACTIONS} [data-testid=conversation-action-more]`));
+    await browser.click(q('[data-testid=conversation-action-share]'));
+    await browser.until('the host got share', `${logged('share')} === 1`, 5000);
+    assert.deepEqual(await browser.evaluate(SIDEWAYS), [], 'nothing in the sessions pane scrolls sideways');
+    await browser.click(q('[data-testid=reply-action-quote]'));
+    await browser.until('the host got quote', `${logged('quote')} === 1`, 5000);
+  });
+
+  await step('configured: a panel action, and Float chat is one of the panel\'s actions; the floating bar has the dock action', async () => {
+    await browser.click(q('[data-testid=artifact-card]'));
+    await browser.until('the panel', `!!${q('[data-testid=artifact-panel]')} && !!${q('[data-testid=artifact-pin]')}`, 10000);
+    await browser.click(q('[data-testid=artifact-pin]'));
+    await browser.until('the host got pin', `${logged('pin')} === 1`, 5000);
+    await browser.click(q('[data-testid=artifact-more]'));
+    await browser.until('the renamed Float chat item', `${q('[data-testid=artifact-float-chat]')}?.textContent === 'Pop out chat'`, 5000);
+    await browser.click(q('[data-testid=artifact-float-chat]'));
+    await browser.until('the floating chat with the dock action', `!!${q('[data-boring=ambient-chat]')} && !!${q('[data-testid=ambient-action-handoff]')}`, 10000);
+    await pause(300);
+    await browser.screenshot('workspace-app-configured-floating.png');
+    await browser.click(q('[data-testid=ambient-action-handoff]'));
+    await browser.until('the host got handoff', `${logged('handoff')} === 1`, 5000);
+    await browser.click(q('[data-testid=ambient-dock]'));
+    await browser.until('docked again', `!${q('[data-boring=ambient-chat]')} && !!${q('[data-boring=pi-chat]')}`, 10000);
+    await browser.click(q('[data-testid=artifact-close]'));
+    await browser.until('the panel closed', `!${q('[data-testid=artifact-panel]')}`, 5000);
+  });
+
+  await step('configured, phone: the custom words and the header actions fit, and a tap reaches the host', async () => {
+    await browser.emulate('phone');
+    await browser.until('narrow layout', `innerWidth === 390 && ${q('[data-boring=agent-workspace]')}.dataset.sessions === 'closed'`, 10000);
+    await pause(300);
+    assert.ok(await browser.evaluate(inside('[data-testid=chat-action-export]')), 'the header action is on screen');
+    assert.ok(await browser.evaluate(inside('[data-testid=chat-action-more]')), 'the menu button is on screen');
+    assert.equal(await browser.evaluate(`${INPUT}.placeholder`), 'Ask Fernhill anything…');
+    assert.ok(await browser.evaluate(noOverflow), 'no horizontal scroll');
+    await browser.screenshot('workspace-app-configured-phone.png');
+    await browser.tap(q('[data-testid=chat-action-export]'));
+    await browser.until('the host got export again', `${logged('export')} === 2`, 5000);
     await browser.emulate('desktop');
   });
 

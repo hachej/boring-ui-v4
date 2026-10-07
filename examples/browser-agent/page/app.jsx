@@ -133,8 +133,8 @@ function App() {
   return <div className="ba">
     <main className="ba-chat">
       {chat.status === 'ready'
-        ? <PiChat controller={chat.controller} title="Browser agent" mode={details ? 'developer' : 'expert'} actions={chat.actions} onCopy={text => copyToClipboard(text)}
-            emptyDescription="A coding agent that runs entirely in this tab: durable session in SQLite, a git repository, a shell and a code sandbox. Try: build a small todo app in index.html."
+        ? <PiChat controller={chat.controller} mode={details ? 'developer' : 'expert'} actions={chat.actions} onCopy={text => copyToClipboard(text)}
+            labels={{ title: 'Browser agent', emptyDescription: 'A coding agent that runs entirely in this tab: durable session in SQLite, a git repository, a shell and a code sandbox. Try: build a small todo app in index.html.' }}
             controls={<><label className="ba-toggle" title="Show the model one summary line per stretch of the conversation before this message, instead of the whole transcript"><input type="checkbox" data-testid="ba-memory-toggle" checked={Boolean(state?.memory.enabled)} disabled={!state}
               onChange={event => api('/api/memory', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: event.target.checked }) }).then(memory => setState(current => ({ ...current, memory }))).catch(() => {})} /> OptChat memory</label>
               <label className="ba-toggle"><input type="checkbox" checked={details} onChange={event => setDetails(event.target.checked)} /> Tool calls</label><ModelAccess state={state} setState={setState} /></>} />

@@ -1,10 +1,9 @@
 import { z } from 'zod';
 import { composeExperience, validateExperience } from './experience-compose.js';
 import type { ExperienceAccess, ExperienceCompositionOptions, ExperienceCompositionSnapshot, ExperienceDescriptor } from './experience-compose.js';
-import { compositionCandidate, compositionDefinition, compositionLimits } from './experience-composition-schema.js';
+import { compositionCandidate, compositionDefinition, compositionLimits, compositionId as newCompositionId } from './experience-composition-schema.js';
 import { experienceRegion } from './experience-region-tree.js';
 import { layoutProps } from './experience-catalog.js';
-import { randomUUID } from '@boring/files/platform';
 
 export type ExperienceRegionTrigger = 'open' | 'phase' | 'request';
 export interface ExperienceRegionCompositionOptions extends Omit<ExperienceCompositionOptions, 'fallback' | 'layouts'> {
@@ -62,7 +61,7 @@ function mergeRegion(base: ExperienceDescriptor, prepared: ReturnType<typeof pre
 }
 
 export async function* composeExperienceRegion(options: ExperienceRegionCompositionOptions): AsyncGenerator<ExperienceCompositionSnapshot> {
-  const compositionId = randomUUID(), prefix = `r_${compositionId.replaceAll('-', '')}`;
+  const compositionId = newCompositionId(), prefix = `r_${compositionId}`;
   const { canView, evaluate, signal, intent, region, trigger } = options;
   const access: ExperienceAccess = { cells: options.cells.map(cell => ({ ...cell })), canView };
   let base: ExperienceDescriptor | undefined, prepared: ReturnType<typeof prepareRegion> | undefined;

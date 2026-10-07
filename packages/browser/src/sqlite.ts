@@ -4,6 +4,10 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import type { SqliteDatabase } from '@earendil-works/pi-durable/storage/sqlite';
 import type { SqliteConnection } from '@boring/files/sqlite';
+import { sqlitePragmas } from '@boring/files/sqlite-settings';
+
+/** The OPFS SAH pool VFS has no shared memory, so no WAL: a rollback journal truncated after each transaction. */
+const OPFS_PRAGMAS = sqlitePragmas({ journalMode: 'truncate' }).join('; ');
 
 export interface BrowserSqliteOptions {
   /** Where the host serves `sqlite3.wasm`. Omit it where the module can find the file itself. */
@@ -76,7 +80,7 @@ const bind = (params: readonly Bound[]): Bound[] => params.map(value => typeof v
 export async function openBrowserSqlite(filename: string, options: BrowserSqliteOptions = {}): Promise<BrowserSqliteDatabase> {
   const { sqlite3, pool } = await load(options);
   const db = pool ? new pool.OpfsSAHPoolDb(filename) : new sqlite3.oo1.DB(filename, 'c');
-  db.exec('PRAGMA journal_mode = TRUNCATE; PRAGMA foreign_keys = ON;');
+  db.exec(`${OPFS_PRAGMAS}; PRAGMA foreign_keys = ON;`);
   const queue = new Queue();
   const rows = (sql: string, params: readonly Bound[]): Row[] => db.exec({ sql, ...(params.length ? { bind: bind(params) as never } : {}), rowMode: 'object', returnValue: 'resultRows' }) as unknown as Row[];
   const direct = {
@@ -120,7 +124,7 @@ export async function openBrowserSqlite(filename: string, options: BrowserSqlite
 export async function openBrowserSqliteConnection(filename: string, options: BrowserSqliteOptions = {}): Promise<SqliteConnection & { readonly persistent: boolean; readonly close: () => void }> {
   const { sqlite3, pool } = await load(options);
   const db = pool ? new pool.OpfsSAHPoolDb(filename) : new sqlite3.oo1.DB(filename, 'c');
-  db.exec('PRAGMA journal_mode = TRUNCATE; PRAGMA foreign_keys = ON;');
+  db.exec(`${OPFS_PRAGMAS}; PRAGMA foreign_keys = ON;`);
   const rows = (sql: string, params: readonly Bound[]): Row[] => db.exec({ sql, ...(params.length ? { bind: bind(params) as never } : {}), rowMode: 'object', returnValue: 'resultRows' }) as unknown as Row[];
   let depth = 0;
   return {

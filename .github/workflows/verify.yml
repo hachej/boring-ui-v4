@@ -37,3 +37,27 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/vfs-git" --ignore-scripts --no-audit --no-fund --save-exact just-bash@3.6.0 isomorphic-git@1.42.6
           node scripts/probe-vfs-git.mjs "$RUNNER_TEMP/vfs-git"
+  isolated-consumers:
+    # Packs the packages and installs them into a temporary app offline from the npm cache, as a real consumer would
+    # (missing peer declarations, runtime imports of optional peers, strict declarations). About 5 minutes locally; the
+    # slower registry/projection/definitions/testing consumers stay manual (each 35-130 s, testing needs Chromium).
+    name: Isolated package consumers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.22.1
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Consumers
+        run: |
+          for name in document editor html virtual remote-shell remote-files question experience canvas canvas-editor; do
+            echo "::group::test:$name-consumer"
+            npm run "test:$name-consumer"
+            echo "::endgroup::"
+          done

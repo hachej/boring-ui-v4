@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { layoutProps, experienceIdentifier as id } from './experience-catalog.js';
 
+/**
+ * Opaque per-composition id (32 hex characters). The headless experience entries must load without `@boring/files`
+ * (README, `npm run test:experience-consumer`), so they do not import `randomUUID` from `@boring/files/platform`;
+ * `crypto.getRandomValues` exists in every context, including plain-HTTP origins, so no secure-context fallback is needed.
+ */
+export function compositionId(): string {
+  return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 const boundedRecord = <Value extends z.ZodType>(value: Value, limit: number) => z.record(id, value).refine(record => Object.keys(record).length <= limit);
 export const compositionDefinition = z.object({
   name: id, title: z.string().max(120).optional(), intents: boundedRecord(z.string().min(1).max(1200), 32),

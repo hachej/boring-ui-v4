@@ -12,7 +12,6 @@ import { sendWebResponse, webRequest } from '@boring/files/node-http';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { Harness, createRegistry, defineExtension } from '@earendil-works/pi-durable';
-import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
@@ -27,6 +26,7 @@ import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
 import { createResourceHandler } from '@boring/files/remote';
 import { withSubmitFaults } from '@boring/testing/network';
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
+import { openPiStorage } from '../shared/pi-storage.mjs';
 import { createCanvasTools } from '../shared/canvas-tools.mjs';
 import { runCodeTool } from '../shared/codemode-tools.mjs';
 import { createSubagents } from '../shared/subagent-tools.mjs';
@@ -63,6 +63,10 @@ const PREMIUM = { modelId: 'premium', label: 'Premium (fictional)' };
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
   scripted = process.env.STUDIO_MODEL === 'scripted',
+  // SQLite settings of the studio's files (workspace journal, Pi session, credits): unset, each file keeps its local-disk default
+  // (WAL; full sync for the journal and credits, Pi's normal sync for the session); `sqliteSettings.networkFilesystem` from
+  // @boring/files/sqlite when `directory` is on NFS such as EFS.
+  sqlite,
   // Idle heartbeat of the chat watch stream (default 15 s). Behind a proxy or load balancer keep it under half the idle timeout.
   heartbeatMs = process.env.STUDIO_HEARTBEAT_MS ? Number(process.env.STUDIO_HEARTBEAT_MS) : undefined,
   // Test hook: the answer to a chat submit is held this long after the host handled it (the message is already recorded), like a slow
@@ -107,7 +111,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   }
 
   // The workspace provider's journal (receipts, intents, retained versions) lives here, outside every workspace.
-  const workspaceDb = openNodeConnection(join(directory, 'workspace.sqlite'));
+  const workspaceDb = openNodeConnection(join(directory, 'workspace.sqlite'), sqlite);
   const journal = createWorkspaceJournal(workspaceDb);
 
   // ---- Variants: infrastructure only. An unavailable one stays in the list with the reason.
@@ -175,7 +179,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   const registry = createRegistry();
   for (const variant of entries) variant.agent.install(registry);
   const environments = new Map(), byCwd = new Map(entries.map(variant => [variant.root, variant.env]));
-  harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'session.sqlite')), { registry, models,
+  harness = await Harness.open(await openPiStorage(join(directory, 'session.sqlite'), sqlite), { registry, models,
     env: target => environments.get(String(target.conversationId)) ?? byCwd.get(target.cwd) ?? fallback.env }, context);
   // The conversation list (title, last message, last activity, archived, deleted) is one native document per conversation
   // (`@boring/agent/conversations`), kept by Pi with the transcript. A conversation's owner is its variant's agent.
@@ -224,7 +228,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (report.errors.length) console.error(`.agent/ of ${variant.id} on open:\n${report.text}`);
   }
   // Metering: the ledger is a SQLite file of the host; runs a previous process left open are finished from Pi's durable state.
-  const creditsDb = openNodeConnection(join(directory, 'credits.sqlite'));
+  const creditsDb = openNodeConnection(join(directory, 'credits.sqlite'), sqlite);
   const premium = input => input.model?.id === PREMIUM.modelId;
   const ledger = createSqliteLedger({ connection: creditsDb, holdMicros: input => premium(input) ? CREDITS.premiumHoldMicros : CREDITS.holdMicros,
     refusal: (available, hold, input) => `Not enough credits ${premium(input) ? 'for the premium model' : 'to send this message'}: ${(Math.max(0, available) / 1e6).toFixed(4)} available, a message needs ${(hold / 1e6).toFixed(4)}.` });

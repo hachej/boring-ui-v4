@@ -156,7 +156,7 @@ function Outside() {
   const card = useMemo(() => feedbackRenderTool({}), []);
   return <div data-testid="assistant-page">
     <p className="fh-lede" style={{ padding: '2rem' }}>Studio assistant, outside the settings page.</p>
-    {chat && <AmbientChat controller={chat.controller} title="Studio assistant" storageKey="fernhill.ambient.outside" renderTool={card} mentions={mentions} />}
+    {chat && <AmbientChat controller={chat.controller} labels={{ title: 'Studio assistant' }} storageKey="fernhill.ambient.outside" renderTool={card} mentions={mentions} />}
   </div>;
 }
 
@@ -226,7 +226,7 @@ function App() {
     {preview && <PreviewBanner session={preview} />}
     <Chooser choice={choice} />
     <div data-feedback-ignore="" data-testid="agent-bar">
-      {chat && <AmbientChat controller={chat.controller} title="Studio assistant" storageKey="fernhill.ambient.position" renderTool={feedbackCard} mentions={mentions} feedback={composerFeedback} />}
+      {chat && <AmbientChat controller={chat.controller} labels={{ title: 'Studio assistant' }} storageKey="fernhill.ambient.position" renderTool={feedbackCard} mentions={mentions} feedback={composerFeedback} />}
     </div>
   </>;
 }
@@ -260,7 +260,7 @@ function ClassicApp() {
     <FeedbackPanel overlay={overlay} open={panel} refreshKey={refreshKey} onClose={() => setPanel(false)} />
     <Chooser choice={choice} />
     <div data-feedback-ignore="" data-testid="agent-bar">
-      {chat && <AmbientChat controller={chat.controller} title="Studio assistant" storageKey="fernhill.ambient.position" renderTool={feedbackCard} mentions={mentions} />}
+      {chat && <AmbientChat controller={chat.controller} labels={{ title: 'Studio assistant' }} storageKey="fernhill.ambient.position" renderTool={feedbackCard} mentions={mentions} />}
     </div>
   </>;
 }

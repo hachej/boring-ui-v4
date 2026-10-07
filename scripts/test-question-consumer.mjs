@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'boring-question-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -20,7 +20,8 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  for (const name of ['agent']) {
+  // The selected subpath reads request bodies through @boring/files/request-guard (their one owner), so a real consumer installs files too.
+  for (const name of ['files', 'agent']) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -52,9 +53,9 @@ try {
   for (const name of Object.keys(dependencies)) include(name);
   packages[''] = { name: manifest.name, version: manifest.version, dependencies };
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
-  for (const name of ['@boring/files', '@boring/ui', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
+  for (const name of ['@boring/ui', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createQuestions } from '@boring/agent/questions';
 import { createQuestionResponseHandler } from '@boring/agent/question-response';
 import type { QuestionResponseAccess } from '@boring/agent/question-response';
@@ -68,5 +69,5 @@ const result: Promise<Response> = handler(new Request('https://fictional.invalid
   for (const path of ['test/packages']) mkdirSync(join(directory, path), { recursive: true });
   for (const path of ['test/packages/agent-question-response.test.mjs']) copyFileSync(join(root, path), join(directory, path));
   run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/agent-question-response.test.mjs'], isolated);
-  console.log('PASS: packed agent questions, pinned registry dependencies, strict public declarations and original-runtime Fetch resolution; no files/UI/execution installed');
+  console.log('PASS: packed agent questions, pinned registry dependencies, strict public declarations and original-runtime Fetch resolution; with Boring files (request guard); no UI/execution installed');
 } finally { rmSync(directory, { recursive: true, force: true }); }

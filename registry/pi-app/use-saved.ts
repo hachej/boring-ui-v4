@@ -63,8 +63,8 @@ export function useSaved<C extends SavedController = SavedController>({ client, 
 }
 
 /** A save time for a person: the clock time (with seconds, so two quick saves differ) today, the date as well on another day. */
-export function savedLabel(savedAt: number | undefined, now = Date.now()): string {
-  if (!savedAt) return 'Earlier version';
+export function savedLabel(savedAt: number | undefined, now = Date.now(), earlier = 'Earlier version'): string {
+  if (!savedAt) return earlier;
   const day = (value: number) => new Date(value).toDateString();
   return new Date(savedAt).toLocaleString([], day(savedAt) === day(now) ? { timeStyle: 'medium' } : { dateStyle: 'medium', timeStyle: 'medium' });
 }

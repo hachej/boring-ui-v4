@@ -99,7 +99,7 @@ function Workspace({ token, onRejected }) {
   return <main className="cf" data-testid="studio-main" data-variant={variant.id} data-conversation={conversationId}>
     <AgentWorkspace controller={controller} conversationId={active} conversations={conversations} resources={resources} detect={detect} share={shareStudioLink}
       opened={opened} onOpenedChange={setOpened} storageKey="recipe" sheetBelow={901} drawerBelow={901}
-      chat={{ title: agent.title, mode: 'developer', actions: chat.actions, ...composer, emptyState: scenarioRun.emptyState, decisions: scenarioRun.decisions }}
+      chat={{ labels: { title: agent.title }, mode: 'developer', actions: chat.actions, ...composer, emptyState: scenarioRun.emptyState, decisions: scenarioRun.decisions }}
       connecting={<p className="cf-loading" role="status">{chat.status === 'offline' ? 'Server unreachable. Retrying…' : 'Connecting…'}</p>}
       controls={<button type="button" className="cf-notes" data-testid="notes-open" onClick={() => setOpened({ kind: 'artifact', conversation: active, descriptor: newestOf(artifactKey(notes))[0] ?? notes, follow: true })}><NotebookTextIcon size={16} aria-hidden="true" />Document</button>} />
   </main>;
