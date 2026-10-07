@@ -28,6 +28,7 @@ import type { InteractiveHtml } from '../viewers/interactive-html';
 import { downloadFile } from '../viewers/download';
 import { copyText } from '../utils/utils';
 import { savedLabel, useSaved } from './use-saved';
+import { useAppText } from './app-labels';
 
 const NOOP = () => () => {};
 const POLL_MS = 1500;
@@ -95,22 +96,23 @@ interface VersionMenu {
 }
 
 /** The version menu, newest first: each retained revision is named by when it was saved, and the newest is "Latest". The pin is the revision. */
-function versionMenu(artifact: ArtifactDescriptor, follow: boolean, revisions: readonly SavedRevision[]): VersionMenu {
+function versionMenu(artifact: ArtifactDescriptor, follow: boolean, revisions: readonly SavedRevision[], earlier: string): VersionMenu {
   const at = follow ? 0 : revisions.findIndex(save => save.revision === artifact.revision);
   const shown = at < 0 ? undefined : revisions[at];
-  return { items: revisions.map((save, index) => ({ id: index === 0 ? 'latest' : save.revision, label: savedLabel(save.savedAt), latest: index === 0 })),
+  return { items: revisions.map((save, index) => ({ id: index === 0 ? 'latest' : save.revision, label: savedLabel(save.savedAt, Date.now(), earlier), latest: index === 0 })),
     current: follow ? 'latest' : artifact.revision, number: shown ? revisions.length - at : undefined, savedAt: shown?.savedAt };
 }
 
 function SvgView({ text, title, frame }: { readonly text: string; readonly title: string; readonly frame: ViewerFrameProps }) {
+  const { labels } = useAppText();
   const [mode, setMode] = useState<'preview' | 'source'>('preview');
   // An SVG is shown only as an image from a blob URL: it never becomes markup in this page, so its scripts cannot run.
   const url = useMemo(() => URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })), [text]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
   return <ViewerFrame {...frame} controls={<>
-    <ViewerToggle label="View" value={mode} onChange={setMode} options={[
-      { id: 'preview', label: 'Preview', text: 'Preview', icon: <EyeIcon className="size-4" aria-hidden="true" />, testId: 'artifact-mode' },
-      { id: 'source', label: 'Source', text: 'Source', icon: <CodeXmlIcon className="size-4" aria-hidden="true" />, testId: 'artifact-mode' }]} />
+    <ViewerToggle label={labels.view} value={mode} onChange={setMode} options={[
+      { id: 'preview', label: labels.preview, text: labels.preview, icon: <EyeIcon className="size-4" aria-hidden="true" />, testId: 'artifact-mode' },
+      { id: 'source', label: labels.source, text: labels.source, icon: <CodeXmlIcon className="size-4" aria-hidden="true" />, testId: 'artifact-mode' }]} />
     {frame.controls}</>}>
     {mode === 'preview'
       ? <div className="boring-viewer-checker flex min-h-0 flex-1 items-center justify-center overflow-auto bg-white p-6"><img data-testid="artifact-svg" src={url} alt={title} className="max-h-full max-w-full" /></div>
@@ -127,6 +129,7 @@ function Version({ artifact, pinned, menu, options, onSelect, onClose }: {
 }) {
   const { type } = artifact;
   const { client, identity } = options;
+  const { labels } = useAppText();
   const path = artifact.target.resource.path;
   const custom = options.viewers?.[type];
   const create = useMemo(() => {
@@ -150,22 +153,22 @@ function Version({ artifact, pinned, menu, options, onSelect, onClose }: {
     subtitle: <>
       <span data-testid="artifact-panel-type">{typeLabel(artifact)}</span>
       <span aria-hidden="true">·</span>
-      <span data-testid="artifact-panel-version">{pinned ? (menu.savedAt !== undefined ? `Saved ${savedLabel(menu.savedAt)}` : 'Older version') : menu.savedAt ? `Latest, saved ${savedLabel(menu.savedAt)}` : 'Latest'}</span>
+      <span data-testid="artifact-panel-version">{pinned ? (menu.savedAt !== undefined ? labels.savedAt(savedLabel(menu.savedAt, Date.now(), labels.earlierVersion)) : labels.olderVersion) : menu.savedAt ? labels.latestSavedAt(savedLabel(menu.savedAt, Date.now(), labels.earlierVersion)) : labels.latest}</span>
     </>,
-    ...(pinned ? { status: { label: 'Read-only' } } : {}),
+    ...(pinned ? { status: { label: labels.readOnly, kind: 'read-only' as const } } : {}),
   };
   const filename = `${artifact.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'artifact'}.${extension}`;
   const body = (children: ReactNode) => <div data-testid="artifact-body" data-state={saved.kind} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">{children}</div>;
   if (custom) return body(custom({ target: artifact.target, title: artifact.title, ...(pinned ? { revision: artifact.revision } : {}), frame: { testId: 'artifact', titleTestId: 'artifact-panel-title', controls: versions, onClose, target } }));
   if (saved.kind !== 'open') {
-    return body(<ViewerFrame {...frame}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">{saved.kind === 'loading' ? 'Loading…' : saved.kind === 'invalid' ? 'This artifact cannot be shown as text.' : 'This version is not available.'}</p></ViewerFrame>);
+    return body(<ViewerFrame {...frame}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">{saved.kind === 'loading' ? labels.loading : saved.kind === 'invalid' ? labels.artifactNotText : labels.versionUnavailable}</p></ViewerFrame>);
   }
   const document = (children: ReactNode) => <div data-testid="document" data-revision={saved.snapshot.ref.revision} className="h-full min-h-0">{children}</div>;
   if (type === 'markdown' && controller) return body(document(<MarkdownPane controller={controller as MarkdownController} initialMode="rich" {...frame} />));
   if (type === 'html' && controller) return body(document(<HtmlPane controller={controller as HtmlController} {...(options.interactive ? { interactive: options.interactive } : {})} {...frame} />));
   const actions = { onCopy: () => copyText(text ?? ''), onDownload: () => downloadFile(filename, text ?? '', `${artifact.mediaType};charset=utf-8`) };
   if (type === 'svg') return body(<SvgView text={saved.text} title={artifact.title} frame={{ ...frame, ...actions }} />);
-  if (type === 'canvas') return body(<ViewerFrame {...frame}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">This host has no canvas viewer (pass one in `viewers.canvas`).</p></ViewerFrame>);
+  if (type === 'canvas') return body(<ViewerFrame {...frame}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">{labels.noCanvasViewer}</p></ViewerFrame>);
   return body(<ViewerFrame {...frame} {...actions}><div className="min-h-0 flex-1 overflow-auto p-3"><CodeBlock code={saved.text} language={artifact.language ?? 'text'} /></div></ViewerFrame>);
 }
 
@@ -185,7 +188,8 @@ export function ArtifactPanel({ active, versions, options, onSelect, onClose }: 
   const artifact = follow ? versions[0] ?? active.descriptor : active.descriptor;
   const path = artifact.target.resource.path;
   const revisions = useHistory(options.history, path);
-  const menu = versionMenu(artifact, follow, revisions);
+  const { labels } = useAppText();
+  const menu = versionMenu(artifact, follow, revisions, labels.earlierVersion);
   return <div data-testid="artifact-panel" data-artifact-id={artifactKey(artifact)} data-artifact-type={artifact.type} data-follow={follow ? 'true' : 'false'} data-artifact-position={menu.number} data-artifact-revision={follow ? undefined : artifact.revision}
     className="pi-chat flex h-full min-h-0 flex-col">
     <Version key={`${path}@${follow ? 'latest' : artifact.revision}`} artifact={artifact} pinned={!follow} menu={menu} options={options} onSelect={onSelect} onClose={onClose} />

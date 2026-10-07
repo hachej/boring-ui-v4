@@ -4,13 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckIcon, ChevronDownIcon, Loader2Icon } from 'lucide-react';
 import type { EffortConfig, ModelConfig, ModelRef } from './config';
 import { cn } from '../utils/utils';
+import { useChatText } from './labels';
 
 interface Choice { readonly section: 'model' | 'effort'; readonly value: string; readonly label: string; readonly detail?: string }
 
 const key = (model: ModelRef) => `${model.provider}/${model.modelId}`;
-const NAMES: Record<string, string> = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
-const name = (level: string) => NAMES[level] ?? level;
-const DETAILS: Record<string, string> = { off: 'No extra reasoning', minimal: 'Barely any reasoning', low: 'Light reasoning', medium: 'Balanced reasoning', high: 'Deep reasoning', xhigh: 'Deeper reasoning', max: 'Maximum reasoning' };
 
 /**
  * One pill for the model and the thinking level ("GPT-5 mini · Medium") that opens one listbox with a section for each
@@ -22,10 +20,12 @@ export function ModelEffortPicker({ model, effort, currentModel, currentEffort, 
   readonly disabled: boolean; readonly busy: 'model' | 'effort' | null;
   readonly onModel: (model: ModelRef) => void; readonly onEffort: (level: string) => void;
 }) {
+  const { labels } = useChatText();
+  const name = labels.effortName;
   const models: Choice[] = (model?.options ?? []).map(option => ({ section: 'model', value: key(option), label: option.label ?? option.modelId, detail: option.provider }));
   // A model or level outside the offered list is still shown, so the label never lies about what runs.
   if (model && currentModel && !models.some(choice => choice.value === key(currentModel))) models.unshift({ section: 'model', value: key(currentModel), label: currentModel.modelId, detail: currentModel.provider });
-  const levels: Choice[] = (effort?.options ?? []).map(level => ({ section: 'effort', value: level, label: name(level), ...(DETAILS[level] ? { detail: DETAILS[level] } : {}) }));
+  const levels: Choice[] = (effort?.options ?? []).map(level => ({ section: 'effort', value: level, label: name(level), ...(labels.effortDetail(level) ? { detail: labels.effortDetail(level)! } : {}) }));
   if (effort && currentEffort && !levels.some(choice => choice.value === currentEffort)) levels.unshift({ section: 'effort', value: currentEffort, label: name(currentEffort) });
   const choices = [...models, ...levels];
   const modelValue = currentModel ? key(currentModel) : '';
@@ -63,10 +63,10 @@ export function ModelEffortPicker({ model, effort, currentModel, currentEffort, 
     else if (event.key === 'Enter' || event.key === ' ' || event.key === 'Tab') { event.preventDefault(); choose(active); trigger.current?.focus(); }
     else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
   };
-  const modelLabel = model ? models.find(choice => choice.value === modelValue)?.label || currentModel?.modelId || 'Model' : undefined;
-  const effortLabel = effort ? currentEffort ? name(currentEffort) : 'Default' : undefined;
+  const modelLabel = model ? models.find(choice => choice.value === modelValue)?.label || currentModel?.modelId || labels.model : undefined;
+  const effortLabel = effort ? currentEffort ? name(currentEffort) : labels.effortDefault : undefined;
   const summary = [modelLabel, effortLabel].filter(Boolean).join(' · ');
-  const description = [modelLabel && `Model: ${modelLabel}`, effortLabel && `Effort: ${effortLabel}`].filter(Boolean).join(', ');
+  const description = labels.modelSummary(modelLabel, effortLabel);
   const row = (choice: Choice, index: number) => <li key={`${choice.section}:${choice.value}`} role="option" aria-selected={isCurrent(choice)} data-testid={`composer-${choice.section}-option`} data-value={choice.value} data-active={index === active}
     onMouseEnter={() => setActive(index)} onMouseDown={event => { event.preventDefault(); choose(index); trigger.current?.focus(); }}
     className={cn('flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm max-sm:min-h-11 pointer-coarse:min-h-11', index === active ? 'bg-accent text-foreground' : 'text-muted-foreground')}>
@@ -87,9 +87,9 @@ export function ModelEffortPicker({ model, effort, currentModel, currentEffort, 
       <span data-testid="composer-model-label" className="min-w-0 truncate">{summary}</span>
       <ChevronDownIcon className="size-3.5 shrink-0 opacity-50" aria-hidden="true" />
     </button>
-    {open && <ul ref={list} role="listbox" aria-label="Model and effort" data-testid="composer-model-menu" className="absolute bottom-full left-0 z-20 mb-2 m-0 max-h-80 min-w-56 list-none overflow-y-auto rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-lg max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:mb-0 max-sm:max-h-[70dvh] max-sm:rounded-b-none max-sm:p-2 max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-      {model && section('Model', models, 0)}
-      {effort && section('Effort', levels, models.length)}
+    {open && <ul ref={list} role="listbox" aria-label={labels.modelAndEffort} data-testid="composer-model-menu" className="absolute bottom-full left-0 z-20 mb-2 m-0 max-h-80 min-w-56 list-none overflow-y-auto rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-lg max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:mb-0 max-sm:max-h-[70dvh] max-sm:rounded-b-none max-sm:p-2 max-sm:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      {model && section(labels.model, models, 0)}
+      {effort && section(labels.effort, levels, models.length)}
     </ul>}
   </div>;
 }

@@ -99,9 +99,10 @@
       "name": "button",
       "type": "registry:ui",
       "title": "Button",
-      "description": "The one shadcn-style button of the Tailwind items (chat and viewer bar sizes, touch targets of 40-44px) and IconButton, installed in components/button/ so it never overwrites the host's own button.",
+      "description": "The one shadcn-style button of the Tailwind items (chat and viewer bar sizes, touch targets of 40-44px), IconButton, and the host actions every block takes (BlockAction, BlockActions, the shared ActionMenu), installed in components/button/ so it never overwrites the host's own button.",
       "dependencies": [
-        "react@19.3.0"
+        "react@19.3.0",
+        "lucide-react@1.51.0"
       ],
       "registryDependencies": [
         "@boring-ui/theme",
@@ -112,6 +113,11 @@
           "path": "registry/button/button.tsx",
           "type": "registry:ui",
           "target": "components/button/button.tsx"
+        },
+        {
+          "path": "registry/button/actions.tsx",
+          "type": "registry:ui",
+          "target": "components/button/actions.tsx"
         }
       ]
     },
@@ -565,6 +571,11 @@
           "path": "registry/pi-chat/tool.tsx",
           "type": "registry:component",
           "target": "components/pi-chat/tool.tsx"
+        },
+        {
+          "path": "registry/pi-chat/labels.ts",
+          "type": "registry:lib",
+          "target": "components/pi-chat/labels.ts"
         }
       ],
       "css": {
@@ -773,6 +784,11 @@
           "path": "registry/pi-app/use-remote-chat.ts",
           "type": "registry:hook",
           "target": "components/pi-app/use-remote-chat.ts"
+        },
+        {
+          "path": "registry/pi-app/app-labels.ts",
+          "type": "registry:lib",
+          "target": "components/pi-app/app-labels.ts"
         }
       ]
     },
@@ -856,6 +872,11 @@
           "path": "registry/viewers/viewer-frame.tsx",
           "type": "registry:component",
           "target": "components/viewers/viewer-frame.tsx"
+        },
+        {
+          "path": "registry/viewers/viewer-window.ts",
+          "type": "registry:lib",
+          "target": "components/viewers/viewer-window.ts"
         }
       ],
       "css": {

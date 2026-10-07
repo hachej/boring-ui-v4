@@ -69,10 +69,17 @@ createServer(async (req, res) => { try { const body = await readFile(join(${JSON
 import { createRoot } from 'react-dom/client';
 import { AgentWorkspace, useConversations, useRemoteChat } from './components/pi-app/agent-workspace';
 import type { OpenedView } from './components/pi-app/agent-workspace';
+import type { BlockAction, ChatLabels } from './components/pi-chat/pi-chat';
+import { DownloadIcon } from 'lucide-react';
 
 const identity = { runtimeId: 'app', scopeId: 'fictional-team', principalId: 'fictional-person', initiatorId: 'fictional-person' };
 const at = (path: string) => new URL(path, location.href);
 const resources = { endpoint: at('/api/resources'), history: at('/api/history'), fetch: (request: Request) => fetch(request), identity };
+
+// The configurable surface, checked strictly: partial labels (a function among them), a host icon, actions on each surface.
+const SparkIcon = ({ className }: { readonly className?: string | undefined }) => <svg className={className} viewBox="0 0 16 16" />;
+const chatLabels: Partial<ChatLabels> = { title: 'Writer', placeholder: 'Ask anything…', noMatch: query => 'Nothing for ' + query };
+const exportChat: BlockAction = { id: 'export', label: 'Export chat', icon: DownloadIcon, onSelect: () => {} };
 
 export function App() {
   const [selected, setSelected] = useState<string>();
@@ -81,8 +88,11 @@ export function App() {
   const items = conversations?.items;
   useEffect(() => { if (items?.length && !items.some(item => item.id === selected)) setSelected(items[0]!.id); }, [items, selected]);
   const chat = useRemoteChat({ conversationId: selected, endpoint: id => at('/api/chat?conversation=' + id), fetch: request => fetch(request), identity });
-  return <AgentWorkspace conversationId={selected} controller={chat.status === 'ready' ? chat.controller : undefined} conversations={conversations} resources={resources}
-    opened={opened} onOpenedChange={setOpened} chat={{ title: 'Writer', ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} connecting={<p>Connecting…</p>} />;
+  return <AgentWorkspace conversationId={selected} controller={chat.status === 'ready' ? chat.controller : undefined} resources={resources}
+    conversations={conversations && { ...conversations, rowActions: item => [{ id: 'star', label: 'Star ' + (item.title ?? ''), placement: 'menu', onSelect: () => {} }] }}
+    labels={{ sessionsTitle: 'Projects', share: 'Send a link' }} icons={{ newChat: SparkIcon }} panelActions={view => view.kind === 'artifact' ? [exportChat] : []}
+    opened={opened} onOpenedChange={setOpened} connecting={<p>Connecting…</p>}
+    chat={{ labels: chatLabels, icons: { send: SparkIcon }, headerActions: [exportChat], messageActions: reply => [{ id: 'quote', label: 'Quote ' + reply.key, onSelect: () => {} }], ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} />;
 }
 createRoot(document.getElementById('root')!).render(<App />);
 `);

@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import type { NativeChatSnapshot } from '@boring/ui/native-chat';
 import { Button } from '../button/button';
+import { useChatText } from './labels';
 import { cn } from '../utils/utils';
 
 export function Notice({ tone = 'error', children, testid }: { readonly tone?: 'error' | 'info'; readonly children: ReactNode; readonly testid?: string }) {
@@ -17,13 +18,14 @@ export function ChatNotices({ state, error, onReconcile, onRetry }: {
   readonly onReconcile: () => void;
   readonly onRetry: () => void;
 }) {
+  const { labels } = useChatText();
   return <>
     {error && <Notice testid="chat-error">{error}</Notice>}
     {state.send.kind === 'blocked' && <Notice testid="send-blocked">{state.send.reason}</Notice>}
-    {state.send.kind === 'unknown' && <Notice testid="send-unknown"><span className="flex-1">Submission acknowledgement is unknown. The message is kept until you check or retry it.</span>
-      <Button size="sm" variant="outline" onClick={onReconcile}>Check original submission</Button>
-      <Button size="sm" variant="outline" onClick={onRetry}>Retry same request</Button></Notice>}
-    {state.stop === 'requested' && <Notice tone="info" testid="stop-requested">Stop requested. Waiting for native confirmation.</Notice>}
-    {state.stop === 'unconfirmed' && <Notice testid="stop-unconfirmed">Stop is unconfirmed. Work may still be running.</Notice>}
+    {state.send.kind === 'unknown' && <Notice testid="send-unknown"><span className="flex-1">{labels.sendUnknown}</span>
+      <Button size="sm" variant="outline" onClick={onReconcile}>{labels.checkSubmission}</Button>
+      <Button size="sm" variant="outline" onClick={onRetry}>{labels.retrySame}</Button></Notice>}
+    {state.stop === 'requested' && <Notice tone="info" testid="stop-requested">{labels.stopRequested}</Notice>}
+    {state.stop === 'unconfirmed' && <Notice testid="stop-unconfirmed">{labels.stopUnconfirmed}</Notice>}
   </>;
 }

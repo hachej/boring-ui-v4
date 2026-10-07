@@ -147,7 +147,7 @@ function App() {
     effort: { options: ['minimal', 'low', 'medium', 'high'], change: level => configure({ thinkingLevel: level }) },
   };
   const props = chat.status === 'ready' ? {
-    state: windowState, onStateChange: setWindowState, controller: chat.controller, actions: chat.actions, title: 'Console assistant', variant: params.get('variant') === 'surface' ? 'surface' : 'contrast',
+    state: windowState, onStateChange: setWindowState, controller: chat.controller, actions: chat.actions, labels: { title: 'Console assistant' }, variant: params.get('variant') === 'surface' ? 'surface' : 'contrast',
     notifications: store, systemNotifications: true, autoDismissMs: Number(params.get('dismiss') ?? 8000),
     conversations: { items: (items ?? []).map(item => ({ id: item.id, title: item.title ?? undefined, updatedAt: item.updatedAt ?? undefined })), activeId: conversationId, onSelect: select, onNew: () => { void newConversation(); } },
     ...composerConfig,
@@ -157,7 +157,7 @@ function App() {
     onOpenFull: id => setNote(`Opening conversation ${id} in the full workspace…`),
     onFeedback: () => {},
   } : undefined;
-  if (params.get('view') === 'full') return props ? <div style={{ height: '100dvh', background: 'var(--background)' }} className="pi-chat"><PiChat controller={props.controller} actions={props.actions} title="Console assistant"
+  if (params.get('view') === 'full') return props ? <div style={{ height: '100dvh', background: 'var(--background)' }} className="pi-chat"><PiChat controller={props.controller} actions={props.actions} labels={{ title: 'Console assistant' }}
     slash={props.slash} mentions={props.mentions} attachments={props.attachments} model={props.model} effort={props.effort} /></div> : null;
   return <>
     <Console onTask={() => { void startTask(); }} taskNote={taskNote} note={note} />
