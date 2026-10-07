@@ -104,9 +104,18 @@ export function useChatSession(options: ChatSessionOptions) {
     setError(null);
     try { void action().catch(report); } catch (cause) { report(cause); }
   };
-  const sending = ['validating', 'submitting', 'unknown'].includes(state.send.kind);
+  // A send being confirmed does not block the next one: the controller empties the composer at once and queues the next message behind it.
+  // Only a submission whose outcome is unknown blocks, until it is checked or retried.
+  const unconfirmed = state.send.kind === 'unknown';
   const connected = state.connection.kind === 'connected';
-  const sendBlocked = uploading > 0 || state.disposed || !connected || sending;
+  const sendBlocked = uploading > 0 || state.disposed || !connected || unconfirmed;
+  /** Puts a message back into the composer ahead of whatever is there now (nothing is dropped). */
+  const putBack = (text: string, images: readonly ChatAttachment[]) => {
+    if (!current()) return;
+    const draft = controller.getSnapshot().draft;
+    controller.setText([text, draft.text].filter(value => value.trim()).join('\n'));
+    if (images.length) controller.setAttachments([...images, ...draft.attachments.filter(item => !images.some(image => image.id === item.id))]);
+  };
   const working = Boolean(run);
   const waitingForAnswer = rows.some(row => row.type === 'assistant' && row.parts.some(part => (part.kind === 'question' || part.kind === 'approval') && !part.live && !part.result));
   const send = () => {
@@ -115,14 +124,16 @@ export function useChatSession(options: ChatSessionOptions) {
     if (attach) {
       // The pending feedback goes with this message: the host attaches it to the text, then the native send reads the draft.
       act(async () => {
-        const typed = controller.getSnapshot().draft.text;
-        const attached = await attach(typed);
-        if (attached.kind === 'refused') throw new Error(attached.reason);
+        // Like any send, the composer empties at once; the person's own text comes back if the feedback or the message is refused.
+        const typed = controller.getSnapshot().draft;
+        controller.setText(''); controller.setAttachments([]);
+        let attached: Awaited<ReturnType<typeof attach>>;
+        try { attached = await attach(typed.text); }
+        catch (cause) { putBack(typed.text, typed.attachments); throw cause; }
+        if (attached.kind === 'refused') { putBack(typed.text, typed.attachments); throw new Error(attached.reason); }
         if (!current()) return;
-        controller.setText(attached.text);
-        const submission = await controller.send('followUp');
+        const submission = await controller.send('followUp', { text: attached.text, attachments: typed.attachments, restore: { text: typed.text, attachments: typed.attachments } });
         if (submission) feedback?.sent?.();
-        else if (current()) controller.setText(typed);
       });
       afterSend?.();
       textarea.current?.focus();
@@ -156,14 +167,13 @@ export function useChatSession(options: ChatSessionOptions) {
     steer: async item => {
       if (sendBlocked) throw new Error('Wait for the current send to finish, then steer.');
       await takeBack(item);
-      const { text, images } = queuedContent(item), saved = controller.getSnapshot().draft;
-      // The native send reads the draft when it is called; the person's own draft is put back straight after.
-      controller.setText(text); controller.setAttachments(images);
-      const sent = controller.send('steer');
-      controller.setText(saved.text); controller.setAttachments(saved.attachments);
-      const failure = (reason: string) => { if (current()) { controller.setText(controller.getSnapshot().draft.text.trim() ? `${text}\n${controller.getSnapshot().draft.text}` : text); setError(reason); } };
-      try { if (!await sent) failure('The message could not be steered; it is back in the message box.'); }
-      catch (cause) { failure(cause instanceof Error ? cause.message : 'The message could not be steered.'); }
+      const { text, images } = queuedContent(item);
+      // Sent as explicit content, so the person's own draft is never touched; a refused steer comes back into the composer (the controller
+      // puts it back), an unknown one is held for checking.
+      try {
+        const submission = await controller.send('steer', { text, attachments: images });
+        if (!submission && current() && controller.getSnapshot().send.kind === 'blocked') setError('The message could not be steered; it is back in the message box.');
+      } catch (cause) { putBack(text, images); if (current()) setError(cause instanceof Error ? cause.message : 'The message could not be steered.'); }
     },
   } : undefined;
   const addMentions = (paths: readonly string[]) => {

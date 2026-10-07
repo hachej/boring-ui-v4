@@ -74,7 +74,12 @@ test('Send with pending feedback: the host attaches it to the text, the native s
     const sent = [];
     return { sent, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => snapshot, connect: async () => {},
       setText: text => publish({ draft: { ...snapshot.draft, text, version: snapshot.draft.version + 1 } }), setAttachments: attachments => publish({ draft: { ...snapshot.draft, attachments } }),
-      send: async () => { sent.push(snapshot.draft.text); publish({ draft: { text: '', attachments: [], version: snapshot.draft.version + 1 } }); return { id: `s${sent.length}` }; }, stop: async () => {} };
+      // Like the native controller: explicit content leaves the composer alone, otherwise the draft is taken and the composer emptied.
+      send: async (_whenBusy, input) => {
+        sent.push(input ? input.text : snapshot.draft.text);
+        if (!input) publish({ draft: { text: '', attachments: [], version: snapshot.draft.version + 1 } });
+        return { id: `s${sent.length}` };
+      }, stop: async () => {} };
   };
   const container = document.createElement('div'); document.body.append(container);
   const ui = createRoot(container);
@@ -87,12 +92,15 @@ test('Send with pending feedback: the host attaches it to the text, the native s
   await act(async () => { container.querySelector('[data-testid=composer-submit]').click(); await new Promise(resolve => setTimeout(resolve, 10)); });
   assert.deepEqual(chat.sent, ['What do you think?\n\n@feedback/fb_7Q2mK9xRt4vW1cZp.md'], 'the model input carries the mention the host resolves');
   assert.deepEqual(calls, ['attach "What do you think?"', 'sent']);
+  assert.equal(chat.getSnapshot().draft.text, '', 'the composer is empty once the message is sent');
 
   const refusing = controller();
   const refusal = { start: () => {}, pending: true, sent: () => calls.push('never'), attach: async () => ({ kind: 'refused', reason: 'Not saved: the fictional store is unavailable.' }) };
   await act(async () => ui.render(createElement(Harness, { key: 'refusing', controller: refusing, feedback: refusal })));
+  await act(async () => refusing.setText('Keep this text'));
   await act(async () => { container.querySelector('[data-testid=composer-submit]').click(); await new Promise(resolve => setTimeout(resolve, 10)); });
   assert.deepEqual(refusing.sent, [], 'nothing is sent');
+  assert.equal(refusing.getSnapshot().draft.text, 'Keep this text', 'the refused text is back in the composer');
   assert.equal(container.querySelector('[data-testid=error]').textContent, 'Not saved: the fictional store is unavailable.');
   assert.ok(!calls.includes('never'));
 

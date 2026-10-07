@@ -74,6 +74,65 @@ export default [
     },
   },
   {
+    id: 'chat-send-race', group: 'Chat basics', title: 'Type while a send is confirmed', variants: ['local'],
+    description: 'With a slow confirmation, Enter empties the composer at once; the next message is its own message, never merged or lost; a refused one comes back.',
+    steps: [{ prompt: essay(250, 'harbour cranes'), wait: false }],
+    async verify(t) {
+      const { browser, idle, MESSAGE, SUBMIT, q, qa, pause } = t;
+      const faults = t.app.submitFaults;
+      const working = `${SUBMIT}?.dataset.state === 'stop'`;
+      const queued = `${qa('[data-testid=queue-item]')}.map(e => e.querySelector('[data-testid=queue-text]').textContent)`;
+      const enter = async text => { await browser.type(MESSAGE, text); await browser.press('Enter'); };
+      const sent = [];
+      await browser.until('working', working, 30000);
+      try {
+        for (const delay of [1500, 300]) {
+          // The studio holds the answer to every submit for `delay` ms after Pi recorded it (the test hook in server.mjs).
+          faults.delayMs = delay;
+          const one = `Race one: reply with exactly: RACE-ONE-${delay}`, two = `Race two: reply with exactly: RACE-TWO-${delay}`;
+          const before = (await browser.evaluate(queued)).length;
+          await enter(one);
+          // Typed and sent inside the pending window: Enter emptied the composer at once, so this is a fresh draft and a separate message.
+          await enter(two);
+          sent.push(one, two);
+          await browser.until(`${delay} ms: both messages are queued, each with its own text`, `${queued}.length === ${before + 2}`, 15000)
+            .catch(async error => { throw new Error(`${error.message}; queue ${JSON.stringify(await browser.evaluate(queued))}, composer ${JSON.stringify(await browser.evaluate(`${MESSAGE}.value`))}`); });
+          assert.deepEqual((await browser.evaluate(queued)).slice(before), [one, two], `${delay} ms: two separate messages in order`);
+          assert.equal(await browser.evaluate(`${MESSAGE}.value`), '', `${delay} ms: nothing is left in the composer`);
+          // A refused send comes back into the composer, ahead of what was typed meanwhile.
+          faults.refuse = 1;
+          const three = `Race refused: reply with exactly: RACE-THREE-${delay}`, typed = `typed during refusal ${delay}`;
+          await enter(three);
+          await browser.type(MESSAGE, typed);
+          await browser.until(`${delay} ms: the refusal is reported`, `!!${q('[data-testid=send-blocked]')} || !!${q('[data-testid=send-unknown]')}`, 15000);
+          if (await browser.evaluate(`!!${q('[data-testid=send-blocked]')}`)) {
+            // A client that knows the host refused it (402 submission-refused): the message is back in the composer, nothing merged into it.
+            await browser.until(`${delay} ms: the refused message is back above the new text`, `${MESSAGE}.value === ${JSON.stringify(`${three}\n${typed}`)}`, 5000);
+          } else {
+            // A client that cannot tell: the message is held for checking, the new text is untouched, and retrying sends it once.
+            assert.equal(await browser.evaluate(`${MESSAGE}.value`), typed, `${delay} ms: the text typed meanwhile is a fresh draft`);
+            const count = (await browser.evaluate(queued)).length;
+            // The streaming answer moves the notice while it renders; a click that missed is repeated (a retry reuses the same request ID).
+            for (let attempt = 0; attempt < 4 && await browser.evaluate(`!!${q('[data-testid=send-unknown]')}`); attempt++) {
+              await browser.click(`[...document.querySelectorAll('[data-testid=send-unknown] button')].find(b => b.textContent.trim() === 'Retry same request')`);
+              await browser.until('the retry is under way', `!${q('[data-testid=send-unknown]')}`, 3000).catch(() => {});
+            }
+            await browser.until(`${delay} ms: the retried message is queued once`, `!${q('[data-testid=send-unknown]')} && ${queued}.length === ${count + 1}`, 15000);
+            assert.equal((await browser.evaluate(queued)).at(-1), three);
+            sent.push(three);
+          }
+          await t.clear();
+          assert.equal(faults.refuse, 0);
+        }
+      } finally { faults.delayMs = 0; faults.refuse = 0; }
+      await browser.until('everything idle', `${idle} && ${queued}.length === 0`, 240000);
+      await pause(500);
+      const users = await browser.evaluate(t.userMessages);
+      for (const text of sent) assert.equal(users.filter(user => user === text).length, 1, `sent exactly once, alone: ${text} in ${users.join(' | ')}`);
+      assert.ok(!users.some(user => /RACE-.*RACE-/.test(user)), `no merged message: ${users.join(' | ')}`);
+    },
+  },
+  {
     id: 'chat-reload', group: 'Chat basics', title: 'Reload during an answer', description: 'Reloading the page mid-answer keeps the conversation and the answer finishes.',
     steps: [{ prompt: `${essay(200, 'a lighthouse keeper named Placeholder', 'THE END')}`, wait: false }, { action: 'streaming' }, { action: 'reload' }, { action: 'idle' }],
     expect: [{ reply: /THE END/ }, { userMessages: 1 }],

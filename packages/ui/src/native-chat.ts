@@ -24,6 +24,15 @@ export interface ChatAttempt {
   readonly draft: ChatDraft;
   readonly whenBusy: NonNullable<InputSubmissionDraft['whenBusy']>;
 }
+/**
+ * Explicit content for `send` instead of the composer draft (the composer is then left alone). `restore` is what goes back into the
+ * composer if the host refuses it (default: the content itself), for example the person's own text without a host-attached block.
+ */
+export interface ChatSendInput {
+  readonly text: string;
+  readonly attachments?: readonly ChatAttachment[];
+  readonly restore?: { readonly text: string; readonly attachments?: readonly ChatAttachment[] };
+}
 export type ChatSendState = { readonly kind: 'idle' }
   | { readonly kind: 'validating'; readonly draft: ChatDraft }
   | { readonly kind: 'blocked'; readonly reason: string }
@@ -67,6 +76,8 @@ export interface NativeChatSnapshot {
   readonly connection: ChatConnection;
   readonly view?: ConversationView;
   readonly draft: ChatDraft;
+  /** Messages already taken from the composer that wait, in order, for the current send to be confirmed before they are submitted. */
+  readonly outbox: readonly ChatDraft[];
   readonly history: ChatHistoryState;
   readonly send: ChatSendState;
   readonly stop: 'idle' | 'requested' | 'confirmed' | 'unconfirmed';
@@ -103,13 +114,13 @@ export function createNativeChatController(options: NativeChatOptions) {
   const identity = Object.freeze({ runtimeId: options.identity.runtimeId, scopeId: options.identity.scopeId, principalId: options.identity.principalId });
   if (Object.values(identity).some(value => typeof value !== 'string' || !value)) throw new TypeError('Explicit runtime, scope and principal identity are required');
   let snapshot: NativeChatSnapshot = { identity, conversationId: conversation.id, connection: { kind: 'idle' },
-    draft: draft('', [], 0), history: emptyHistory(), send: { kind: 'idle' }, stop: 'idle', disposed: false };
+    draft: draft('', [], 0), outbox: Object.freeze([]), history: emptyHistory(), send: { kind: 'idle' }, stop: 'idle', disposed: false };
   const listeners = new Set<() => void>();
   let watch: ConversationWatch | undefined, opening: Promise<void> | undefined, disposing: Promise<WatchEnd | undefined> | undefined;
   const publish = (change: Partial<NativeChatSnapshot>) => {
     snapshot = Object.freeze({ ...snapshot, ...change, ...(change.send ? { send: Object.freeze(change.send) } : {}),
       ...(change.connection ? { connection: Object.freeze(change.connection) } : {}),
-      ...(change.history ? { history: Object.freeze(change.history) } : {}) });
+      ...(change.history ? { history: Object.freeze(change.history) } : {}), ...(change.outbox ? { outbox: Object.freeze(change.outbox) } : {}) });
     for (const listener of [...listeners]) {
       try { listener(); }
       catch (error) { queueMicrotask(() => { if (options.onListenerError) options.onListenerError(error); else throw error; }); }
@@ -138,10 +149,29 @@ export function createNativeChatController(options: NativeChatOptions) {
   const stillPending = (attempt: ChatAttempt): boolean => (snapshot.send.kind === 'unknown' || snapshot.send.kind === 'submitting') && snapshot.send.attempt.requestId === attempt.requestId;
   const active = () => { if (snapshot.disposed) throw new Error('Chat controller is disposed'); };
   const editable = () => { active(); return snapshot.draft; };
+  // The composer is emptied when a message is sent, so a confirmation never has to clear it (text typed meanwhile is a new draft).
   const markAdmitted = (attempt: ChatAttempt, submissionId: Submission['id'], record?: SubmissionRecord) => {
     if (!stillPending(attempt)) return;
-    publish({ send: { kind: 'admitted', attempt, submissionId, ...(record ? { record } : {}) },
-      ...(snapshot.draft.version === attempt.draft.version ? { draft: draft('', [], snapshot.draft.version + 1) } : {}) });
+    publish({ send: { kind: 'admitted', attempt, submissionId, ...(record ? { record } : {}) } });
+  };
+  interface Outgoing { readonly draft: ChatDraft; readonly whenBusy: ChatAttempt['whenBusy']; readonly resolve: (submission: Submission | undefined) => void }
+  /** Messages taken from the composer that wait for the current send (`outbox` in the snapshot). */
+  const waiting: Outgoing[] = [];
+  let sending = false;
+  /** What goes back into the composer when a sent message is refused (default: the message itself). */
+  const restoreOf = new WeakMap<ChatDraft, ChatDraft>();
+  /**
+   * Puts refused messages back into the composer, followed by every message still waiting behind them (never submitted now) and then
+   * whatever was typed since, one per line.
+   */
+  const restore = (drafts: readonly ChatDraft[], change: Partial<NativeChatSnapshot> = {}): void => {
+    const left = waiting.splice(0);
+    for (const item of left) item.resolve(undefined);
+    if (snapshot.disposed) return;
+    const current = snapshot.draft, back = [...drafts, ...left.map(item => item.draft)].map(item => restoreOf.get(item) ?? item);
+    const text = [...back.map(item => item.text), current.text].filter(value => value.trim()).join('\n');
+    const attachments = [...back.flatMap(item => item.attachments), ...current.attachments].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
+    publish({ ...change, ...(left.length || snapshot.outbox.length ? { outbox: Object.freeze([]) } : {}), ...(back.length ? { draft: draft(text, attachments, current.version + 1) } : {}) });
   };
   function definitelyNotAdmitted(error: unknown): boolean {
     try { return options.definitelyNotAdmitted?.(error) === true; }
@@ -160,9 +190,29 @@ export function createNativeChatController(options: NativeChatOptions) {
     } catch (error) {
       const denied = definitelyNotAdmitted(error);
       if (!stillPending(attempt)) return;
-      publish({ send: denied ? { kind: 'blocked', reason: error instanceof Error ? error.message : 'Submission was not admitted' } : { kind: 'unknown', attempt } });
+      // Refused: the message goes back into the composer. Unknown: it stays held by the attempt for `reconcile`/`retrySameRequest`.
+      if (denied) restore([attempt.draft], { send: { kind: 'blocked', reason: error instanceof Error ? error.message : 'Submission was not admitted' } });
+      else publish({ send: { kind: 'unknown', attempt } });
       return undefined;
     }
+  }
+  /** Validates and submits one message; a validation refusal puts it back into the composer. */
+  async function dispatch(item: Outgoing): Promise<Submission | undefined> {
+    const selected = item.draft;
+    publish({ send: { kind: 'validating', draft: selected }, ...(!stopping && snapshot.stop !== 'idle' ? { stop: 'idle' as const } : {}) });
+    if (snapshot.disposed) return;
+    try {
+      const reason = await options.beforeSubmit?.(selected);
+      if (snapshot.disposed) return;
+      if (reason !== undefined) {
+        restore([selected], { send: { kind: 'blocked', reason: typeof reason === 'string' && reason ? reason : 'Submission validation did not return success' } }); return;
+      }
+    } catch (error) {
+      if (!snapshot.disposed) restore([selected], { send: { kind: 'blocked', reason: error instanceof Error ? error.message : 'Submission validation failed' } });
+      return;
+    }
+    if (snapshot.disposed) return;
+    return submitAttempt(Object.freeze({ requestId: randomUUID(), draft: selected, whenBusy: item.whenBusy }));
   }
   const controller = {
     conversation,
@@ -238,26 +288,46 @@ export function createNativeChatController(options: NativeChatOptions) {
       publish({ connection: { kind: 'connecting' }, history: invalidateHistory() });
       return opening;
     },
-    send: async (whenBusy: ChatAttempt['whenBusy'] = 'followUp'): Promise<Submission | undefined> => {
+    /**
+     * Sends the composer draft (or `input`) and empties the composer at once. While another send is still being confirmed the message
+     * waits in `outbox` and is submitted, in order, after it. A refused message, and any waiting behind it, go back into the composer
+     * ahead of what was typed since; nothing is dropped or merged into another message. Resolves with the native submission, or
+     * undefined when the message was not admitted (refused, unknown, or the controller was disposed).
+     */
+    send: async (whenBusy: ChatAttempt['whenBusy'] = 'followUp', input?: ChatSendInput): Promise<Submission | undefined> => {
       active();
-      if (snapshot.send.kind === 'submitting' || snapshot.send.kind === 'unknown' || snapshot.send.kind === 'validating') throw new Error('Reconcile the existing submission before sending another');
-      const selected = snapshot.draft;
-      if (!selected.text.trim() && !selected.attachments.length) { publish({ send: { kind: 'blocked', reason: 'Enter a message or attach an image' } }); return; }
-      publish({ send: { kind: 'validating', draft: selected }, ...(!stopping && snapshot.stop !== 'idle' ? { stop: 'idle' as const } : {}) });
-      if (snapshot.disposed) return;
-      try {
-        const reason = await options.beforeSubmit?.(selected);
-        if (snapshot.disposed) return;
-        if (reason !== undefined) {
-          publish({ send: { kind: 'blocked', reason: typeof reason === 'string' && reason ? reason : 'Submission validation did not return success' } }); return;
-        }
-      } catch (error) {
-        if (!snapshot.disposed) publish({ send: { kind: 'blocked', reason: error instanceof Error ? error.message : 'Submission validation failed' } });
+      if (snapshot.send.kind === 'unknown') throw new Error('Reconcile the existing submission before sending another');
+      const current = snapshot.draft;
+      const selected = input ? draft(input.text, input.attachments ?? [], 0) : current;
+      if (!selected.text.trim() && !selected.attachments.length) {
+        if (!sending) publish({ send: { kind: 'blocked', reason: 'Enter a message or attach an image' } });
         return;
       }
-      if (snapshot.disposed) return;
-      const requestId = randomUUID();
-      return submitAttempt(Object.freeze({ requestId, draft: selected, whenBusy }));
+      if (input?.restore) restoreOf.set(selected, draft(input.restore.text, input.restore.attachments ?? [], 0));
+      const cleared = input ? {} : { draft: draft('', [], current.version + 1) };
+      if (sending) {
+        return new Promise(resolve => {
+          waiting.push({ draft: selected, whenBusy, resolve });
+          publish({ ...cleared, outbox: Object.freeze(waiting.map(item => item.draft)) });
+        });
+      }
+      sending = true;
+      publish(cleared);
+      try {
+        let next: Outgoing | undefined = { draft: selected, whenBusy, resolve: () => {} };
+        const first = await dispatch(next);
+        let result = first;
+        while (result && (next = waiting.shift())) {
+          publish({ outbox: Object.freeze(waiting.map(item => item.draft)) });
+          result = await dispatch(next);
+          next.resolve(result);
+        }
+        return first;
+      } finally {
+        sending = false;
+        // Whatever still waits (behind an unknown submission, or after disposal) was never submitted: it goes back into the composer.
+        if (waiting.length) restore([]);
+      }
     },
     reconcile: async (): Promise<SubmissionRecord | undefined> => {
       active();

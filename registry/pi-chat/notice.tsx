@@ -20,7 +20,7 @@ export function ChatNotices({ state, error, onReconcile, onRetry }: {
   return <>
     {error && <Notice testid="chat-error">{error}</Notice>}
     {state.send.kind === 'blocked' && <Notice testid="send-blocked">{state.send.reason}</Notice>}
-    {state.send.kind === 'unknown' && <Notice testid="send-unknown"><span className="flex-1">Submission acknowledgement is unknown. Your draft is retained.</span>
+    {state.send.kind === 'unknown' && <Notice testid="send-unknown"><span className="flex-1">Submission acknowledgement is unknown. The message is kept until you check or retry it.</span>
       <Button size="sm" variant="outline" onClick={onReconcile}>Check original submission</Button>
       <Button size="sm" variant="outline" onClick={onRetry}>Retry same request</Button></Notice>}
     {state.stop === 'requested' && <Notice tone="info" testid="stop-requested">Stop requested. Waiting for native confirmation.</Notice>}
