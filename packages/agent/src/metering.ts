@@ -9,7 +9,7 @@ import { AssistantEntry, UserEntry } from '@earendil-works/pi-durable';
 import type { Conversation, ConversationWatch, EntryRecord, Harness, Submission, SubmissionDraft, SubmissionRecord } from '@earendil-works/pi-durable';
 import type { Models, Usage } from '@earendil-works/pi-ai';
 import { calculateCost } from '@earendil-works/pi-ai/models';
-import type { SqliteConnection } from '@boring/files/sqlite';
+import { openNodeConnection, type SqliteConnection, type SqliteSettings } from '@boring/files/sqlite';
 
 /** Who pays and which native submission a run is. `runId` is derived from the conversation and the submission's request ID. */
 export interface MeteringRunScope {
@@ -375,16 +375,28 @@ export function createMemoryLedger(options: LedgerOptions): MeteringLedger {
   });
 }
 
+/** Where a SQLite ledger lives: a borrowed connection, or a file the ledger opens (`openNodeConnection(filename, sqlite)`) and owns. */
+export type SqliteLedgerStore =
+  | { readonly connection: SqliteConnection; readonly filename?: never; readonly sqlite?: never }
+  | { readonly filename: string; readonly sqlite?: SqliteSettings; readonly connection?: never };
+
 /**
- * The ledger in SQLite over a borrowed `SqliteConnection` (`openNodeConnection`, `durableObjectSqliteConnection`, ...): grants, runs
- * with their hold, and charges keyed by (run, step), so a replayed usage report or fallback charge is never charged twice.
+ * The ledger in SQLite: grants, runs with their hold, and charges keyed by (run, step), so a replayed usage report or fallback
+ * charge is never charged twice. Over a borrowed `SqliteConnection` (`openNodeConnection`, `durableObjectSqliteConnection`, ...),
+ * or a `filename` it opens with `sqlite` settings (`@boring/files/sqlite`: local disk WAL by default, `sqliteSettings.networkFilesystem`
+ * on EFS) and closes on `close()`. Every write is one write transaction (`BEGIN IMMEDIATE` on `node:sqlite`): several processes or
+ * requests on one ledger file wait for each other up to the busy timeout instead of failing, and a reservation's balance check
+ * and hold commit together, so concurrent reservations never spend the same credit twice.
  */
-export function createSqliteLedger(options: LedgerOptions & { readonly connection: SqliteConnection }): MeteringLedger {
+export function createSqliteLedger(options: LedgerOptions & SqliteLedgerStore): MeteringLedger & { readonly close: () => void } {
   validHold(options);
-  const db = options.connection;
-  db.exec(`CREATE TABLE IF NOT EXISTS boring_metering_grants (grant_id TEXT PRIMARY KEY, account TEXT NOT NULL, amount INTEGER NOT NULL);
+  const owned = options.connection === undefined;
+  if (owned && typeof options.filename !== 'string') throw new TypeError('A SQLite ledger needs a connection or a filename');
+  const db = options.connection ?? openNodeConnection(options.filename!, options.sqlite);
+  try { db.transaction('write', () => db.exec(`CREATE TABLE IF NOT EXISTS boring_metering_grants (grant_id TEXT PRIMARY KEY, account TEXT NOT NULL, amount INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS boring_metering_runs (run_id TEXT PRIMARY KEY, account TEXT NOT NULL, conversation_id INTEGER NOT NULL, request_id TEXT NOT NULL, hold INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT);
-CREATE TABLE IF NOT EXISTS boring_metering_charges (run_id TEXT NOT NULL, step TEXT NOT NULL, account TEXT NOT NULL, amount INTEGER NOT NULL, PRIMARY KEY (run_id, step));`);
+CREATE TABLE IF NOT EXISTS boring_metering_charges (run_id TEXT NOT NULL, step TEXT NOT NULL, account TEXT NOT NULL, amount INTEGER NOT NULL, PRIMARY KEY (run_id, step));`)); }
+  catch (error) { if (owned) db.close?.(); throw error; }
   const sum = (sql: string, ...params: (string | number)[]) => Number(db.get<{ total: number | null }>(sql, ...params)?.total ?? 0);
   const balanceNow = (account: string) => {
     const granted = sum('SELECT SUM(amount) AS total FROM boring_metering_grants WHERE account = ?', account);
@@ -396,9 +408,9 @@ CREATE TABLE IF NOT EXISTS boring_metering_charges (run_id TEXT NOT NULL, step T
   const insertCharge = 'INSERT OR IGNORE INTO boring_metering_charges (run_id, step, account, amount) VALUES (?, ?, ?, ?)';
   return Object.freeze({
     balance: async (account: string) => db.transaction('read', () => balanceNow(account)),
-    grant: async (account: string, amountMicros: number, grantId: string) => {
+    grant: async (account: string, amountMicros: number, grantId: string) => db.transaction('write', () => {
       db.run('INSERT OR IGNORE INTO boring_metering_grants (grant_id, account, amount) VALUES (?, ?, ?)', grantId, account, Math.trunc(amountMicros));
-    },
+    }),
     reserveRun: async (input: MeteringReserveInput): Promise<MeteringReservation> => db.transaction('write', () => {
       if (db.get('SELECT 1 AS found FROM boring_metering_runs WHERE run_id = ?', input.runId)) return { reservationId: input.runId };
       const { availableMicros } = balanceNow(input.account);
@@ -411,7 +423,9 @@ CREATE TABLE IF NOT EXISTS boring_metering_charges (run_id TEXT NOT NULL, step T
       db.run(insertCharge, input.runId, input.usageId, input.account, Math.max(0, Math.ceil(input.amountMicros)));
       return { billedMicros: Number(db.get<{ amount: number }>('SELECT amount FROM boring_metering_charges WHERE run_id = ? AND step = ?', input.runId, input.usageId)!.amount) };
     }),
-    settleRun: async (input: MeteringSettleInput) => { db.run(`UPDATE boring_metering_runs SET state = 'settled', reason = ? WHERE run_id = ? AND state = 'open'`, input.status, input.runId); },
+    settleRun: async (input: MeteringSettleInput) => db.transaction('write', () => {
+      db.run(`UPDATE boring_metering_runs SET state = 'settled', reason = ? WHERE run_id = ? AND state = 'open'`, input.status, input.runId);
+    }),
     releaseRun: async (input: MeteringReleaseInput) => db.transaction('write', () => {
       const run = db.get<{ account: string; hold: number }>(`SELECT account, hold FROM boring_metering_runs WHERE run_id = ? AND state = 'open'`, input.runId);
       if (!run) return;
@@ -421,5 +435,7 @@ CREATE TABLE IF NOT EXISTS boring_metering_charges (run_id TEXT NOT NULL, step T
     }),
     openRuns: async () => db.all<{ run_id: string; account: string; conversation_id: number; request_id: string }>(`SELECT run_id, account, conversation_id, request_id FROM boring_metering_runs WHERE state = 'open' ORDER BY rowid`)
       .map(row => ({ runId: row.run_id, account: row.account, conversationId: Number(row.conversation_id), requestId: row.request_id, reservationId: row.run_id })),
+    /** Closes the file the ledger opened; a borrowed connection stays open (its owner closes it). */
+    close: () => { if (owned) db.close?.(); },
   });
 }

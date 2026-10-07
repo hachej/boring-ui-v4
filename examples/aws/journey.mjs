@@ -6,11 +6,14 @@
 //     workspace provider (the viewer's read) sees the command's change;
 //   - two users never see each other's folders: separate access points, folder-confined file tools, separate listings;
 //   - an expired interpreter session is reported lost to the command, and the next request starts a new session;
-//   - bearer, user and session checks, and /ping.
+//   - bearer, user and session checks, and /ping;
+//   - every SQLite file in the state folder (journal, Pi harness) uses `sqliteSettings.networkFilesystem`: rollback journal,
+//     no WAL file, and held by its one owner, so a second opener gets `SqliteLockedError`.
 // Run: npm run build && node examples/aws/journey.mjs
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
+import { SqliteLockedError, openNodeConnection } from '@boring/files/sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createScriptedModels } from '../studio/scripted-model.mjs';
@@ -129,6 +132,18 @@ try {
     const renewed = await turn('user-a', 'After renewal: show the plan again.');
     assert.match(renewed.results.at(-1).text, /reviewed in the interpreter/);
     assert.notEqual(app.perUser.get('user-a').interpreter.sessionId(), before);
+  });
+  await step('the state files on EFS use the network file system preset: rollback journal, one owner holding each file', async () => {
+    const user = app.perUser.get('user-a');
+    assert.equal(user.database.get('PRAGMA journal_mode').journal_mode, 'delete');
+    assert.equal(user.database.get('PRAGMA locking_mode').locking_mode, 'exclusive');
+    const state = readdirSync(user.layout.runtime.state).sort();
+    assert.ok(state.includes('journal.sqlite') && state.some(name => name.endsWith('.pi.sqlite')), state.join(', '));
+    assert.deepEqual(state.filter(name => /-(wal|shm)$/.test(name)), [], 'no WAL or shared-memory file on EFS');
+    for (const file of [user.layout.runtime.journal, user.layout.harnessFile('main')]) {
+      assert.ok(existsSync(file));
+      assert.throws(() => openNodeConnection(file, { busyTimeoutMs: 100 }), SqliteLockedError, `${file} is held by its owner`);
+    }
   });
   assert.ok(statuses.has('HealthyBusy'), '/ping reported HealthyBusy while a turn ran');
   assert.deepEqual(misses, [], 'every model turn was scripted');
