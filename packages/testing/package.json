@@ -1,0 +1,15 @@
+{
+  "name": "@boring/testing", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
+  "description": "Node-only test helpers: a scripted keyless model on pi-ai's faux builders, a headless-Chromium driver over the DevTools protocol, an idle-timeout proxy and submit faults.",
+  "sideEffects": false,
+  "files": ["dist", "README.md"],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./model": { "types": "./dist/model.d.ts", "import": "./dist/model.js" },
+    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
+    "./network": { "types": "./dist/network.d.ts", "import": "./dist/network.js" }
+  },
+  "peerDependencies": { "@earendil-works/pi-ai": "1.0.1" },
+  "engines": { "node": ">=22.19.0" }
+}

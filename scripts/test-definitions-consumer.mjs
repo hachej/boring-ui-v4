@@ -23,7 +23,7 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  for (const name of ['files', 'agent']) {
+  for (const name of ['files', 'agent', 'testing']) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -115,7 +115,7 @@ if (checked.kind === 'valid') { const total: number = checked.value.total; void 
     'examples/redaction/proposals.mjs', 'examples/redaction/scripted-model.mjs', 'examples/redaction/adoption.mjs',
     'examples/redaction/adoption-bindings.mjs', 'examples/redaction/corrections.mjs', 'test/fixtures/redaction-adoption-crash-child.mjs',
     'examples/validated-output/app.mjs', 'examples/validated-output/scripted-model.mjs', 'test/fixtures/validation-repair-crash-child.mjs',
-    'examples/shared/sqlite-workspaces.mjs']) copyFileSync(join(root, path), join(directory, path));
+    'examples/shared/sqlite-workspaces.mjs', 'test/fixtures/metering-crash-child.mjs']) copyFileSync(join(root, path), join(directory, path));
   writeFileSync(join(directory, 'pure-import.mjs'), `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, next) {
   if (specifier.startsWith('@earendil-works/') || /^@boring\\/(ui|execution)(\\/|$)/.test(specifier)) throw new Error('Unexpected runtime dependency: ' + specifier);

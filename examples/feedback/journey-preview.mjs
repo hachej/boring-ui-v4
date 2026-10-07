@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFeedbackApp } from './server.mjs';
-import { launch } from '../studio/driver.mjs';
+import { launch, pause } from '@boring/testing/browser';
 
 const evidence = process.env.FEEDBACK_EVIDENCE ?? '.cache/evidence/feedback-preview';
 const chromium = process.env.CHROMIUM ?? `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`;
@@ -19,7 +19,6 @@ const directory = mkdtempSync(join(tmpdir(), 'boring-feedback-preview-'));
 const steps = [];
 const summary = { journey: 'feedback-preview', startedAt: new Date().toISOString(), model: 'scripted (keyless), builder and preview subagent', sink: 'file', steps, screenshots: [], records: {} };
 const step = async (name, run) => { const started = Date.now(); await run(); steps.push({ name, ms: Date.now() - started }); console.log(`ok  ${name} (${Date.now() - started} ms)`); };
-const pause = ms => new Promise(done => setTimeout(done, ms));
 
 const q = testid => `document.querySelector('[data-testid=${JSON.stringify(testid)}]')`;
 const CHAT = `document.querySelector('[data-boring=ambient-chat]')`;

@@ -6,9 +6,9 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStudio } from './server.mjs';
-import { launch } from './driver.mjs';
+import { launch, q } from '@boring/testing/browser';
 import { createCorrectnessFixture } from './correctness-fixture.mjs';
-import { startIdleProxy } from '../shared/idle-proxy.mjs';
+import { startIdleProxy } from '@boring/testing/network';
 
 const evidence = process.env.STUDIO_EVIDENCE ?? '.cache/evidence/studio-correctness';
 mkdirSync(evidence, { recursive: true });
@@ -32,7 +32,6 @@ const encode = text => new TextEncoder().encode(text);
 let app, browser, proxy;
 // The proxy step: an ALB-like idle timeout in front of the studio, and a chat heartbeat well under half of it.
 const proxyIdleMs = Number(process.env.STUDIO_PROXY_IDLE_MS ?? 5000), heartbeatMs = Number(process.env.STUDIO_HEARTBEAT_MS ?? 2000);
-const q = selector => `document.querySelector(${JSON.stringify(selector)})`;
 const button = text => `[...document.querySelectorAll('button')].find(element => element.textContent.trim() === ${JSON.stringify(text)})`;
 const source = q('[data-testid=workspace-panel] textarea');
 const status = q('[data-testid=viewer-status]');

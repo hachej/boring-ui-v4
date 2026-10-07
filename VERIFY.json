@@ -27,14 +27,14 @@
       ]
     },
     "BORING-PI-4": {
-      "appliesTo": ["files", "agent", "ui", "execution", "browser"],
+      "appliesTo": ["files", "agent", "ui", "execution", "browser", "testing"],
       "verifiers": [
         { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Private/unexported imports, covered mutation and fork/patch/version mutants. Semantic misuse and preservation of native provider capabilities require runtime proof/review." },
         { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-public-adapters.test.mjs"], "reason": "Use supported public APIs including native FileSystem/Shell/ExecutionEnv instead of duplicates. Prove host policy, truthful denial/unsupported outcomes and recovery. Missing strict admission/publication guarantees block that composition, not unrelated native features. No per-HTTP-attempt claim without a demonstrated seam." }
       ]
     },
     "BORING-PI-5": {
-      "appliesTo": ["files", "agent", "ui", "execution", "browser"],
+      "appliesTo": ["files", "agent", "ui", "execution", "browser", "testing"],
       "verifiers": [
         { "scope": "structural", "kind": "command", "command": ["node", "--test", "test/pi-boundary.test.mjs"], "claim": "Package/type-only direction and forbidden runtime imports. Additional composition-policy fixtures run in npm test. Neither establishes installability, bundle safety or independent runtime behavior." },
         { "scope": "runtime", "kind": "pending", "command": ["node", "--test", "test/contracts/pi-independent-surfaces.test.mjs"], "reason": "Prove the remote-coding, browser-absent background-app and assistant-sidecar recipes plus independent viewer/resource use. Reuse browser-safe resource types directly; no kernel/server FS in browser UI bundles (only an opt-in agent worker bundle may run the kernel) or mandatory heavy feature. Pure provider adapters need no agent startup; file-only tools need no dummy exec; swapping providers preserves required semantics or refuses qualification." }

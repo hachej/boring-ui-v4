@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { q, qa, pause } from './journey-toolkit.mjs';
+import { q, qa, pause } from '@boring/testing/browser';
 import { unavailableReason } from './scenario-availability.mjs';
 
 const CARDS = '[data-testid=artifact-card][data-state=ready]';

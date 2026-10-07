@@ -6,16 +6,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { insecureUrl, launch } from '../studio/driver.mjs';
+import { insecureUrl, launch, pause, q, qa } from '@boring/testing/browser';
 
 process.env.STUDIO_MODEL = 'scripted';
 const { startWorkspaceApp } = await import('./server.mjs');
 const { misses } = await import('../studio/scripted-model.mjs');
 const evidence = process.env.APP_EVIDENCE ?? '.cache/evidence/workspace-app';
 mkdirSync(evidence, { recursive: true });
-const q = selector => `document.querySelector(${JSON.stringify(selector)})`;
-const qa = selector => `[...document.querySelectorAll(${JSON.stringify(selector)})]`;
-const pause = ms => new Promise(done => setTimeout(done, ms));
 const step = async (name, run) => { const started = Date.now(); await run(); console.log(`ok  ${name} (${Date.now() - started} ms)`); };
 const INPUT = q('[data-testid=composer-input]');
 const LOG = `(${q('[data-testid=transcript]')}?.innerText ?? '')`;

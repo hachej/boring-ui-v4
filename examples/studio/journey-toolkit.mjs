@@ -1,15 +1,12 @@
-// The helpers every journey and scenario uses, over a driven browser (./driver.mjs). Shared by the studio journey and the Cloudflare
+// The helpers every journey and scenario uses, over a driven browser (`launch` from @boring/testing/browser). Shared by the studio journey and the Cloudflare
 // recipe's journey: both pages use the same registry components, so the same selectors work. Nothing here depends on a variant.
 import assert from 'node:assert/strict';
+import { pause, q, qa } from '@boring/testing/browser';
 import { conversations } from './journey-ui.mjs';
-
-export const q = selector => `document.querySelector(${JSON.stringify(selector)})`;
-export const qa = selector => `[...document.querySelectorAll(${JSON.stringify(selector)})]`;
-export const pause = ms => new Promise(done => setTimeout(done, ms));
 
 /**
  * @param {object} options
- * @param {object} options.browser the driver from ./driver.mjs
+ * @param {object} options.browser the driver from `launch` (@boring/testing/browser)
  * @param {string} options.pageUrl the URL the page was opened on
  * @param {Function} options.step `(name, run)` records and prints one step
  * @param {() => object} [options.app] the running studio (absent for a remote deployment)

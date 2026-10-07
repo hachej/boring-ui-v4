@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launch } from '../studio/driver.mjs';
+import { launch } from '@boring/testing/browser';
 import { startBot } from './server.mjs';
 import { createScriptedModel } from './scripted-model.mjs';
 

@@ -21,7 +21,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { launch } from '../examples/studio/driver.mjs';
+import { launch, pause } from '@boring/testing/browser';
 import { consumerDependencies, localRegistryItem, packBoringDependencies, writeLockedManifest } from './consumer-install.mjs';
 import { prepareConsumerIsolation } from './consumer-isolation.mjs';
 import { runCaptured } from './run-captured.mjs';
@@ -149,7 +149,6 @@ const CLIPBOARD_RECORDER = `(() => { const log = window.__scenarioClipboard = []
 const ARM = css => `(() => { const hits = window.__scenarioHits = { clicks: 0, submits: 0 };
   for (const e of document.querySelectorAll(${JSON.stringify(css)})) { e.addEventListener('click', () => hits.clicks++); e.closest('form')?.addEventListener('submit', () => hits.submits++); }
   return document.querySelectorAll(${JSON.stringify(css)}).length; })()`;
-const pause = ms => new Promise(done => setTimeout(done, ms));
 const shot = async name => { await pause(250); await browser.screenshot(`${name}.png`); (summary.screenshots ??= []).push(join(evidence, `${name}.png`)); };
 const frontMatter = text => { assert.ok(text.startsWith('---\n'), 'the report starts with front matter'); return JSON.parse(text.slice(4, text.indexOf('\n---\n', 3))); };
 

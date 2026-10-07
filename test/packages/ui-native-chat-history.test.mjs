@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Harness, MemoryStorage, createRegistry } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createNativeChatController } from '@boring/ui/native-chat';
-import { createFakeChatModel } from '../fixtures/fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 
 const identity = { runtimeId: 'fictional-runtime', scopeId: 'fictional-scope', principalId: 'fictional-person' };
 const deferred = () => Promise.withResolvers();

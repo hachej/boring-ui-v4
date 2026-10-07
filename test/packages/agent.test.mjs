@@ -451,7 +451,7 @@ test('self-evolution prompt assembly (SELF-3): the host instructions first and w
 test('metering: reserve, record and settle a run; replays never charge twice; a stop without usage releases; a refusal never calls the model', { timeout: 20000 }, async t => {
   const { createMeter, createMemoryLedger, createSqliteLedger, MeteringRefused } = await import('@boring/agent/metering');
   const { createChatTransportHandler } = await import('@boring/agent/chat-transport');
-  const { createFakeChatModel } = await import('../fixtures/fake-chat-model.mjs');
+  const { createFakeChatModel } = await import('@boring/testing/model');
   const fake = createFakeChatModel({ cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } });
   const connection = openNodeConnection(':memory:');
   const harness = await Harness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);

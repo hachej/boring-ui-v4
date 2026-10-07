@@ -1,5 +1,5 @@
 // Helpers for scenario scripts (not a scenario: files starting with `_` are skipped by the loader). A script is the scripted model's side of a
-// scenario; the format is documented in ../scripted-model.mjs. Shared turn lists are exported once so scenarios that begin with the same
+// scenario; the format is documented in packages/testing/README.md (@boring/testing/model). Shared turn lists are exported once so scenarios that begin with the same
 // prompt (the trail report, the shared document) answer it with the very same turns.
 
 /** One tool call as a turn; `extra` adds text, reasoning or a delay. */

@@ -7,8 +7,8 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { launch } from '../studio/driver.mjs';
-import { createToolkit, q } from '../studio/journey-toolkit.mjs';
+import { launch, pause, q } from '@boring/testing/browser';
+import { createToolkit } from '../studio/journey-toolkit.mjs';
 import { applicable, expectations, runScenario } from '../studio/journey-scenarios.mjs';
 import { unavailableReason } from '../studio/scenario-availability.mjs';
 import { loadScenarios } from '../studio/scenarios/index.mjs';
@@ -21,7 +21,6 @@ mkdirSync(evidence, { recursive: true });
 const debugRoutes = process.env.CF_DEBUG_ROUTES === '1';
 const steps = [];
 const step = async (name, run) => { const started = Date.now(); const detail = await run(); steps.push({ name, ms: Date.now() - started, ...(detail ? { detail } : {}) }); console.log(`ok  ${name} (${Date.now() - started} ms)`); };
-const pause = ms => new Promise(done => setTimeout(done, ms));
 const slug = text => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const authorize = request => { const headers = new Headers(request.headers); headers.set('authorization', `Bearer ${token}`); return fetch(new Request(request, { headers })); };
 const api = (path, init = {}) => fetch(`${base}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) } });

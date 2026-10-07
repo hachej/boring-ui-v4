@@ -32,6 +32,8 @@ W03 now includes optional native single-choice questions and validated document 
 
 W04 adds an authenticated Fetch/Web Streams adapter over an actual native conversation watch. Version 2 bounded snapshots and deltas expose only host-authorized retained text and native identifiers. Tests cover hidden fields, inherited-entry policy, three-stage authorization, strict boolean policy results, idle and in-flight revocation, backpressure, reconnect and independent watcher lifetime. Socket/browser authentication integration and remote commands remain unqualified.
 
+`@boring/testing` moves the studio's scripted model, the fake chat model, the headless-Chromium driver, the idle proxy and the submit fault hook into one Node-only package (README journey run by `npm run test:testing-consumer`); it is test tooling, not a runtime qualification.
+
 The public package tests are `test/packages/files.test.mjs`, `test/packages/agent.test.mjs` `test/packages/ui.test.mjs` and `test/packages/execution.test.mjs`. These are package and scenario evidence; they do not discharge the six global BORING-PI proof slots.
 
 ## Work and acceptance coverage

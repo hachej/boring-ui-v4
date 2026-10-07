@@ -9,7 +9,7 @@ import { createRemoteChat } from '@boring/ui/remote-chat';
 import { createNativeChatController } from '@boring/ui/native-chat';
 import { createModels, createProvider } from '@earendil-works/pi-ai/models';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
-import { createFakeChatModel } from '../fixtures/fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 
 const identity = { runtimeId: 'fictional-runtime', scopeId: 'fictional-scope', principalId: 'fictional-person' };
 const endpoint = 'https://fixture.invalid/chat';

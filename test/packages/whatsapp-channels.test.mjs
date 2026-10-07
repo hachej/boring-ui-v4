@@ -13,7 +13,7 @@ import { createChannelGateway, channelRequestId, pendingQuestions, questionAnswe
 import { createWhatsAppChannel, parseWhatsAppMessages, renderWhatsAppReply, splitWhatsAppText, verifyWhatsAppSignature, whatsAppMarkdown } from '../../examples/whatsapp/channels-whatsapp.ts';
 import { createAskUserTool } from '@boring/agent/ask-user';
 import { defineAgent } from '@boring/agent/agents';
-import { createFakeChatModel } from '../fixtures/fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 
 const until = async (label, check) => { const deadline = Date.now() + 8000; while (!(await check())) { assert.ok(Date.now() < deadline, label); await new Promise(resolve => setTimeout(resolve, 10)); } };
 const webhook = (messages) => new Request('https://fixture.invalid/channels/fake', { method: 'POST', body: JSON.stringify(messages) });

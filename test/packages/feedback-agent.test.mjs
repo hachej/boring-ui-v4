@@ -15,7 +15,7 @@ import { UNTRUSTED_PREFACE, parseFeedback } from '@boring/feedback/format';
 import { CHECKED_IN_THE_PAGE, FEEDBACK_EXTENSION, FEEDBACK_TOOL, createFeedbackCapability } from '@boring/feedback/agent';
 import { appElementResolution } from '@boring/feedback/page';
 import { admitDocumentTool, documentToolResult } from '../fixtures/native-document.mjs';
-import { createFakeChatModel } from '../fixtures/fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 import { ada, agent, draft, future, hostOn, openFeedbackStore, pin, seed } from '../fixtures/feedback-agent.mjs';
 
 // WP7: the opt-in `feedback` capability, run as native ToolTasks against the SQLite reference store. Fictional data only.

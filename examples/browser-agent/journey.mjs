@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { launch } from '../studio/driver.mjs';
+import { launch } from '@boring/testing/browser';
 import { serveBrowserAgent } from './serve.mjs';
 
 const evidence = process.env.BROWSER_AGENT_EVIDENCE ?? '.cache/evidence/browser-agent';

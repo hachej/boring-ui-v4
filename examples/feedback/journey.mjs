@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startFeedbackApp } from './server.mjs';
-import { insecureUrl, launch } from '../studio/driver.mjs';
+import { insecureUrl, launch, pause } from '@boring/testing/browser';
 
 const evidence = process.env.FEEDBACK_EVIDENCE ?? '.cache/evidence/feedback-app';
 const chromium = process.env.CHROMIUM ?? `${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`;
@@ -16,7 +16,6 @@ mkdirSync(evidence, { recursive: true });
 const directory = mkdtempSync(join(tmpdir(), 'boring-feedback-app-'));
 const steps = [];
 const step = async (name, run) => { const started = Date.now(); await run(); steps.push({ name, ms: Date.now() - started }); console.log(`ok  ${name} (${Date.now() - started} ms)`); };
-const pause = ms => new Promise(done => setTimeout(done, ms));
 
 const q = testid => `document.querySelector('[data-testid=${JSON.stringify(testid)}]')`;
 const OVERLAY = `document.querySelector('[data-feedback-overlay]')?.shadowRoot`;

@@ -25,6 +25,7 @@ import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
 import { createResourceHandler } from '@boring/files/remote';
+import { withSubmitFaults } from '@boring/testing/network';
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
 import { createCanvasTools } from '../shared/canvas-tools.mjs';
 import { runCodeTool } from '../shared/codemode-tools.mjs';
@@ -348,15 +349,8 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   const statics = { '/': ['text/html; charset=utf-8', page], '/app.js': ['text/javascript; charset=utf-8', script], '/styles.css': ['text/css; charset=utf-8', styles] };
 
   const watches = { open: 0, peak: 0, total: 0 };
-  const submitFaults = { delayMs: submitDelayMs, refuse: 0 };
-  /** The chat transport behind the submit test hook: a delayed confirmation, or a 402 `submission-refused` that never reaches the conversation. */
-  const chatWithFaults = async request => {
-    if (new URL(request.url).searchParams.get('op') !== 'submit' || (!submitFaults.delayMs && !submitFaults.refuse)) return chat(request);
-    const refused = submitFaults.refuse > 0 && submitFaults.refuse--;
-    const response = refused ? Response.json({ reason: 'submission-refused', message: 'Fictional refusal (studio test hook)' }, { status: 402 }) : await chat(request);
-    if (submitFaults.delayMs) await new Promise(resolve => setTimeout(resolve, submitFaults.delayMs));
-    return response;
-  };
+  /** The chat transport behind the submit test hook (@boring/testing/network): a delayed confirmation, or a 402 `submission-refused` that never reaches the conversation. */
+  const { handler: chatWithFaults, faults: submitFaults } = withSubmitFaults(chat, { delayMs: submitDelayMs, message: 'Fictional refusal (studio test hook)' });
   const server = createServer(async (incoming, outgoing) => {
     const url = new URL(incoming.url, `http://${incoming.headers.host}`);
     const closed = new AbortController();
