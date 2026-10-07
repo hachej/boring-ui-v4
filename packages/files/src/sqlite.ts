@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { SqliteValue } from '@earendil-works/pi-durable/storage/sqlite';
+import { applySqliteSettings, resolveSqliteSettings, type SqliteSettings } from './sqlite-settings.js';
 
 /**
  * The synchronous SQL surface the SQLite workspace backend (`openSqliteFileSystem`) and the workspace journal
@@ -24,12 +25,29 @@ export interface SqliteConnection {
   readonly close?: () => void;
 }
 
-/** A `node:sqlite` file as a connection: WAL, full sync, `BEGIN IMMEDIATE` for writes. Loaded without a static import so other runtimes can bundle this module. */
-export function openNodeConnection(filename: string): SqliteConnection {
+export * from './sqlite-settings.js';
+
+/**
+ * A `node:sqlite` database with `settings` applied (partial settings are filled from `sqliteSettings.localDisk`: WAL, full sync,
+ * 5 s busy timeout). For Pi's own durable storage on the same settings, hand it to Pi's public adapter:
+ * `SqliteStorage.open(new NodeSqliteDatabase(openNodeDatabase(file, sqliteSettings.networkFilesystem)))`. Throws
+ * `SqliteLockedError` when another connection holds the file under `lockingMode: 'exclusive'`. Loaded without a static import so
+ * other runtimes can bundle this module.
+ */
+export function openNodeDatabase(filename: string, settings: SqliteSettings = {}): DatabaseSync {
+  const resolved = resolveSqliteSettings(settings);
   const sqlite = (globalThis as { process?: { getBuiltinModule?: (id: string) => unknown } }).process?.getBuiltinModule?.('node:sqlite') as { DatabaseSync: typeof DatabaseSync } | undefined;
   if (!sqlite) throw new Error('A filename needs Node.js with node:sqlite; pass a connection on other runtimes');
   const db = new sqlite.DatabaseSync(filename);
-  try { db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;'); } catch (error) { db.close(); throw error; }
+  try {
+    applySqliteSettings({ exec: sql => { db.exec(sql); }, get: sql => db.prepare(sql).get() as Record<string, unknown> | undefined }, resolved, filename);
+  } catch (error) { db.close(); throw error; }
+  return db;
+}
+
+/** A `node:sqlite` file as a connection (`openNodeDatabase` with the same settings), `BEGIN IMMEDIATE` for writes. */
+export function openNodeConnection(filename: string, settings: SqliteSettings = {}): SqliteConnection {
+  const db = openNodeDatabase(filename, settings);
   return {
     exec: sql => { db.exec(sql); },
     run: (sql, ...params) => { db.prepare(sql).run(...params); },

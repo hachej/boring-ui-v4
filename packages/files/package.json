@@ -15,6 +15,7 @@
     "./journal": { "types": "./dist/journal.d.ts", "import": "./dist/journal.js" },
     "./workspace": { "types": "./dist/workspace.d.ts", "import": "./dist/workspace.js" },
     "./sqlite": { "types": "./dist/sqlite.d.ts", "import": "./dist/sqlite.js" },
+    "./sqlite-settings": { "types": "./dist/sqlite-settings.d.ts", "import": "./dist/sqlite-settings.js" },
     "./sqlite-filesystem": { "types": "./dist/sqlite-filesystem.d.ts", "import": "./dist/sqlite-filesystem.js" },
     "./sqlite-durable-object": { "types": "./dist/sqlite-durable-object.d.ts", "import": "./dist/sqlite-durable-object.js" },
     "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
