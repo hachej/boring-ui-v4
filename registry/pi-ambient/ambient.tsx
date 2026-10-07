@@ -5,8 +5,10 @@ import type { KeyboardEvent, PointerEvent, ReactNode } from 'react';
 import type { EntryRecord } from '@earendil-works/pi-durable';
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai';
 import type { NativeChatController } from '@boring/ui/native-chat';
-import { ArrowDownIcon, BellIcon, ChevronDownIcon, ExternalLinkIcon, GripVerticalIcon, Loader2Icon, MinusIcon, PanelLeftIcon, RefreshCwIcon, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react';
+import { BellIcon, ChevronDownIcon, ExternalLinkIcon, GripVerticalIcon, Loader2Icon, MinusIcon, PanelLeftIcon, ThumbsDownIcon, ThumbsUpIcon } from 'lucide-react';
 import { Button } from '../button/button';
+import { BlockActions } from '../button/actions';
+import type { BlockAction, BlockIcon } from '../button/actions';
 import { CopyButton } from '../pi-chat/code-block';
 import { Composer } from '../pi-chat/composer';
 import type { ComposerFeedback } from '../pi-chat/composer';
@@ -18,8 +20,10 @@ import type { CommandMentions } from '../pi-chat/markdown';
 import { RowView } from '../pi-chat/message';
 import type { RowContext } from '../pi-chat/message';
 import { ChatNotices, Notice } from '../pi-chat/notice';
-import { AgentNotifications, KindIcon, createNotificationStore, finishNotice, pendingQuestion, useNotifications } from './notifications';
-import type { AgentNotification, NotificationStore } from './notifications';
+import { AgentNotifications, KindIcon, createNotificationStore, defaultNotificationLabels, finishNotice, pendingQuestion, useNotifications } from './notifications';
+import type { AgentNotification, NotificationLabels, NotificationStore } from './notifications';
+import { ChatTextProvider, defaultChatIcons, defaultChatLabels, useMergedText } from '../pi-chat/labels';
+import type { ChatIcons, ChatLabels } from '../pi-chat/labels';
 import { MessageQueue } from '../pi-chat/queue';
 import { artifactKey, collectArtifacts } from '../pi-chat/artifact';
 import type { ArtifactDescriptor, ArtifactsConfig } from '../pi-chat/artifact';
@@ -30,8 +34,56 @@ import { ArtifactWorkspace } from '../pi-workspace/workspace';
 import type { WorkspacePanelApi } from '../pi-workspace/workspace';
 import { cn } from '../utils/utils';
 
-export { AgentNotifications, createNotificationStore, summaryOf, useNotifications, watchConversation } from './notifications';
-export type { AgentNotification, AgentNotificationsProps, NewNotification, NotificationKind, NotificationStore } from './notifications';
+export { AgentNotifications, createNotificationStore, defaultNotificationLabels, summaryOf, useNotifications, watchConversation } from './notifications';
+export type { AgentNotification, AgentNotificationsProps, NewNotification, NotificationKind, NotificationLabels, NotificationStore } from './notifications';
+
+const elapsedText = (seconds: number) => seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+
+/** The floating window's own words, over the chat's (`defaultChatLabels`) and the toasts' (`defaultNotificationLabels`). */
+export const defaultAmbientLabels = {
+  ...defaultChatLabels,
+  ...defaultNotificationLabels,
+  /** Shown while the conversation has no title of its own (the active item of `conversations` provides one). */
+  title: 'Agent',
+  /** The input's placeholder while idle. */
+  placeholder: 'Do anything',
+  /** The input's placeholder while the agent works. */
+  working: (seconds: number) => `Working for ${elapsedText(seconds)}`,
+  region: (title: string) => `Agent: ${title}`,
+  openAgent: (title: string, unread: boolean) => `Open agent: ${title}${unread ? ' (new activity)' : ''}`,
+  openChat: (title: string) => `Open chat: ${title}`,
+  minimize: 'Minimise',
+  switchConversation: 'Switch conversation',
+  statusWorking: 'Working',
+  enableNotifications: 'Notify me when the page is in the background',
+  dock: 'Dock chat',
+  dockHint: 'Dock chat beside the panel',
+  move: 'Move the agent window (arrow keys, Home resets)',
+  moveHint: 'Drag to move',
+  goodResponse: 'Good response',
+  badResponse: 'Bad response',
+  openFull: 'Open in full chat',
+  empty: 'Ask the agent to do something.',
+  loadFailedShort: 'Could not load the conversation.',
+  disconnectedShort: 'Disconnected.',
+  artifactPanel: 'Artifact panel',
+};
+export type AmbientLabels = ChatLabels & NotificationLabels & typeof defaultAmbientLabels;
+
+/** The floating window's icons, over the chat's. */
+export const defaultAmbientIcons = {
+  ...defaultChatIcons,
+  minimize: MinusIcon as BlockIcon,
+  dock: PanelLeftIcon as BlockIcon,
+  grip: GripVerticalIcon as BlockIcon,
+  switchConversation: ChevronDownIcon as BlockIcon,
+  notify: BellIcon as BlockIcon,
+  openFull: ExternalLinkIcon as BlockIcon,
+  goodResponse: ThumbsUpIcon as BlockIcon,
+  badResponse: ThumbsDownIcon as BlockIcon,
+};
+export type AmbientIcons = ChatIcons & typeof defaultAmbientIcons;
+const AMBIENT_TEXT = { labels: defaultAmbientLabels as AmbientLabels, icons: defaultAmbientIcons as AmbientIcons };
 
 /** `bar` is the compact bar, `expanded` the same window grown into a chat, `minimized` a small pill. */
 export type AmbientState = 'bar' | 'expanded' | 'minimized';
@@ -48,13 +100,19 @@ export interface AmbientArtifactPanelApi extends WorkspacePanelApi {
 
 export interface AmbientChatProps extends ChatFeatureProps {
   readonly controller: NativeChatController;
-  /** Shown while the conversation has no title of its own (the active item of `conversations` provides one). */
-  readonly title?: string;
+  /**
+   * Every word the window shows, over `defaultAmbientLabels` (the chat's labels, the toasts' and its own): `title` while the conversation has
+   * none of its own, `placeholder` while idle, `working(seconds)` while the agent works.
+   */
+  readonly labels?: Partial<AmbientLabels> | undefined;
+  /** The window's icons (minimise, dock, grip, …) and the chat's, over `defaultAmbientIcons`. */
+  readonly icons?: Partial<AmbientIcons> | undefined;
+  /** The agent's avatar before the title in the bar. */
+  readonly avatar?: ReactNode;
+  /** Host actions in the bar, before Dock: `header` ones as buttons, `menu` ones in a "…" menu. Test ids `ambient-action-<id>`, the menu `ambient-action-more`. */
+  readonly headerActions?: readonly BlockAction[] | undefined;
   /** `contrast` is a dark window on any page; `surface` follows the host's background. */
   readonly variant?: 'contrast' | 'surface';
-  /** Input placeholder while idle. While the agent works it reads "Working for 40s" (see `workingLabel`). */
-  readonly placeholder?: string;
-  readonly workingLabel?: (seconds: number) => string;
   /** Controlled window state; otherwise `defaultState` starts it and the window keeps it. */
   readonly state?: AmbientState;
   readonly defaultState?: AmbientState;
@@ -136,24 +194,23 @@ function useElapsed(active: boolean): number {
   }, [active]);
   return seconds;
 }
-const elapsedText = (seconds: number) => seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
 
 /** Pushes a toast when a run finishes or fails and when a question starts waiting; takes it back when the question is answered or a new run starts. */
-function useRunFeed({ enabled, store, conversationId, title, session, suppress, onOutcome }: {
-  readonly enabled: boolean; readonly store: NotificationStore; readonly conversationId: string; readonly title: string; readonly session: ChatSession;
+function useRunFeed({ enabled, store, conversationId, title, session, suppress, onOutcome, waiting }: {
+  readonly enabled: boolean; readonly store: NotificationStore; readonly conversationId: string; readonly title: string; readonly session: ChatSession; readonly waiting: string;
   readonly suppress: () => boolean; readonly onOutcome: (outcome: 'done' | 'error' | null) => void;
 }) {
   const { working, waitingForAnswer, rows, connected } = session;
   const before = useRef({ working, waiting: waitingForAnswer });
-  const latest = useRef({ rows, title, suppress, onOutcome, connected });
-  latest.current = { rows, title, suppress, onOutcome, connected };
+  const latest = useRef({ rows, title, suppress, onOutcome, connected, waiting });
+  latest.current = { rows, title, suppress, onOutcome, connected, waiting };
   useEffect(() => {
     const was = before.current;
     before.current = { working, waiting: waitingForAnswer };
     const now = latest.current;
     if (working && !was.working) { now.onOutcome(null); store.dismiss(`${conversationId}:done`); }
     if (!enabled) return;
-    if (waitingForAnswer && !was.waiting && !now.suppress()) store.push({ id: `${conversationId}:input`, kind: 'input', title: now.title, summary: pendingQuestion(now.rows) ?? 'Waiting for your answer', conversationId });
+    if (waitingForAnswer && !was.waiting && !now.suppress()) store.push({ id: `${conversationId}:input`, kind: 'input', title: now.title, summary: pendingQuestion(now.rows) ?? now.waiting, conversationId });
     if (!waitingForAnswer && was.waiting) store.dismiss(`${conversationId}:input`);
     if (was.working && !working && now.connected) {
       const finished = finishNotice(now.rows);
@@ -172,18 +229,20 @@ export function AmbientChat(props: AmbientChatProps) {
   // The window state and the toasts belong to the bar, not to one conversation: they survive switching conversations.
   const [local, setLocal] = useState<AmbientState>(props.defaultState ?? 'bar');
   const internalStore = useMemo(createNotificationStore, []);
-  return <AmbientSession key={mount.sequence} {...props} activeController={active} windowState={props.state ?? local} store={props.notifications || internalStore}
-    onWindowState={next => { if (props.state === undefined) setLocal(next); props.onStateChange?.(next); }} />;
+  const text = useMergedText<AmbientLabels, AmbientIcons>(props.labels, props.icons, AMBIENT_TEXT);
+  return <ChatTextProvider value={text}><AmbientSession key={mount.sequence} {...props} labels={text.labels} icons={text.icons} activeController={active} windowState={props.state ?? local} store={props.notifications || internalStore}
+    onWindowState={next => { if (props.state === undefined) setLocal(next); props.onStateChange?.(next); }} /></ChatTextProvider>;
 }
 
 const iconButton = 'inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 max-sm:size-11 pointer-coarse:size-11 motion-reduce:transition-none';
 
-type SessionProps = AmbientChatProps & { readonly activeController: { readonly current: NativeChatController }; readonly windowState: AmbientState; readonly store: NotificationStore; readonly onWindowState: (state: AmbientState) => void };
+type SessionProps = Omit<AmbientChatProps, 'labels' | 'icons'> & { readonly labels: AmbientLabels; readonly icons: AmbientIcons; readonly activeController: { readonly current: NativeChatController }; readonly windowState: AmbientState; readonly store: NotificationStore; readonly onWindowState: (state: AmbientState) => void };
 
-function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mode = 'expert', actions, placeholder = 'Do anything', workingLabel = seconds => `Working for ${elapsedText(seconds)}`,
+function AmbientSession({ controller, labels, icons, avatar, headerActions, messageActions, variant = 'contrast', mode = 'expert', actions,
   windowState, onWindowState, store, storageKey = 'boring.ambient.position', tools, onOpenFull, onFeedback, notifications, autoDismissMs, maxToasts, systemNotifications = false,
   renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, fileAccept = 'image/*', slash, mentions, attachments, model, effort, artifacts: hostArtifacts, artifactPanel, artifactTarget, conversations, onDock, feedback: composerFeedback, className,
   activeController }: SessionProps) {
+  const { title } = labels;
   const stateRef = useRef(windowState); stateRef.current = windowState;
   // The artifact open inside the window, and whether it follows the newest version. It belongs to the expanded window: leaving that state closes it.
   const [opened, setOpened] = useState<{ readonly descriptor: ArtifactDescriptor; readonly follow: boolean } | null>(null);
@@ -204,17 +263,18 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
 
   // Replies get copy, optional feedback and the time; the host may hand the conversation to its full chat.
   const conversationRef = useRef('');
-  const replyActions = useMemo<NonNullable<RowContext['replyActions']>>(() => reply => <div data-testid="reply-actions" className="mt-2 -ml-2 flex items-center gap-0.5 text-muted-foreground">
-    <CopyButton text={reply.text} label="Copy response" iconOnly {...(onCopy ? { onCopy } : {})} className="size-8 p-0 text-muted-foreground max-sm:size-11" />
+  const replyActions = useMemo<NonNullable<RowContext['replyActions']>>(() => (reply, host) => <div data-testid="reply-actions" className="mt-2 -ml-2 flex items-center gap-0.5 text-muted-foreground">
+    <CopyButton text={reply.text} label={labels.copyResponse} iconOnly {...(onCopy ? { onCopy } : {})} className="size-8 p-0 text-muted-foreground max-sm:size-11" />
     {onFeedback && <>
-      {(['up', 'down'] as const).map(value => <button key={value} type="button" data-testid={`feedback-${value}`} aria-pressed={feedback[reply.key] === value} aria-label={value === 'up' ? 'Good response' : 'Bad response'}
-        title={value === 'up' ? 'Good response' : 'Bad response'}
+      {(['up', 'down'] as const).map(value => <button key={value} type="button" data-testid={`feedback-${value}`} aria-pressed={feedback[reply.key] === value} aria-label={value === 'up' ? labels.goodResponse : labels.badResponse}
+        title={value === 'up' ? labels.goodResponse : labels.badResponse}
         onClick={() => { const next = feedback[reply.key] === value ? null : value; setFeedback(current => { const { [reply.key]: _removed, ...rest } = current; return next ? { ...rest, [reply.key]: next } : rest; }); onFeedback({ key: reply.key, text: reply.text }, next); }}
-        className={cn(iconButton, 'aria-pressed:text-foreground')}>{value === 'up' ? <ThumbsUpIcon className="size-3.5" aria-hidden="true" /> : <ThumbsDownIcon className="size-3.5" aria-hidden="true" />}</button>)}
+        className={cn(iconButton, 'aria-pressed:text-foreground')}>{value === 'up' ? <icons.goodResponse className="size-3.5" aria-hidden="true" /> : <icons.badResponse className="size-3.5" aria-hidden="true" />}</button>)}
     </>}
-    {onOpenFull && <button type="button" data-testid="open-full" aria-label="Open in full chat" title="Open in full chat" onClick={() => onOpenFull(conversationRef.current)} className={iconButton}><ExternalLinkIcon className="size-3.5" aria-hidden="true" /></button>}
+    {onOpenFull && <button type="button" data-testid="open-full" aria-label={labels.openFull} title={labels.openFull} onClick={() => onOpenFull(conversationRef.current)} className={iconButton}><icons.openFull className="size-3.5" aria-hidden="true" /></button>}
+    {host}
     {reply.timestamp !== undefined && <time dateTime={new Date(reply.timestamp).toISOString()} data-testid="reply-time" className="ml-1.5 text-xs tabular-nums">{new Date(reply.timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</time>}
-  </div>, [onCopy, onFeedback, onOpenFull, feedback]);
+  </div>, [onCopy, onFeedback, onOpenFull, feedback, labels, icons]);
   const scrollToBottom = useRef<() => void>(() => {});
   const rowExtras = useMemo(() => ({ replyActions }), [replyActions]);
   const inWindow = Boolean(artifactPanel) && artifactTarget !== 'host';
@@ -227,7 +287,7 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inWindow, hostArtifacts, opened, detect]);
   const session = useChatSession({ controller, activeController, mode, actions, renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, fileAccept,
-    slash, mentions, attachments, model, effort, artifacts, afterSend: () => scrollToBottom.current(), rowExtras, feedback: composerFeedback });
+    slash, mentions, attachments, model, effort, artifacts, messageActions, afterSend: () => scrollToBottom.current(), rowExtras, feedback: composerFeedback });
   const { state, derived, rows, queued, queueActions, working, waitingForAnswer, error, act, textarea, rowContext, composer, empty, loading } = session;
   const transcript = useTranscript(rows);
   const versions = useMemo(() => inWindow ? collectArtifacts(state.view, detect).sort((a, b) => (b.ordinal ?? 0) - (a.ordinal ?? 0)) : [], [inWindow, state.view, detect]);
@@ -243,7 +303,7 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
   const activeItem = conversations?.items.find(item => item.id === conversations.activeId);
   const shownTitle = activeItem?.title?.trim() || title;
   const toasts = useNotifications(store);
-  useRunFeed({ enabled: notifications !== false, store, conversationId, title: shownTitle, session, onOutcome: setOutcome,
+  useRunFeed({ enabled: notifications !== false, store, conversationId, title: shownTitle, session, onOutcome: setOutcome, waiting: labels.waitingForAnswer,
     suppress: () => stateRef.current === 'expanded' && globalThis.document?.visibilityState !== 'hidden' });
   const unread = !expanded && toasts.length > 0;
   const seconds = useElapsed(working);
@@ -305,8 +365,8 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
     const next = delta ? clamp({ right: placed.right + delta.right, bottom: placed.bottom + delta.bottom }, size, viewport) : clamp(DEFAULT_POSITION, size, viewport);
     setPosition(next); writePosition(storageKey, next);
   };
-  const grip = (className?: string) => <button type="button" data-testid="ambient-grip" aria-label="Move the agent window (arrow keys, Home resets)" title="Drag to move" onPointerDown={onGripDown} onKeyDown={onGripKey}
-    className={cn(iconButton, 'cursor-grab touch-none active:cursor-grabbing', className)}><GripVerticalIcon className="size-4" aria-hidden="true" /></button>;
+  const grip = (className?: string) => <button type="button" data-testid="ambient-grip" aria-label={labels.move} title={labels.moveHint} onPointerDown={onGripDown} onKeyDown={onGripKey}
+    className={cn(iconButton, 'cursor-grab touch-none active:cursor-grabbing', className)}><icons.grip className="size-4" aria-hidden="true" /></button>;
 
   const expand = () => { setOutcome(null); store.dismissConversation(conversationId); setWindowState('expanded'); };
   useEffect(() => {
@@ -332,7 +392,7 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
 
   const connectionKind = state.connection.kind;
   const status = waitingForAnswer ? 'input' : working ? 'working' : outcome;
-  const label = waitingForAnswer ? 'Waiting for your answer' : workingLabel(seconds);
+  const label = waitingForAnswer ? labels.waitingForAnswer : labels.working(seconds);
   const panelOpen = expanded && shownArtifact !== undefined && artifactPanel !== undefined;
   const surface = cn('relative flex flex-col border border-border bg-background text-foreground shadow-2xl', phone && expanded ? 'h-dvh rounded-none border-0 pt-[env(safe-area-inset-top)]' : 'rounded-3xl',
     !phone && expanded && (panelOpen ? 'h-full overflow-hidden' : 'max-h-[70dvh]'));
@@ -342,14 +402,14 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
   const rootStyle = phone ? undefined : { right: placed.right, bottom: placed.bottom };
 
   if (minimized) return <div ref={root} data-boring="ambient-chat" data-state="minimized" data-variant={variant} className={cn(rootClass, phone && 'flex justify-end')} style={rootStyle} onKeyDown={onKeyDown}>
-    {notifications !== false && <AgentNotifications store={store} variant={variant} placement="inline" systemNotifications={systemNotifications} onActivate={onActivate}
+    {notifications !== false && <AgentNotifications store={store} variant={variant} placement="inline" systemNotifications={systemNotifications} onActivate={onActivate} labels={labels}
       {...(autoDismissMs !== undefined ? { autoDismissMs } : {})} {...(maxToasts !== undefined ? { max: maxToasts } : {})} className="absolute right-0 bottom-full mb-3 w-[min(26rem,calc(100vw-1rem))]" />}
     {/* Feedback mode keeps its bar (Stop, Done, ✕) when the window is minimised; otherwise a recording could not be stopped. */}
     {composerFeedback?.active && composerFeedback.bar && <div data-testid="ambient-feedback-bar" className="absolute right-0 bottom-full mb-2 w-[min(26rem,calc(100vw-1rem))] rounded-2xl border border-border bg-background pt-2.5 shadow-xl">{composerFeedback.bar}</div>}
     <div data-testid="ambient-pill-box" onPointerDown={event => beginDrag(event, 4)} onKeyDown={onGripKey} onClickCapture={event => { if (dragged.current) { dragged.current = false; event.stopPropagation(); event.preventDefault(); } }}
       className={cn('relative flex h-11 max-w-[min(20rem,calc(100vw-1rem))] items-center rounded-full border border-border bg-background text-foreground shadow-xl transition-colors hover:bg-popover motion-reduce:transition-none', !phone && 'cursor-grab touch-none select-none active:cursor-grabbing')}>
       {!phone && grip('ml-1.5 size-8 rounded-full')}
-      <button ref={pill} type="button" data-testid="ambient-pill" onClick={() => setWindowState('bar')} aria-label={`Open agent: ${shownTitle}${unread ? ' (new activity)' : ''}`}
+      <button ref={pill} type="button" data-testid="ambient-pill" onClick={() => setWindowState('bar')} aria-label={labels.openAgent(shownTitle, unread)}
         className={cn('relative flex h-full min-w-0 cursor-pointer items-center gap-2.5 rounded-full pr-4 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/70', phone ? 'pl-3.5' : 'pl-1.5')}>
         {status === 'working' ? <Loader2Icon className="size-4 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-hidden="true" />
           : status ? <KindIcon kind={status === 'input' ? 'input' : status} className="size-4" /> : null}
@@ -360,50 +420,52 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
   </div>;
 
   const visibleRows = transcript.visible(rows);
-  return <div ref={root} data-boring="ambient-chat" data-state={windowState} data-variant={variant} data-phone={phone ? 'true' : undefined} role="region" aria-label={`Agent: ${shownTitle}`}
+  return <div ref={root} data-boring="ambient-chat" data-state={windowState} data-variant={variant} data-phone={phone ? 'true' : undefined} role="region" aria-label={labels.region(shownTitle)}
     className={rootClass} style={rootStyle} onKeyDown={onKeyDown}>
-    {notifications !== false && !(phone && expanded) && <AgentNotifications store={store} variant={variant} placement="inline" systemNotifications={systemNotifications} onActivate={onActivate}
+    {notifications !== false && !(phone && expanded) && <AgentNotifications store={store} variant={variant} placement="inline" systemNotifications={systemNotifications} onActivate={onActivate} labels={labels}
       {...(autoDismissMs !== undefined ? { autoDismissMs } : {})} {...(maxToasts !== undefined ? { max: maxToasts } : {})} className="absolute right-0 bottom-full mb-3 w-full" />}
     {picking && conversations && <ConversationHistory conversations={conversations} placement={expanded ? 'below' : 'above'} onClose={() => setPicking(false)} />}
     <div data-testid="ambient-surface" className={surface}>
-    <ArtifactWorkspace open={panelOpen} onClose={() => { setOpened(null); setFullscreen(false); }} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey="boring.ambient.panel-width" panelLabel="Artifact panel"
+    <ArtifactWorkspace open={panelOpen} onClose={() => { setOpened(null); setFullscreen(false); }} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey="boring.ambient.panel-width" panelLabel={labels.artifactPanel}
       defaultWidth={600} minPanel={320} minChat={300} sheetBelow={720}
       panel={api => shownArtifact && artifactPanel ? artifactPanel(shownArtifact, { ...api, versions: known, follow: opened?.follow ?? true,
         select: version => setOpened(current => current ? (version === 'latest' ? { descriptor: known[0] ?? current.descriptor, follow: true } : { descriptor: version, follow: false }) : current) }) : null}
       chat={<section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header data-testid="ambient-header" className={cn('flex h-12 shrink-0 items-center gap-0.5 px-2 max-sm:h-14', !expanded && 'border-b border-border')}>
-        <button type="button" data-testid="ambient-minimize" aria-label="Minimise" title="Minimise" onClick={() => { setPicking(false); setWindowState(expanded ? 'bar' : 'minimized'); }} className={iconButton}><MinusIcon className="size-4" aria-hidden="true" /></button>
-        <span data-testid="ambient-status" data-status={status ?? 'idle'} role="img" aria-label={status === 'working' ? 'Working' : status === 'input' ? 'Needs your input' : status === 'done' ? 'Finished' : status === 'error' ? 'Failed' : undefined}
+        <button type="button" data-testid="ambient-minimize" aria-label={labels.minimize} title={labels.minimize} onClick={() => { setPicking(false); setWindowState(expanded ? 'bar' : 'minimized'); }} className={iconButton}><icons.minimize className="size-4" aria-hidden="true" /></button>
+        <span data-testid="ambient-status" data-status={status ?? 'idle'} role="img" aria-label={status === 'working' ? labels.statusWorking : status === 'input' ? labels.needsInput : status === 'done' ? labels.finished : status === 'error' ? labels.failedRun : undefined}
           aria-hidden={status ? undefined : 'true'} className={cn('flex shrink-0 items-center justify-center', status ? 'mx-1.5 w-5' : 'w-1.5')}>
           {status === 'working' ? <Loader2Icon className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" aria-hidden="true" /> : status ? <KindIcon kind={status === 'input' ? 'input' : status} className="size-[1.125rem]" /> : null}
         </span>
-        <button ref={titleButton} type="button" data-testid="ambient-title" onClick={expand} disabled={expanded} aria-label={expanded ? shownTitle : `Open chat: ${shownTitle}`}
+        {avatar && <span data-testid="ambient-avatar" className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full [&>img]:size-full [&>img]:object-cover [&>svg]:size-4">{avatar}</span>}
+        <button ref={titleButton} type="button" data-testid="ambient-title" onClick={expand} disabled={expanded} aria-label={expanded ? shownTitle : labels.openChat(shownTitle)}
           className="min-w-0 max-w-full cursor-pointer truncate rounded-md px-1 py-1 text-left text-[0.9375rem] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default max-sm:py-2.5">{shownTitle}</button>
-        {conversations && <button type="button" data-testid="ambient-switch" aria-label="Switch conversation" aria-haspopup="dialog" aria-expanded={picking} title="Switch conversation" onClick={() => setPicking(open => !open)}
-          className={cn(iconButton, 'size-7 max-sm:size-11')}><ChevronDownIcon className="size-3.5" aria-hidden="true" /></button>}
+        {conversations && <button type="button" data-testid="ambient-switch" aria-label={labels.switchConversation} aria-haspopup="dialog" aria-expanded={picking} title={labels.switchConversation} onClick={() => setPicking(open => !open)}
+          className={cn(iconButton, 'size-7 max-sm:size-11')}><icons.switchConversation className="size-3.5" aria-hidden="true" /></button>}
         {expanded ? <span className="flex-1" /> : <button type="button" tabIndex={-1} aria-hidden="true" data-testid="ambient-header-fill" onClick={expand} className="h-full min-w-2 flex-1 cursor-pointer" />}
-        {systemNotifications && permission === 'default' && <button type="button" data-testid="ambient-enable-notifications" aria-label="Notify me when the page is in the background" title="Notify me when the page is in the background"
-          onClick={() => { void requestNotifyPermission().then(setPermission); }} className={iconButton}><BellIcon className="size-4" aria-hidden="true" /></button>}
-        {onDock && !phone && <button type="button" data-testid="ambient-dock" aria-label="Dock chat" title="Dock chat beside the panel" onClick={() => { setPicking(false); onDock(); }} className={iconButton}><PanelLeftIcon className="size-4" aria-hidden="true" /></button>}
+        {systemNotifications && permission === 'default' && <button type="button" data-testid="ambient-enable-notifications" aria-label={labels.enableNotifications} title={labels.enableNotifications}
+          onClick={() => { void requestNotifyPermission().then(setPermission); }} className={iconButton}><icons.notify className="size-4" aria-hidden="true" /></button>}
+        <BlockActions actions={headerActions} testId="ambient-action" menuLabel={labels.moreActions} className="[&_button]:max-sm:size-11 [&_button]:pointer-coarse:size-11" />
+        {onDock && !phone && <button type="button" data-testid="ambient-dock" aria-label={labels.dock} title={labels.dockHint} onClick={() => { setPicking(false); onDock(); }} className={iconButton}><icons.dock className="size-4" aria-hidden="true" /></button>}
         {!phone && grip()}
       </header>
 
       {expanded && <div className="flex min-h-0 flex-1 flex-col">
         {(connectionKind === 'error' || connectionKind === 'closed') && <div className="px-4 pb-2"><Notice tone={connectionKind === 'error' ? 'error' : 'info'} testid="connection-notice">
-          <span className="flex-1">{connectionKind === 'error' ? 'Conversation could not be loaded.' : 'Disconnected. Last observed messages remain visible.'}</span>
-          {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}><RefreshCwIcon className="size-3.5" aria-hidden="true" />Reconnect</Button>}</Notice></div>}
-        {derived.pinned.length > 0 && <aside aria-label="Required conversation actions" className="shrink-0 space-y-2 px-4 pb-2">{derived.pinned.map(card => <div key={card.key}>{card.content}</div>)}</aside>}
+          <span className="flex-1">{connectionKind === 'error' ? labels.loadFailed : labels.disconnected}</span>
+          {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}><icons.reconnect className="size-3.5" aria-hidden="true" />{labels.reconnect}</Button>}</Notice></div>}
+        {derived.pinned.length > 0 && <aside aria-label={labels.requiredActions} className="shrink-0 space-y-2 px-4 pb-2">{derived.pinned.map(card => <div key={card.key}>{card.content}</div>)}</aside>}
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div ref={stick.scrollRef} data-testid="transcript-scroll" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-            <div ref={stick.contentRef} role="log" aria-label="Messages" aria-live="polite" data-testid="transcript" className="flex min-h-28 flex-col gap-5 px-4 pt-1 pb-5">
-              {hidden > 0 && <div className="flex justify-center"><Button size="sm" variant="outline" data-testid="show-earlier" className="rounded-full text-muted-foreground" onClick={transcript.reveal}>Show earlier messages</Button></div>}
+            <div ref={stick.contentRef} role="log" aria-label={labels.messages} aria-live="polite" data-testid="transcript" className="flex min-h-28 flex-col gap-5 px-4 pt-1 pb-5">
+              {hidden > 0 && <div className="flex justify-center"><Button size="sm" variant="outline" data-testid="show-earlier" className="rounded-full text-muted-foreground" onClick={transcript.reveal}>{labels.showEarlier}</Button></div>}
               {visibleRows.map(row => <RowView key={row.key} row={row} context={rowContext} />)}
-              {loading && <p role="status" data-testid="loading" className="m-0 flex items-center gap-2 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading conversation…</p>}
-              {empty && !loading && <p data-testid="ambient-empty" className="m-0 py-6 text-center text-sm text-muted-foreground">Ask the agent to do something.</p>}
+              {loading && <p role="status" data-testid="loading" className="m-0 flex items-center gap-2 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />{labels.loading}</p>}
+              {empty && !loading && <p data-testid="ambient-empty" className="m-0 py-6 text-center text-sm text-muted-foreground">{labels.empty}</p>}
             </div>
           </div>
-          {!stick.isAtBottom && <Button variant="outline" size="icon" data-testid="jump-latest" aria-label="Jump to latest" title="Jump to latest" onClick={() => { transcript.reset(); void stick.scrollToBottom(); }}
-            className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-background/95 shadow-md backdrop-blur"><ArrowDownIcon className="size-4" aria-hidden="true" /></Button>}
+          {!stick.isAtBottom && <Button variant="outline" size="icon" data-testid="jump-latest" aria-label={labels.jumpToLatest} title={labels.jumpToLatest} onClick={() => { transcript.reset(); void stick.scrollToBottom(); }}
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-background/95 shadow-md backdrop-blur"><icons.jumpToLatest className="size-4" aria-hidden="true" /></Button>}
         </div>
       </div>}
 
@@ -411,11 +473,11 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
         <div className="space-y-2 px-3 empty:hidden [&:has(*)]:pt-2">
           <ChatNotices state={state} error={error} onReconcile={() => act(controller.reconcile)} onRetry={() => act(controller.retrySameRequest)} />
           {!expanded && (connectionKind === 'error' || connectionKind === 'closed') && <Notice tone="info" testid="connection-notice">
-            <span className="flex-1">{connectionKind === 'error' ? 'Could not load the conversation.' : 'Disconnected.'}</span>
-            {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}>Reconnect</Button>}</Notice>}
+            <span className="flex-1">{connectionKind === 'error' ? labels.loadFailedShort : labels.disconnectedShort}</span>
+            {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}>{labels.reconnect}</Button>}</Notice>}
         </div>
         <MessageQueue items={queued} sending={state.outbox} withdraw={actions?.withdraw} actions={queueActions} />
-        <Composer {...composer} layout="inline" placeholder={working || waitingForAnswer ? label : placeholder} barStart={barStart} barNote={barNote} barEnd={tools} />
+        <Composer {...composer} layout="inline" placeholder={working || waitingForAnswer ? label : labels.placeholder} barStart={barStart} barNote={barNote} barEnd={tools} />
       </div>
       </section>} />
     </div>

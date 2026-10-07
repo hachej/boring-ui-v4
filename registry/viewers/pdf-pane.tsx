@@ -9,6 +9,7 @@ import { formatBytes, useMediaUrl } from './media';
 import type { MediaSource } from './media';
 import { ViewerFrame } from './viewer-frame';
 import type { ViewerShare, ViewerStatus } from './viewer-frame';
+import { useViewerText } from './viewer-window';
 
 export interface PdfPaneProps extends MediaSource {
   readonly name: string;
@@ -44,21 +45,22 @@ export function PdfPane({ name, bytes, blob, url: hostUrl, subtitle, status, tar
   const source = useMemo<MediaSource>(() => ({ ...(bytes ? { bytes } : {}), ...(blob ? { blob } : {}), ...(hostUrl ? { url: hostUrl } : {}) }), [bytes, blob, hostUrl]);
   const { url, size, blob: made } = useMediaUrl(source, 'application/pdf');
   const canShow = inline ?? browserShowsPdf();
+  const { labels } = useViewerText();
   const downloadName = name.split('/').pop() || 'document.pdf';
   const download = () => { if (made) downloadFile(downloadName, made, 'application/pdf'); else if (url) { const link = Object.assign(document.createElement('a'), { href: url, download: downloadName }); document.body.append(link); link.click(); link.remove(); } };
   const open = onOpenInNewTab ?? (url ? () => { window.open(url, '_blank', 'noopener,noreferrer'); } : undefined);
   return <ViewerFrame title={downloadName} subtitle={<>{subtitle}{subtitle && size !== undefined && <span aria-hidden="true">·</span>}{['PDF', size !== undefined && formatBytes(size)].filter(Boolean).join(' · ')}</>} status={status} target={target} revision={revision} testId={testId} {...(titleTestId ? { titleTestId } : {})} className={className}
     onRefresh={onRefresh} onShare={onShare} onDownload={url ? download : undefined} onOpenInNewTab={open} onClose={onClose} controls={controls}>
     <div data-testid={`${testId}-stage`} data-pdf={url ? (canShow ? 'inline' : 'fallback') : 'loading'} className="boring-viewer-stage relative flex min-h-0 flex-1">
-      {!url ? <p role="status" className="m-auto p-6 text-sm text-muted-foreground">Loading…</p>
+      {!url ? <p role="status" className="m-auto p-6 text-sm text-muted-foreground">{labels.loading}</p>
         : canShow ? <iframe src={url} title={`${downloadName} (PDF)`} data-testid={`${testId}-frame-pdf`} className="size-full min-h-0 flex-1 border-0 bg-background" />
           : <div role="alert" data-testid={`${testId}-pdf-fallback`} className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center">
             <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground"><FileTextIcon className="size-6" aria-hidden="true" /></span>
-            <p className="m-0 text-sm font-medium">This browser cannot show PDFs inline.</p>
-            <p className="m-0 text-xs text-muted-foreground">Download {downloadName} to read it in a PDF app{open ? ', or open it in a new tab' : ''}.</p>
+            <p className="m-0 text-sm font-medium">{labels.pdfUnsupported}</p>
+            <p className="m-0 text-xs text-muted-foreground">{labels.pdfHint(downloadName, Boolean(open))}</p>
             <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="default" size="bar" data-testid={`${testId}-pdf-download`} onClick={download}><DownloadIcon className="size-3.5" aria-hidden="true" />Download</Button>
-              {open && <Button variant="outline" size="bar" onClick={() => open()}>Open in new tab</Button>}
+              <Button variant="default" size="bar" data-testid={`${testId}-pdf-download`} onClick={download}><DownloadIcon className="size-3.5" aria-hidden="true" />{labels.download}</Button>
+              {open && <Button variant="outline" size="bar" onClick={() => open()}>{labels.openInNewTab}</Button>}
             </div>
           </div>}
     </div>

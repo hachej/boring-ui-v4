@@ -10,6 +10,7 @@ import type { MediaSource } from './media';
 import { cn } from '../utils/utils';
 import { useViewerBar, ViewerFrame, ViewerIconButton } from './viewer-frame';
 import type { ViewerShare, ViewerStatus } from './viewer-frame';
+import { useViewerText } from './viewer-window';
 
 export const IMAGE_TYPES: Readonly<Record<string, string>> = { 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP', 'image/svg+xml': 'SVG' };
 const STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
@@ -36,10 +37,11 @@ export interface ImagePaneProps extends MediaSource {
 /** Zoom steps and the level; on a narrow bar only the steps stay (the stage also zooms with + - 0). Fit and Actual size are in the "…" menu. */
 function ZoomControls({ testId, percent, ready, onStep, onFit }: { readonly testId: string; readonly percent: string; readonly ready: boolean; readonly onStep: (direction: 1 | -1) => void; readonly onFit: () => void }) {
   const { tight } = useViewerBar();
-  return <div role="group" aria-label="Zoom" className="flex items-center gap-0.5">
-    <ViewerIconButton label="Zoom out" data-testid={`${testId}-zoom-out`} disabled={!ready} onClick={() => onStep(-1)}><ZoomOutIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
-    {!tight && <Button variant="quiet" size="bar" data-testid={`${testId}-zoom-level`} aria-label={`Zoom ${percent}, fit to view`} title="Fit to view" disabled={!ready} className="min-w-10 px-1 tabular-nums" onClick={onFit}>{percent}</Button>}
-    <ViewerIconButton label="Zoom in" data-testid={`${testId}-zoom-in`} disabled={!ready} onClick={() => onStep(1)}><ZoomInIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
+  const { labels } = useViewerText();
+  return <div role="group" aria-label={labels.zoom} className="flex items-center gap-0.5">
+    <ViewerIconButton label={labels.zoomOut} data-testid={`${testId}-zoom-out`} disabled={!ready} onClick={() => onStep(-1)}><ZoomOutIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
+    {!tight && <Button variant="quiet" size="bar" data-testid={`${testId}-zoom-level`} aria-label={labels.zoomLevel(percent)} title={labels.fitToView} disabled={!ready} className="min-w-10 px-1 tabular-nums" onClick={onFit}>{percent}</Button>}
+    <ViewerIconButton label={labels.zoomIn} data-testid={`${testId}-zoom-in`} disabled={!ready} onClick={() => onStep(1)}><ZoomInIcon className="size-4" aria-hidden="true" /></ViewerIconButton>
   </div>;
 }
 
@@ -53,6 +55,7 @@ export function ImagePane({ name, mediaType, bytes, blob, url: hostUrl, subtitle
   const source = useMemo<MediaSource>(() => ({ ...(bytes ? { bytes } : {}), ...(blob ? { blob } : {}), ...(hostUrl ? { url: hostUrl } : {}) }), [bytes, blob, hostUrl]);
   const { url, size, blob: made } = useMediaUrl(source, mediaType);
   const supported = mediaType in IMAGE_TYPES;
+  const { labels } = useViewerText();
   const [zoom, setZoom] = useState<Zoom>({ kind: 'fit' });
   const [natural, setNatural] = useState<{ width: number; height: number } | undefined>(undefined);
   const [failed, setFailed] = useState(false);
@@ -100,24 +103,24 @@ export function ImagePane({ name, mediaType, bytes, blob, url: hostUrl, subtitle
   return <ViewerFrame title={name.split('/').pop() || name} subtitle={<>{subtitle}{subtitle && facts.length > 0 && <span aria-hidden="true">·</span>}{facts.join(' · ')}</>} status={status} target={target} revision={revision} testId={testId} {...(titleTestId ? { titleTestId } : {})} className={className}
     onRefresh={onRefresh} onShare={onShare} onDownload={url ? download : undefined} onOpenInNewTab={onOpenInNewTab ?? (url ? () => { window.open(url, '_blank', 'noopener,noreferrer'); } : undefined)} onClose={onClose}
     menu={[
-      { id: 'zoom-fit', label: 'Fit to view', icon: <ScanIcon className="size-4" />, disabled: !natural, onSelect: () => setZoom({ kind: 'fit' }) },
-      { id: 'zoom-actual', label: 'Actual size', icon: <MaximizeIcon className="size-4" />, disabled: !natural, onSelect: () => setZoom({ kind: 'scale', value: 1 }) }]}
+      { id: 'zoom-fit', label: labels.fitToView, icon: <ScanIcon className="size-4" />, disabled: !natural, onSelect: () => setZoom({ kind: 'fit' }) },
+      { id: 'zoom-actual', label: labels.actualSize, icon: <MaximizeIcon className="size-4" />, disabled: !natural, onSelect: () => setZoom({ kind: 'scale', value: 1 }) }]}
     controls={<>
       <ZoomControls testId={testId} percent={percent} ready={Boolean(natural)} onStep={step} onFit={() => setZoom({ kind: 'fit' })} />
       {controls}
     </>}>
     <div ref={stage} data-testid={`${testId}-stage`} data-zoom={zoom.kind === 'fit' ? 'fit' : String(zoom.value)} data-panning={panning || undefined}
       onPointerDown={begin} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-      className={cn('boring-viewer-stage relative min-h-0 flex-1 overflow-auto', panning && 'cursor-grab active:cursor-grabbing')} tabIndex={0} aria-label={`${name} image`}
+      className={cn('boring-viewer-stage relative min-h-0 flex-1 overflow-auto', panning && 'cursor-grab active:cursor-grabbing')} tabIndex={0} aria-label={labels.imageStage(name)}
       onKeyDown={event => { if (event.key === '+' || event.key === '=') step(1); else if (event.key === '-') step(-1); else if (event.key === '0') setZoom({ kind: 'fit' }); }}>
-      {!supported ? <p role="alert" className="m-auto p-6 text-center text-sm text-muted-foreground">This image type ({mediaType || 'unknown'}) cannot be shown here. You can still download it.</p>
-        : failed ? <p role="alert" className="m-auto p-6 text-center text-sm text-muted-foreground">This file could not be read as an image.</p>
+      {!supported ? <p role="alert" className="m-auto p-6 text-center text-sm text-muted-foreground">{labels.imageUnsupported(mediaType)}</p>
+        : failed ? <p role="alert" className="m-auto p-6 text-center text-sm text-muted-foreground">{labels.imageUnreadable}</p>
         : url ? <div className="flex min-h-full min-w-full items-center justify-center p-4">
           <img ref={image} src={url} alt={name} data-testid={`${testId}-image`} draggable={false} decoding="async" referrerPolicy="no-referrer"
             onLoad={event => { setNatural({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); measure(); }} onError={() => setFailed(true)}
             style={natural ? { width: natural.width * current, height: natural.height * current, maxWidth: 'none' } : undefined}
             className="boring-viewer-checker block shrink-0 select-none rounded-sm shadow-sm outline outline-1 outline-border" />
-        </div> : <p role="status" className="m-auto p-6 text-sm text-muted-foreground">Loading…</p>}
+        </div> : <p role="status" className="m-auto p-6 text-sm text-muted-foreground">{labels.loading}</p>}
     </div>
   </ViewerFrame>;
 }

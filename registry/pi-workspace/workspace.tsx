@@ -11,7 +11,7 @@ export interface WorkspacePanelApi {
   readonly onFullscreenChange: ((next: boolean) => void) | undefined;
   readonly close: () => void;
   readonly sheet: boolean;
-  /** Float the chat over the panel (see `floatBelow`). Absent without `floatBelow`, while the chat already floats and in the phone sheet. Pass it on to `ViewerWindowProvider` as `onFloatChat` for the "…" menu item. */
+  /** Float the chat over the panel (see `floatBelow`). Absent without `floatBelow`, while the chat already floats and in the phone sheet. pi-app's `AgentWorkspace` turns it into the viewers' "Float chat" action (`ViewerWindow.actions`). */
   readonly floatChat: (() => void) | undefined;
 }
 
@@ -49,7 +49,10 @@ export interface ArtifactWorkspaceProps {
    * Off by default.
    */
   readonly floatBelow?: number;
+  /** The panel's accessible name. */
   readonly panelLabel?: string;
+  /** The divider's accessible name and the hint shown while a drag would float the chat. */
+  readonly labels?: { readonly resize?: string | undefined; readonly floatHint?: string | undefined } | undefined;
   readonly className?: string;
 }
 
@@ -65,7 +68,7 @@ const writeFlag = (key: string, on: boolean) => { try { if (on) sessionStorage.s
  * (Escape leaves) and on a phone it is a full-screen sheet. With `floatBelow` the chat can float over a full-width panel instead of sitting beside it. The workspace owns layout only: what is open, and the viewer in it, are the host's.
  */
 export function ArtifactWorkspace({ chat, open, panel, onClose, fullscreen: controlledFullscreen, onFullscreenChange, storageKey = 'boring.artifact-panel.width', defaultWidth = 640,
-  minPanel = 360, minChat = 340, sheetBelow = 768, floatBelow, panelLabel = 'Artifact panel', className }: ArtifactWorkspaceProps) {
+  minPanel = 360, minChat = 340, sheetBelow = 768, floatBelow, panelLabel = 'Artifact panel', labels, className }: ArtifactWorkspaceProps) {
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(0);
   const [stored, setStored] = useState<number>(() => read(storageKey) ?? defaultWidth);
@@ -135,11 +138,11 @@ export function ArtifactWorkspace({ chat, open, panel, onClose, fullscreen: cont
       className={cn('relative flex min-h-0 min-w-0 flex-col', floating ? 'w-0 flex-none' : 'flex-1', covering && 'invisible')}>
       {typeof chat === 'function' ? chat({ floating, dock: () => setFloating(false) }) : chat}
       {floatHint && <div role="status" data-testid="workspace-float-hint" className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/75 p-4 backdrop-blur-[2px]">
-        <span className="rounded-full border border-border bg-popover px-4 py-2 text-sm font-medium text-popover-foreground shadow-lg">Release to float the chat</span>
+        <span className="rounded-full border border-border bg-popover px-4 py-2 text-sm font-medium text-popover-foreground shadow-lg">{labels?.floatHint ?? 'Release to float the chat'}</span>
       </div>}
     </div>
     {open && <>
-      {!sheet && !fullscreen && !floating && <div role="separator" tabIndex={0} aria-orientation="vertical" aria-label="Resize artifact panel" aria-valuemin={minPanel} aria-valuemax={max} aria-valuenow={Math.round(width)}
+      {!sheet && !fullscreen && !floating && <div role="separator" tabIndex={0} aria-orientation="vertical" aria-label={labels?.resize ?? 'Resize artifact panel'} aria-valuemin={minPanel} aria-valuemax={max} aria-valuenow={Math.round(width)}
         data-testid="workspace-divider" data-dragging={dragging ? 'true' : undefined}
         onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); }} onPointerMove={drag}
         onPointerUp={release} onPointerCancel={() => { setDragging(false); setFloatHint(false); }}

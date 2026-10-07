@@ -2,12 +2,13 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, ReactNode, Ref } from 'react';
-import { AlertCircleIcon, ArrowUpIcon, FileTextIcon, ListEndIcon, Loader2Icon, MessageSquareIcon, PaperclipIcon, PlusIcon, SlashIcon, SquareIcon, XIcon } from 'lucide-react';
+import { AlertCircleIcon, FileTextIcon, Loader2Icon, MessageSquareIcon, SlashIcon, XIcon } from 'lucide-react';
 import { Button } from '../button/button';
 import { hasMention, mentionTrigger, removeMention, slashItems, slashQuery } from './config';
 import type { MentionsConfig, SlashConfig, SlashItem } from './config';
 import { MentionMenu } from './mention-menu';
 import { SlashMenu } from './slash-menu';
+import { useChatText } from './labels';
 import { cn } from '../utils/utils';
 
 export interface ComposerAttachment { readonly id: string; readonly name: string; readonly mimeType: string; readonly data: string }
@@ -91,15 +92,17 @@ const ROUND = 'inline-flex size-11 shrink-0 cursor-pointer items-center justify-
 
 /** The Feedback button, a round bar button beside the "+" menu in both layouts. */
 function FeedbackButton({ feedback, disabled }: { readonly feedback: ComposerFeedback; readonly disabled: boolean }) {
+  const { labels } = useChatText();
   return <button type="button" data-testid="composer-feedback" aria-pressed={feedback.active === true} disabled={disabled || feedback.active === true || feedback.pending === true}
-    title="Feedback: point at the page and say what is wrong" onClick={feedback.start}
+    title={labels.feedbackHint} onClick={feedback.start}
     className={cn(ROUND, feedback.active && 'bg-accent')}>
-    <MessageSquareIcon className="size-4" aria-hidden="true" /><span className="sr-only">Feedback</span>
+    <MessageSquareIcon className="size-4" aria-hidden="true" /><span className="sr-only">{labels.feedback}</span>
   </button>;
 }
 
 /** The "+" button and its small menu (Attach files, Commands). Arrow keys move, Enter picks, Escape and outside clicks close. */
 function PlusMenu({ disabled, onAttach, onCommands }: { readonly disabled: boolean; readonly onAttach?: (() => void) | undefined; readonly onCommands?: (() => void) | undefined }) {
+  const { labels, icons } = useChatText();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -109,8 +112,8 @@ function PlusMenu({ disabled, onAttach, onCommands }: { readonly disabled: boole
     return () => document.removeEventListener('mousedown', outside);
   }, [open]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
-  const entries = [onAttach && { testid: 'composer-attach', label: 'Attach files', icon: <PaperclipIcon className="size-4 text-muted-foreground" aria-hidden="true" />, run: onAttach },
-    onCommands && { testid: 'composer-commands', label: 'Commands', icon: <SlashIcon className="size-4 text-muted-foreground" aria-hidden="true" />, run: onCommands }].filter(entry => entry);
+  const entries = [onAttach && { testid: 'composer-attach', label: labels.attachFiles, icon: <icons.attach className="size-4 text-muted-foreground" aria-hidden="true" />, run: onAttach },
+    onCommands && { testid: 'composer-commands', label: labels.commands, icon: <SlashIcon className="size-4 text-muted-foreground" aria-hidden="true" />, run: onCommands }].filter(entry => entry);
   const onKeyDown = (event: KeyboardEvent) => {
     if (!open) return;
     const items = Array.from(root.current?.querySelectorAll<HTMLElement>('[role=menuitem]') ?? []);
@@ -120,9 +123,9 @@ function PlusMenu({ disabled, onAttach, onCommands }: { readonly disabled: boole
     else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
   };
   return <div ref={root} className="relative shrink-0" onKeyDown={onKeyDown}>
-    <button ref={trigger} type="button" data-testid="composer-plus" aria-label="Add" title="Add" aria-haspopup="menu" aria-expanded={open} disabled={disabled} onClick={() => setOpen(value => !value)} className={ROUND}>
-      <PlusIcon className="size-5" aria-hidden="true" /></button>
-    {open && <div role="menu" aria-label="Add" data-testid="composer-plus-menu" className="absolute bottom-full left-0 z-30 mb-2 w-52 rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
+    <button ref={trigger} type="button" data-testid="composer-plus" aria-label={labels.add} title={labels.add} aria-haspopup="menu" aria-expanded={open} disabled={disabled} onClick={() => setOpen(value => !value)} className={ROUND}>
+      <icons.add className="size-5" aria-hidden="true" /></button>
+    {open && <div role="menu" aria-label={labels.add} data-testid="composer-plus-menu" className="absolute bottom-full left-0 z-30 mb-2 w-52 rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-lg">
       {entries.map((entry, index) => entry && <button key={entry.testid} type="button" role="menuitem" data-testid={entry.testid} autoFocus={index === 0}
         onClick={() => { setOpen(false); entry.run(); }}
         className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-foreground outline-none hover:bg-accent focus-visible:bg-accent">{entry.icon}{entry.label}</button>)}
@@ -135,6 +138,7 @@ const MAX_HEIGHT = 208;
 /** Prompt composer: auto-growing textarea, Enter to send, one primary Send/Stop button. While the agent works a message is queued. */
 export function Composer(props: ComposerProps) {
   const { text, attachments, working, sendBlocked, disabled, stopRequested, uploading, canAttach } = props;
+  const { labels, icons } = useChatText();
   const inner = useRef<HTMLTextAreaElement | null>(null);
   const composing = useRef(false);
   const [dragging, setDragging] = useState(false);
@@ -208,39 +212,39 @@ export function Composer(props: ComposerProps) {
   const chipRows = <>
     {(chips.length > 0 || (props.uploads?.length ?? 0) > 0 || Boolean(feedback?.chip)) && <div className="flex flex-wrap gap-2 px-3 pt-3">
       {feedback?.chip}
-      {chips.length > 0 && <ul data-testid="mention-chips" aria-label="Mentioned files" className="m-0 contents list-none p-0">
+      {chips.length > 0 && <ul data-testid="mention-chips" aria-label={labels.mentionedFiles} className="m-0 contents list-none p-0">
         {chips.map(path => <li key={path} data-testid="mention-chip" data-path={path} title={path} className="flex h-9 max-w-full sm:max-w-[16rem] items-center gap-1.5 rounded-full border border-border bg-muted/50 py-1 pr-1 pl-2.5">
           <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-xs font-medium">{path}</span>
-          <button type="button" aria-label={`Remove ${path}`} onClick={() => props.onText(removeMention(text, path))}
+          <button type="button" aria-label={labels.remove(path)} onClick={() => props.onText(removeMention(text, path))}
             className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground relative after:absolute after:-inset-3 after:content-[''] transition-colors outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"><XIcon className="size-3" aria-hidden="true" /></button>
         </li>)}
       </ul>}
-      {(props.uploads?.length ?? 0) > 0 && <ul data-testid="uploads" aria-label="Uploads" className="m-0 contents list-none p-0">
+      {(props.uploads?.length ?? 0) > 0 && <ul data-testid="uploads" aria-label={labels.uploads} className="m-0 contents list-none p-0">
         {props.uploads!.map(item => <li key={item.id} data-testid="upload-chip" data-state={item.state} title={item.error ?? item.name}
           className={cn('flex h-9 max-w-full sm:max-w-[20rem] items-center gap-1.5 rounded-full border py-1 pr-1 pl-2.5', item.state === 'failed' ? 'border-destructive/40 bg-destructive/10' : 'border-border bg-muted/50')}>
           {item.state === 'failed' ? <AlertCircleIcon className="size-3.5 shrink-0 text-destructive" aria-hidden="true" />
             : <Loader2Icon className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-hidden="true" />}
-          <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.state === 'failed' ? `${item.name}: ${item.error ?? 'upload failed'}` : `Uploading ${item.name}…`}</span>
-          {item.state === 'failed' && <button type="button" aria-label={`Dismiss ${item.name}`} onClick={() => props.onDismissUpload?.(item.id)}
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.state === 'failed' ? labels.uploadFailed(item.name, item.error) : labels.uploading(item.name)}</span>
+          {item.state === 'failed' && <button type="button" aria-label={labels.dismiss(item.name)} onClick={() => props.onDismissUpload?.(item.id)}
             className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground relative after:absolute after:-inset-3 after:content-[''] transition-colors outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"><XIcon className="size-3" aria-hidden="true" /></button>}
         </li>)}
       </ul>}
     </div>}
   </>;
-  const attachmentRow = attachments.length > 0 && <ul data-testid="attachments" aria-label="Attachments" className="m-0 flex list-none flex-wrap gap-2 px-3 pt-3">
+  const attachmentRow = attachments.length > 0 && <ul data-testid="attachments" aria-label={labels.attachments} className="m-0 flex list-none flex-wrap gap-2 px-3 pt-3">
       {attachments.map(attachment => {
         const src = thumbnail(attachment.mimeType, attachment.data);
         return <li key={attachment.id} data-testid="attachment" className="flex h-9 max-w-full sm:max-w-[14rem] items-center gap-2 rounded-full border border-border bg-muted/50 py-1 pr-1 pl-1">
           {src ? <img src={src} alt="" className="size-7 shrink-0 rounded-full object-cover" /> : <span className="size-7 shrink-0 rounded-full bg-muted" />}
           <span className="min-w-0 flex-1 truncate text-xs font-medium">{attachment.name}</span>
-          <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment.id)}
+          <button type="button" aria-label={labels.remove(attachment.name)} onClick={() => props.onRemoveAttachment(attachment.id)}
             className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground relative after:absolute after:-inset-3 after:content-[''] transition-colors outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"><XIcon className="size-3" aria-hidden="true" /></button>
         </li>;
       })}
     </ul>;
-  const textareaEl = <textarea ref={setRef} data-testid="composer-input" aria-label="Message" rows={1} value={text} disabled={disabled}
-      placeholder={props.placeholder ?? (working ? 'Queue a message…' : 'Message the agent…')}
+  const textareaEl = <textarea ref={setRef} data-testid="composer-input" aria-label={labels.messageInput} rows={1} value={text} disabled={disabled}
+      placeholder={props.placeholder ?? (working ? labels.placeholderWorking : labels.placeholder)}
       {...(slash || mentions ? { role: 'combobox', 'aria-expanded': menuOpen, 'aria-haspopup': 'listbox', 'aria-autocomplete': 'list' } as const : {})}
       onChange={onChange} onKeyDown={onKeyDown} onPaste={onPaste} onKeyUp={event => trackCaret(event.currentTarget)} onClick={event => trackCaret(event.currentTarget)}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
@@ -251,10 +255,10 @@ export function Composer(props: ComposerProps) {
   const fileEl = canAttach && <input ref={fileInput} type="file" multiple accept={props.fileAccept} disabled={disabled} tabIndex={-1} aria-hidden="true" className="sr-only" data-testid="composer-file" data-attach="true"
     onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; props.onPickFiles(files); }} />;
   const send = working
-    ? <Button variant="default" size="icon" data-testid="composer-submit" data-state="stop" aria-label="Stop" title="Stop" disabled={disabled || stopRequested} onClick={props.onStop} className="ml-auto size-11 shrink-0 rounded-full">
-      {stopRequested ? <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <SquareIcon className="size-4 fill-current" aria-hidden="true" />}</Button>
-    : <Button variant="default" size="icon" type="submit" data-testid="composer-submit" data-state="send" aria-label="Send" title="Send (Enter)" disabled={!canSubmit} className="ml-auto size-11 shrink-0 rounded-full disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100">
-      <ArrowUpIcon className="size-5" aria-hidden="true" /></Button>;
+    ? <Button variant="default" size="icon" data-testid="composer-submit" data-state="stop" aria-label={labels.stop} title={labels.stop} disabled={disabled || stopRequested} onClick={props.onStop} className="ml-auto size-11 shrink-0 rounded-full">
+      {stopRequested ? <Loader2Icon className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <icons.stop className="size-4 fill-current" aria-hidden="true" />}</Button>
+    : <Button variant="default" size="icon" type="submit" data-testid="composer-submit" data-state="send" aria-label={labels.send} title={labels.sendHint} disabled={!canSubmit} className="ml-auto size-11 shrink-0 rounded-full disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100">
+      <icons.send className="size-5" aria-hidden="true" /></Button>;
 
   if (props.layout === 'inline') return <form data-testid="composer" data-layout="inline" onSubmit={event => { event.preventDefault(); if (canSubmit) props.onSend(); }} onDragOver={drag} onDragLeave={drag} onDrop={drop}
     className={cn('relative bg-card', dragging && 'rounded-2xl ring-2 ring-ring/40', disabled && 'opacity-70')}>
@@ -270,8 +274,8 @@ export function Composer(props: ComposerProps) {
       {props.barNote}
       {props.barStart}
       {props.barEnd}
-      {uploading && !(props.uploads?.length) && <Loader2Icon role="status" aria-label="Preparing attachments" className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />}
-      {working && hasContent && <Button variant="secondary" size="sm" data-testid="composer-queue" disabled={!canSubmit} onClick={props.onSend} className="h-11 shrink-0 rounded-full px-4"><ListEndIcon className="size-3.5" aria-hidden="true" />Queue</Button>}
+      {uploading && !(props.uploads?.length) && <Loader2Icon role="status" aria-label={labels.preparingAttachmentsShort} className="size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />}
+      {working && hasContent && <Button variant="secondary" size="sm" data-testid="composer-queue" disabled={!canSubmit} onClick={props.onSend} className="h-11 shrink-0 rounded-full px-4"><icons.queue className="size-3.5" aria-hidden="true" />{labels.queue}</Button>}
       {send}
     </div>
     {feedback?.bar}
@@ -291,11 +295,11 @@ export function Composer(props: ComposerProps) {
       {feedback && <FeedbackButton feedback={feedback} disabled={disabled} />}
       {props.barStart}
       {props.barNote}
-      {uploading && !(props.uploads?.length) && <span role="status" className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2Icon className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />Preparing attachments…</span>}
+      {uploading && !(props.uploads?.length) && <span role="status" className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Loader2Icon className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />{labels.preparingAttachments}</span>}
       <span className="flex-1" />
       {props.barEnd}
       {working && hasContent && <Button variant="secondary" size="sm" data-testid="composer-queue" disabled={!canSubmit} onClick={props.onSend} className="h-11 shrink-0 rounded-full px-4">
-        <ListEndIcon className="size-3.5" aria-hidden="true" />Queue</Button>}
+        <icons.queue className="size-3.5" aria-hidden="true" />{labels.queue}</Button>}
       {send}
     </div>
     {feedback?.bar}

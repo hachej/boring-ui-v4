@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import type { ImageContent, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
-import { AlertCircleIcon, CircleSlashIcon, GitForkIcon } from 'lucide-react';
+import { AlertCircleIcon, CircleSlashIcon } from 'lucide-react';
 import { CopyButton } from './code-block';
 import { Markdown } from './markdown';
 import type { CommandMentions } from './markdown';
@@ -21,6 +21,10 @@ import { pieces } from './config';
 import { isFileBlock, segments } from './rows';
 import type { DeriveOptions, Row } from './rows';
 import { Button } from '../button/button';
+import { BlockActions } from '../button/actions';
+import type { BlockAction } from '../button/actions';
+import { useChatText } from './labels';
+import type { ReplyRef } from './config';
 import { cn } from '../utils/utils';
 
 export interface RowContext {
@@ -33,17 +37,20 @@ export interface RowContext {
   readonly pieces: { readonly mentions: boolean; readonly skills: readonly string[]; readonly openMention?: ((path: string) => void) | undefined } | undefined;
   readonly answer: ((questionId: string, answer: string) => Promise<AnswerOutcome>) | undefined;
   readonly artifacts: { readonly open: ArtifactsConfig['open']; readonly isOpen?: ArtifactsConfig['isOpen'] | undefined } | undefined;
-  /** Replaces the default copy button under a settled reply (the ambient window adds feedback and the time). */
-  readonly replyActions?: ((reply: { readonly key: string; readonly text: string; readonly timestamp?: number | undefined }) => ReactNode) | undefined;
+  /** Replaces the default copy button under a settled reply (the ambient window adds feedback and the time); `host` holds the host's message actions. */
+  readonly replyActions?: ((reply: { readonly key: string; readonly text: string; readonly timestamp?: number | undefined }, host: ReactNode) => ReactNode) | undefined;
+  /** The host's actions for a settled reply (`messageActions`). */
+  readonly messageActions?: ((reply: ReplyRef) => readonly BlockAction[]) | undefined;
   /** Fork the conversation after a settled reply (its last native entry): adds a Fork button next to Copy. */
   readonly onFork?: ((entryId: string) => void) | undefined;
 }
 
 function Image({ image, onOpenImage }: { readonly image: ImageContent; readonly onOpenImage: RowContext['onOpenImage'] }) {
+  const { labels } = useChatText();
   const src = thumbnail(image.mimeType, image.data);
-  return <button type="button" data-testid="message-image" disabled={!onOpenImage} aria-label="Open image attachment" onClick={() => onOpenImage?.(image)}
+  return <button type="button" data-testid="message-image" disabled={!onOpenImage} aria-label={labels.openImage} onClick={() => onOpenImage?.(image)}
     className="block cursor-pointer overflow-hidden rounded-xl border border-border outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default">
-    {src ? <img src={src} alt="Attached" className="max-h-48 max-w-full object-cover" /> : <span className="block px-3 py-2 text-xs text-muted-foreground">Image attachment</span>}
+    {src ? <img src={src} alt={labels.imageAttachment} className="max-h-48 max-w-full object-cover" /> : <span className="block px-3 py-2 text-xs text-muted-foreground">{labels.imageAttachment}</span>}
   </button>;
 }
 
@@ -74,19 +81,23 @@ function Notice({ tone, icon, children, testid }: { readonly tone: 'error' | 'mu
 function resultText(message: ToolResultMessage): string { return message.content.map(part => part.type === 'text' ? part.text : '').join('\n'); }
 
 export function RowView({ row, context }: { readonly row: Row; readonly context: RowContext }) {
+  const { labels, icons } = useChatText();
   switch (row.type) {
     case 'user': return <article data-row-id={row.key} data-role="user"><UserBubble message={row.message} context={context} /></article>;
     case 'card': return <article data-row-id={row.key} data-role="event">{row.card.content}</article>;
-    case 'event': return <article data-row-id={row.key} data-role="event" className="text-center text-xs text-muted-foreground">Event: {row.label}</article>;
-    case 'system': return <article data-row-id={row.key} data-role="system"><details className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"><summary className="cursor-pointer max-sm:py-3 pointer-coarse:py-3">System context</summary>
+    case 'event': return <article data-row-id={row.key} data-role="event" className="text-center text-xs text-muted-foreground">{labels.event(row.label)}</article>;
+    case 'system': return <article data-row-id={row.key} data-role="system"><details className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"><summary className="cursor-pointer max-sm:py-3 pointer-coarse:py-3">{labels.systemContext}</summary>
       <pre className="mt-2 mb-0 whitespace-pre-wrap">{row.text}</pre></details></article>;
     case 'orphan-result': return <article data-row-id={row.key} data-role="toolResult"><Notice tone="error" testid="tool-error" icon={<AlertCircleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>
-      <strong className="font-semibold">{row.message.toolName} failed</strong><span className="mt-1 block font-mono text-xs whitespace-pre-wrap">{resultText(row.message)}</span></Notice></article>;
+      <strong className="font-semibold">{labels.toolFailed(row.message.toolName)}</strong><span className="mt-1 block font-mono text-xs whitespace-pre-wrap">{resultText(row.message)}</span></Notice></article>;
     case 'assistant': {
       const settled = !row.streaming;
       const chunks = segments(row.parts, context.groupTool);
       const active = row.active === true || row.streaming;
       const lastText = [...row.parts].reverse().find(part => part.kind === 'text');
+      const host = settled && row.text && context.messageActions
+        ? <BlockActions actions={context.messageActions({ key: row.key, text: row.text, entryId: row.entryId })} testId="reply-action" menuLabel={labels.moreActions} className="text-muted-foreground" />
+        : null;
       return <article data-row-id={row.key} data-role="assistant" data-streaming={row.streaming ? 'true' : undefined} className="group/message">
         <div className="space-y-3">
           {chunks.map((chunk, at) => {
@@ -106,15 +117,16 @@ export function RowView({ row, context }: { readonly row: Row; readonly context:
               open={part.artifact !== undefined && (context.artifacts?.isOpen?.(part.artifact) ?? false)} onOpen={context.artifacts?.open} />;
             return part.entry.custom ? <div key={part.key}>{part.entry.custom}</div> : <ToolCard key={part.key} entry={part.entry} {...(context.onOpenImage ? { onOpenImage: context.onOpenImage } : {})} />;
           })}
-          {row.streaming && row.parts.length === 0 && <p data-testid="working" className="m-0 text-sm"><Shimmer>Thinking…</Shimmer></p>}
+          {row.streaming && row.parts.length === 0 && <p data-testid="working" className="m-0 text-sm"><Shimmer>{labels.thinking}</Shimmer></p>}
         </div>
-        {row.stopReason === 'error' && <Notice tone="error" testid="response-error" icon={<AlertCircleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>{row.errorMessage ?? 'The response failed'}</Notice>}
-        {row.stopReason === 'aborted' && <Notice tone="muted" testid="interrupted" icon={<CircleSlashIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>Response interrupted</Notice>}
-        {settled && row.text && context.replyActions?.({ key: row.key, text: row.text, timestamp: row.timestamp })}
+        {row.stopReason === 'error' && <Notice tone="error" testid="response-error" icon={<AlertCircleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>{row.errorMessage ?? labels.responseFailed}</Notice>}
+        {row.stopReason === 'aborted' && <Notice tone="muted" testid="interrupted" icon={<CircleSlashIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}>{labels.interrupted}</Notice>}
+        {settled && row.text && context.replyActions?.({ key: row.key, text: row.text, timestamp: row.timestamp }, host)}
         {settled && row.text && !context.replyActions && <div className="mt-1 -ml-2 flex opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 pointer-coarse:opacity-100 max-sm:opacity-100 motion-reduce:transition-none">
-          <CopyButton text={row.text} label="Copy response" {...(context.onCopy ? { onCopy: context.onCopy } : {})} className="text-muted-foreground" />
-          {context.onFork && row.entryId && <Button size="icon-sm" variant="ghost" aria-label="Fork from here" title="Fork from here: a new conversation with the messages up to this reply" data-testid="fork-reply"
-            className="text-muted-foreground" onClick={() => context.onFork!(row.entryId!)}><GitForkIcon className="size-3.5" aria-hidden="true" /></Button>}</div>}
+          <CopyButton text={row.text} label={labels.copyResponse} {...(context.onCopy ? { onCopy: context.onCopy } : {})} className="text-muted-foreground" />
+          {context.onFork && row.entryId && <Button size="icon-sm" variant="ghost" aria-label={labels.fork} title={labels.forkHint} data-testid="fork-reply"
+            className="text-muted-foreground" onClick={() => context.onFork!(row.entryId!)}><icons.fork className="size-3.5" aria-hidden="true" /></Button>}
+          {host}</div>}
       </article>;
     }
   }

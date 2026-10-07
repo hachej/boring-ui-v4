@@ -5,6 +5,7 @@ import { FileTextIcon, FolderIcon } from 'lucide-react';
 import { usePickerKeyboard } from './picker-keyboard';
 import type { MentionResult, MentionsConfig } from './config';
 import { cn } from '../utils/utils';
+import { useChatText } from './labels';
 
 function highlight(text: string, query: string) {
   const at = query ? text.toLowerCase().indexOf(query.toLowerCase()) : -1;
@@ -19,6 +20,7 @@ export function MentionMenu({ query, search, onSelect, onDismiss }: {
   readonly onSelect: (path: string) => void;
   readonly onDismiss: () => void;
 }) {
+  const { labels } = useChatText();
   const [results, setResults] = useState<readonly MentionResult[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -29,7 +31,7 @@ export function MentionMenu({ query, search, onSelect, onDismiss }: {
     const abort = new AbortController();
     const timer = setTimeout(() => {
       searcher.current(query, abort.signal).then(found => { if (!abort.signal.aborted) { setResults(found.slice(0, 8)); setFailure(null); } },
-        cause => { if (!abort.signal.aborted) { setResults([]); setFailure(cause instanceof Error ? cause.message : 'Search failed'); } });
+        cause => { if (!abort.signal.aborted) { setResults([]); setFailure(cause instanceof Error ? cause.message : labels.searchFailed); } });
     }, 120);
     return () => { clearTimeout(timer); abort.abort(); };
   }, [query]);
@@ -43,7 +45,7 @@ export function MentionMenu({ query, search, onSelect, onDismiss }: {
   if (results.length === 0 && !failure) return null;
   return <div ref={container} data-testid="mention-menu" className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-lg">
     {failure ? <div role="alert" data-testid="mention-error" className="px-3 py-2 text-xs text-destructive">{failure}</div>
-      : <ul ref={list} role="listbox" aria-label="Workspace files" className="m-0 max-h-[min(14rem,40dvh)] list-none overflow-y-auto p-0 py-1">
+      : <ul ref={list} role="listbox" aria-label={labels.workspaceFiles} className="m-0 max-h-[min(14rem,40dvh)] list-none overflow-y-auto p-0 py-1">
         {results.map((item, index) => {
           const name = item.path.split('/').pop() ?? item.path;
           const Icon = item.kind === 'directory' ? FolderIcon : FileTextIcon;
