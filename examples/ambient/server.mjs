@@ -72,8 +72,8 @@ export async function startAmbient({ directory, port = 0, provider = process.env
     },
   });
   const agent = defineAgent({ id: 'console-assistant', model: { provider, modelId: process.env.AMBIENT_MODEL ?? 'gpt-5-mini' }, instructions: INSTRUCTIONS,
-    tools: [createAskUserTool(), healthCheck, createPresentTool({ providerId: 'workspace', files, resolveAccess: () => agentAccess })],
-    extensions: [readFiles, writeFiles, createFileGuard({ files, root, resolveAccess: () => agentAccess })] });
+    tools: [createAskUserTool(), healthCheck, createPresentTool({ workspace: { files, root, access: agentAccess } })],
+    extensions: [readFiles, writeFiles, createFileGuard({ workspace: { files, root, access: agentAccess } })] });
 
   const registry = createRegistry();
   agent.install(registry);

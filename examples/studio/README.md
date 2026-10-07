@@ -159,9 +159,16 @@ section per capability, so an agent without a shell is never told about bash.
 | Variant | Execution | Storage | Available |
 | --- | --- | --- | --- |
 | `local` (default) | just-bash virtual workspace + isomorphic-git, snapshotted to the data directory; self-evolving (agent-written tools run in just-bash) | the workspace provider's journal in the data directory | always |
+| `team` | ONE agent on the studio's one harness for several fictional people: each person's workspace (just-bash over a SQLite file system) is resolved per call like the environment (`@boring/agent/workspaces`), from the person who owns the conversation; the viewers resolve it from the authenticated request; idle ones close (`STUDIO_TEAM_IDLE_MS`). The harbour MCP server is reached with each person's credential from the host's fictional vault. No git or self-evolution (one workspace per agent definition) | `team-workspaces.sqlite` (files and journal per person) | always |
 | `vercel` | Vercel Sandbox microVM (Pi's `ExecutionEnv` over `@vercel/sandbox`); no virtual git | the same journal | when `VERCEL_TOKEN`, `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` are set |
 | `cloudflare` | a separate deployment, `examples/cloudflare`, running the SAME agent and scenarios on Workers | SQLite in a Durable Object | listed, not hosted here |
 | `aws` | commands in an AgentCore Code Interpreter session (`@boring/execution/aws-code-interpreter`), files on the user's EFS folder mounted here and in the session; here only against the offline fake Code Interpreter behind the real AWS SDK (scenario `aws-shared-folder`). The deployable recipe is [`examples/aws`](../aws/README.md) | a directory in the data directory standing for EFS, the same journal | when `STUDIO_AWS=fake` |
+
+Team people: the default fixture token is the studio's person (every variant, including their own team workspace); `startStudio` also mints fixture tokens for
+`fictional-user-a` and `fictional-user-b` (`app.teamTokens`), who reach only the team variant, their own conversations and their own workspace. `npm run studio:journey:team`
+drives two of them over HTTP with the scripted model ([journey-team.mjs](journey-team.mjs)). The scenarios also run through the UI on the team variant as the studio's
+person, for example `STUDIO_VARIANT=team STUDIO_ONLY=artifact-markdown,notes-document,mcp-harbour,team-letter-review,attach-text-failed-upload,mention-file npm run studio:journey:scripted`
+(the canvas scenarios read the variant's single provider directly, so they stay on `local`).
 
 Credits: a variant with `credits: true` (only `local`) meters every message with `@boring/agent/metering` ([agent README](../../packages/agent/README.md#metering)) against the person's
 fictional balance in `credits.sqlite` of the data directory (a starting grant of 50 credits, a hold of 0.02 per message, Pi's `calculateCost` with a 1.25 markup). The host maps its

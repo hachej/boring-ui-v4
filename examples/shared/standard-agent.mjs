@@ -3,7 +3,8 @@
 //
 //   core, always:  ask_user, skills (/skill menu)
 //   parts, when the host has what they need (each is `{ capabilities: [...], tools?: [...], extensions?: [...] }`):
-//     workspace (Pi's read, write and edit over the host's ExecutionEnv, through the file guard of @boring/agent/file-guard,
+//     workspace (Pi's read, write and edit over the host's ExecutionEnv, through the file guard of @boring/agent/file-guard, the workspace
+//     resolved per call like the env (@boring/agent/workspaces: one agent definition can serve a workspace per person),
 //     plus `present` and the shared notes.md), canvas (board.tldraw), shell (bash; with python when its shell has python3), git (working_git),
 //     subagents (foreground and background), codemode (run_code over a fictional ledger), mcp (a host's MCP tools, ./mcp-tools.mjs)
 //   A host without a workspace has neither file tools nor `present`: there is one tool set for files, and it needs a workspace.
@@ -76,24 +77,29 @@ const ALWAYS = new Set(['intro', 'ask']);
  * @param {string} [options.id]
  * @param {{ provider: string, modelId: string }} options.model
  * @param {string} [options.cwd] directory within the host's ExecutionEnv, for hosts that have one
- * @param {string} [options.root] the workspace root as the ExecutionEnv names it (the provider's file system `cwd`); needed with a workspace part
- * @param {{ providerId: string, read: Function, keep: Function, queue: object } | undefined} [options.files] the workspace provider (`@boring/files/workspace`): the guard serialises with its queue and `present` keeps revisions in it
- * @param {object} [options.access] the agent's principal for the provider
+ * @param {Function | { files: object, root: string, access?: object }} [options.workspace] the workspace of each call, resolved like Pi's env
+ *   (`@boring/agent/workspaces`): a resolver `(target, context) => binding`, or one binding for a host with a single workspace. A binding's
+ *   `files` is the workspace provider (`@boring/files/workspace`; the guard serialises with its queue and `present` keeps revisions in it),
+ *   `root` the workspace root as the ExecutionEnv names it, `access` the agent's principal for it. Needed with a workspace part.
+ * @param {object} [options.files] shorthand for one workspace: `{ files, root, access }` become `workspace`
+ * @param {string} [options.root]
+ * @param {object} [options.access]
  * @param {{ capabilities: string[], tools?: object[], extensions?: object[] }[]} [options.parts]
  * @param {string} [options.selfEvolving] the workspace instance id: the agent keeps its own instructions, skills and tools in that workspace's
  *   `.agent/` and applies them with `reload` (docs/architecture/SELF-EVOLUTION.md). Off when absent. Its tools run through the host's `exec`.
+ *   One workspace per agent definition: a host with a workspace per person defines it per owner (`@boring/agent/harness-pool`).
  */
-export function defineStandardAgent({ id = 'standard', model, cwd, root, thinkingLevel = 'medium', files, access, parts = [], selfEvolving }) {
-  const guarded = Boolean(files) && parts.some(part => part.capabilities.includes('workspace'));
-  if (guarded && !root) throw new TypeError('A workspace needs its root for the file guard');
+export function defineStandardAgent({ id = 'standard', model, cwd, root, thinkingLevel = 'medium', files, access, workspace = files ? { files, root, access } : undefined, parts = [], selfEvolving }) {
+  const guarded = Boolean(workspace) && parts.some(part => part.capabilities.includes('workspace'));
+  if (guarded && typeof workspace !== 'function' && !workspace.root) throw new TypeError('A workspace needs its root for the file guard');
   const capabilities = [...(guarded ? ['present', 'notes'] : []), 'ask', 'skills', ...parts.flatMap(part => part.capabilities), ...(selfEvolving ? ['self-evolving'] : [])];
   const tools = [
-    ...(guarded ? [createPresentTool({ providerId: files.providerId, files, resolveAccess: () => access })] : []),
+    ...(guarded ? [createPresentTool({ workspace })] : []),
     createAskUserTool(),
     ...parts.flatMap(part => part.tools ?? []),
   ];
   // The guard wraps Pi's own read, write and edit, so it is selected after the extensions that register them.
-  const extensions = [...parts.flatMap(part => part.extensions ?? []), ...(guarded ? [createFileGuard({ files, root, resolveAccess: () => access })] : [])];
+  const extensions = [...parts.flatMap(part => part.extensions ?? []), ...(guarded ? [createFileGuard({ workspace, name: `boring.files.guard.${id}` })] : [])];
   const instructions = ORDER.filter(key => ALWAYS.has(key) || capabilities.includes(key)).map(key => SECTIONS[key]()).join('\n\n');
   const agent = defineAgent({ id, model, thinkingLevel, instructions, tools, extensions, skills: SKILLS, ...(cwd ? { cwd } : {}),
     ...(selfEvolving ? { selfEvolving: true, workspace: selfEvolving } : {}) });

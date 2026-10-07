@@ -364,8 +364,8 @@ export async function builderAgent({ store, accessOf, page, tickets, project = {
   // Tickets: the standard workspace tools (Pi's read, write and edit, then the file guard, then the ticket trigger on write) and present.
   const resolveAccess = api => accessOf(api.conversationId);
   const workspace = tickets ? {
-    tools: [createPresentTool({ providerId: tickets.files.providerId, files: tickets.files, resolveAccess })],
-    extensions: [readFiles, writeFiles, createFileGuard({ files: tickets.files, root: tickets.root, resolveAccess }), ticketsOnWrite({ tickets: tickets.sinks, files: tickets.files, root: tickets.root, resolveAccess })],
+    tools: [createPresentTool({ workspace: { files: tickets.files, root: tickets.root }, resolveAccess })],
+    extensions: [readFiles, writeFiles, createFileGuard({ workspace: { files: tickets.files, root: tickets.root }, resolveAccess }), ticketsOnWrite({ tickets: tickets.sinks, files: tickets.files, root: tickets.root, resolveAccess })],
   } : { tools: [], extensions: [] };
   const definition = defineAgent({ id: 'fernhill-builder', model, instructions: tickets ? `${BUILDER_INSTRUCTIONS}\n${ticketInstructions(project)}` : BUILDER_INSTRUCTIONS,
     tools: [editPage, createBrowserPreviewTool(), ...workspace.tools], ...(tickets ? { skills: [boringPmSkill()] } : {}), extensions: [feedback.extension, ...workspace.extensions], ...(tickets ? { cwd: tickets.root } : {}) });

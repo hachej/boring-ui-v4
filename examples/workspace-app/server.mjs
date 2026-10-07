@@ -39,8 +39,8 @@ export async function startWorkspaceApp({ directory, port = 0, token = randomUUI
   const db = openNodeConnection(join(directory, 'workspace.sqlite'));
   const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: 'app', incarnation: 'app', viewId: 'published' }, fs: env, journal: createWorkspaceJournal(db) });
   const agent = defineAgent({ id: 'writer', model: { provider: 'openai', modelId: 'gpt-5-mini' }, instructions: 'You write short fictional documents for the person. Be brief.',
-    tools: [createPresentTool({ providerId: 'workspace', files, resolveAccess: () => agentAccess })],
-    extensions: [readFiles, writeFiles, createFileGuard({ files, root, resolveAccess: () => agentAccess })] });
+    tools: [createPresentTool({ workspace: { files, root, access: agentAccess } })],
+    extensions: [readFiles, writeFiles, createFileGuard({ workspace: { files, root, access: agentAccess } })] });
   const registry = createRegistry();
   agent.install(registry);
   const harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'session.sqlite')), { registry, models, env: () => env }, context);
