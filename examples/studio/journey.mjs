@@ -12,9 +12,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startStudio } from './server.mjs';
-import { insecureUrl, launch } from './driver.mjs';
+import { insecureUrl, launch, q, qa } from '@boring/testing/browser';
 import { JOURNEYS } from './journeys/index.mjs';
-import { createToolkit, q, qa } from './journey-toolkit.mjs';
+import { createToolkit } from './journey-toolkit.mjs';
 import { applicable, expectations, runScenario } from './journey-scenarios.mjs';
 import { unavailableReason } from './scenario-availability.mjs';
 

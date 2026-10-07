@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startAmbient } from './server.mjs';
-import { insecureUrl, launch } from '../studio/driver.mjs';
+import { insecureUrl, launch, pause } from '@boring/testing/browser';
 
 // `--scripted` (or STUDIO_MODEL=scripted): the deterministic layer, a scripted model (./script.mjs) instead of a real one; no key, no retries.
 if (process.argv.includes('--scripted')) process.env.STUDIO_MODEL = 'scripted';
@@ -19,7 +19,6 @@ mkdirSync(evidence, { recursive: true });
 const directory = mkdtempSync(join(tmpdir(), 'boring-ambient-'));
 const steps = [];
 const step = async (name, run) => { const started = Date.now(); await run(); steps.push({ name, ms: Date.now() - started }); console.log(`ok  ${name} (${Date.now() - started} ms)`); };
-const pause = ms => new Promise(done => setTimeout(done, ms));
 
 const ROOT = `document.querySelector('[data-boring=ambient-chat]')`;
 const STATE = `${ROOT}?.dataset.state`;

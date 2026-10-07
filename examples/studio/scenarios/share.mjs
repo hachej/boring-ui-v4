@@ -2,7 +2,7 @@
 // notes, a workspace file). Opening it in a fresh browser (no session state at all) and in the tab the person is on shows the same thing.
 import assert from 'node:assert/strict';
 import { VIEWER_FILES } from '../fixtures/workspace-files.mjs';
-import { launch } from '../driver.mjs';
+import { launch } from '@boring/testing/browser';
 import { artifactKit, REPORT_PROMPT, REVISE_PROMPT } from './_artifacts.mjs';
 import { viewerKit } from './_viewers.mjs';
 import { NOTES_PROMPT, REPORT_TURNS, REVISE_TURNS, SAVE_NOTES_TURNS } from './_script.mjs';

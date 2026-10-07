@@ -57,7 +57,7 @@ Load balancers and proxies close a response that sends nothing for their idle ti
 `createChatTransportHandler({ heartbeatMs })`, `STUDIO_HEARTBEAT_MS` here) with `Cache-Control: no-store, no-transform` and
 `X-Accel-Buffering: no`, and the browser client reopens a stream that dropped or stayed silent for 2.5 intervals by itself.
 
-The last step of `npm run studio:journey:correctness` proves it headless: it puts the studio behind `examples/shared/idle-proxy.mjs`, a TCP
+The last step of `npm run studio:journey:correctness` proves it headless: it puts the studio behind `startIdleProxy` from `@boring/testing/network`, a TCP
 proxy that closes any connection silent for `STUDIO_PROXY_IDLE_MS` (default 5000) like an ALB, with `STUDIO_HEARTBEAT_MS` (default 2000 in
 the journey; at most half the idle timeout). An idle chat must stay connected for more than three idle timeouts without reopening its watch;
 then the proxy drops every connection, the chat must read `reconnecting` and come back by itself, and a later reply must arrive exactly once.
@@ -67,12 +67,12 @@ CHROMIUM=/path/to/chromium npm run studio:journey:correctness
 CHROMIUM=/path/to/chromium STUDIO_PROXY_IDLE_MS=10000 STUDIO_HEARTBEAT_MS=4000 npm run studio:journey:correctness
 # By hand: the studio behind the proxy at http://127.0.0.1:4280
 OPENAI_API_KEY=... STUDIO_HEARTBEAT_MS=2000 npm run studio &
-PROXY_TARGET=http://127.0.0.1:4180 PROXY_IDLE_MS=5000 PROXY_PORT=4280 node examples/shared/idle-proxy.mjs
+node --input-type=module -e "import('@boring/testing/network').then(({ startIdleProxy }) => startIdleProxy({ target: 'http://127.0.0.1:4180', idleMs: 5000, port: 4280 }))"
 ```
 
 A slow network between Enter and the host's confirmation is simulated by `STUDIO_SUBMIT_DELAY_MS` (or `startStudio({ submitDelayMs })`): the
 answer to every chat submit is held that long after the host handled it. Journeys change it at run time through `app.submitFaults`
-(`{ delayMs, refuse }`; `refuse: n` answers the next n submits with 402 `submission-refused` without reaching the conversation). Scenario
+(`withSubmitFaults` from `@boring/testing/network`: `{ delayMs, refuse }`; `refuse: n` answers the next n submits with 402 `submission-refused` without reaching the conversation). Scenario
 `chat-send-race` uses it with 1500 ms and 300 ms: two messages typed and sent inside the window stay two messages, and a refused one comes back.
 
 With `STUDIO_HEARTBEAT_MS=0` (no heartbeat) the journey fails: the proxy closes the idle stream. On AWS keep the ALB idle timeout at least
@@ -91,8 +91,8 @@ Both need `CHROMIUM` (a Chromium or headless-shell binary) and a built tree (`np
 (Playwright 1.63.0, revision 1243, Chrome 153.0.8010.12) and caches it. `STUDIO_ONLY=` selects scenarios in either layer.
 
 **Scripted layer.** The same journey, the same real browser, the same standard agent on a durable native Harness; only the model is replaced.
-`scripted-model.mjs` is a fictional keyless provider built with the fixture mechanism of the correctness journey (`correctness-fixture.mjs`), so there
-is one fake-model mechanism, not two. It is chosen by the host process (`STUDIO_MODEL=scripted` or `--scripted`, or `startStudio({ scripted: true })`) and by nothing a
+`scripted-model.mjs` is `createScriptedModel` from [`@boring/testing`](../../packages/testing/README.md) over the scenario and journey scripts; the
+correctness journey (`correctness-fixture.mjs`) and the tests' hand-driven model (`createFakeChatModel`) use the same package, so there is one fake-model mechanism. It is chosen by the host process (`STUDIO_MODEL=scripted` or `--scripted`, or `startStudio({ scripted: true })`) and by nothing a
 browser can send; the provider is named like the real one (`openai`, `gpt-5-mini`, `gpt-5-nano`) so the model picker and `configure` behave as in the real run. The
 UI, the runtime, the tools and the stored data are real; what a scenario asserts about the model's output (`reply`, `nativeInputHasFile`) is checked against
 what the script, which reads the native message, answered. A message no script answers fails the run at the end (and says so in the transcript). Judgement scenarios
@@ -123,7 +123,7 @@ script: {
 },
 ```
 
-A turn is a string (the final answer), `{ text, reasoning, tools: [{ name, args }], delay, hold, usage }`, or `ctx => turn` (`usage: { input, output }` overrides the token counts the turn reports; by default about four characters per token, priced at fictional rates). `text` can be `{ chunks, ms }` to stream slowly
+A turn (format owned by [`@boring/testing/model`](../../packages/testing/README.md#scripted-model-boringtestingmodel)) is a string (the final answer), `{ text, reasoning, tools: [{ name, args }], delay, hold, usage, error }`, or `ctx => turn` (`usage: { input, output }` overrides the token counts the turn reports; by default about four characters per token, priced at fictional rates). `text` can be `{ chunks, ms }` to stream slowly
 (Stop and queue scenarios need a long, abortable answer: `slow(...)`, `story(seconds, ending)` in `scenarios/_script.mjs`), `delay` makes the model take a moment before it
 starts (so "the agent is working" is visible) and `hold` keeps a tool call on screen, running, before the turn ends. `ctx` has `user` (the typed text), `input` (the whole
 native message, including attached files and images), `results` (tool results since that message: `name`, `args`, `text`, `json`, `isError`, `details`), `last` and `history`.

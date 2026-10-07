@@ -421,6 +421,24 @@
           ]
         }
       ]
+    },
+    "testing": {
+      "dependsOn": [],
+      "typeOnlyDependsOn": [],
+      "external": [
+        "@earendil-works/pi-ai/models",
+        "@earendil-works/pi-ai/providers/faux",
+        "@earendil-works/pi-ai/utils/event-stream",
+        "@earendil-works/pi-ai/utils/transcript",
+        "node:child_process",
+        "node:fs",
+        "node:net",
+        "node:os",
+        "node:path"
+      ],
+      "typeOnlyExternal": [
+        "@earendil-works/pi-ai"
+      ]
     }
   },
   "upstreamExports": {

@@ -1,7 +1,7 @@
 import { Harness, MemoryStorage, createRegistry } from '@earendil-works/pi-durable';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createNativeChatController } from '@boring/ui/native-chat';
-import { createFakeChatModel } from '../test/fixtures/fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 
 const fake = createFakeChatModel();
 const harness = await Harness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);

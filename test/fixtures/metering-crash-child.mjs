@@ -10,7 +10,7 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createMeter, createSqliteLedger } from '@boring/agent/metering';
-import { createFakeChatModel } from './fake-chat-model.mjs';
+import { createFakeChatModel } from '@boring/testing/model';
 
 const [directory, phase] = process.argv.slice(2);
 const keepAlive = setInterval(() => {}, 1000); // the crash phases wait here for SIGKILL

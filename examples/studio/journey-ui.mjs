@@ -1,7 +1,6 @@
 // Small helpers shared by the UI journeys (chatui, menus, durability, artifacts, mobile): the sessions pane of conversations (the pi-app
 // block's left pane, a drawer on a narrow screen) and the current conversation id. Kept out of journeys/ because every file there is a journey.
-const q = selector => `document.querySelector(${JSON.stringify(selector)})`;
-const qa = selector => `[...document.querySelectorAll(${JSON.stringify(selector)})]`;
+import { q, qa } from '@boring/testing/browser';
 
 export function conversations(t) {
   const { browser, logText } = t;
