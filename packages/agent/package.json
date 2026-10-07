@@ -10,6 +10,8 @@
     "./contracts": { "types": "./dist/contracts.d.ts", "import": "./dist/contracts.js" },
     "./definitions": { "types": "./dist/definitions.d.ts", "import": "./dist/definitions.js" },
     "./file-guard": { "types": "./dist/file-guard.d.ts", "import": "./dist/file-guard.js" },
+    "./workspaces": { "types": "./dist/workspaces.d.ts", "import": "./dist/workspaces.js" },
+    "./harness-pool": { "types": "./dist/harness-pool.d.ts", "import": "./dist/harness-pool.js" },
     "./artifacts": { "types": "./dist/artifacts.d.ts", "import": "./dist/artifacts.js" },
     "./ask-user": { "types": "./dist/ask-user.d.ts", "import": "./dist/ask-user.js" },
     "./browser-task": { "types": "./dist/browser-task.d.ts", "import": "./dist/browser-task.js" },

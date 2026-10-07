@@ -40,6 +40,7 @@
     "studio:journey:scripted": "node examples/studio/journey.mjs --scripted",
     "studio:smoke": "node examples/studio/journey.mjs --smoke",
     "studio:journey:correctness": "node examples/studio/journey-correctness.mjs",
+    "studio:journey:team": "node examples/studio/journey-team.mjs",
     "slice:journey": "node examples/live-slice/journey.mjs",
     "bot": "node examples/bot/server.mjs",
     "bot:journey": "node examples/bot/journey.mjs",

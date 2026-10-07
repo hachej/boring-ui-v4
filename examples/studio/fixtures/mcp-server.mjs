@@ -11,8 +11,11 @@ const TOOLS = [
 
 /** Every booking any instance received, for a scenario to check what reached the server. */
 export const harbourBookings = [];
+/** Every tool call any instance received, with the fictional credential its connection was opened with (the team variant's per-person token). */
+export const harbourCalls = [];
 
-export function fictionalHarbourServer() {
+/** `credential` stands for what a real server reads from its connection (an Authorization header): the person the calls act for. */
+export function fictionalHarbourServer({ credential } = {}) {
   const { client, server } = createInMemoryTransportPair();
   const run = (name, args) => {
     if (name === 'tide_times') return `Tides at Placeholder Pier on ${args.date}: high 06:12, low 12:25, high 18:40.`;
@@ -26,6 +29,7 @@ export function fictionalHarbourServer() {
     if (message.method === 'initialize') return reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fictional-harbour', version: '1.0.0' } });
     if (message.method === 'tools/list') return reply({ tools: TOOLS });
     if (message.method === 'tools/call') {
+      harbourCalls.push({ tool: message.params.name, credential });
       const text = run(message.params.name, message.params.arguments ?? {});
       return reply(text === undefined ? { content: [{ type: 'text', text: `Unknown tool ${message.params.name}` }], isError: true } : { content: [{ type: 'text', text }] });
     }

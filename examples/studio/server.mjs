@@ -18,12 +18,13 @@ import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
 import { createGitTool } from '@boring/agent/git';
 import { createChatTransportHandler } from '@boring/agent/chat-transport';
-import { createConversations, createConversationsHandler } from '@boring/agent/conversations';
+import { conversationMetadata, createConversations, createConversationsHandler } from '@boring/agent/conversations';
 import { createMentionResolver, safeMentionPath } from '@boring/agent/mentions';
 import { createMeter, createSqliteLedger } from '@boring/agent/metering';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
+import { constantWorkspace, createWorkspaceCache, rootConversation } from '@boring/agent/workspaces';
 import { createResourceHandler } from '@boring/files/remote';
 import { withSubmitFaults } from '@boring/testing/network';
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
@@ -61,6 +62,9 @@ const CREDITS = { startMicros: 50_000_000, holdMicros: 20_000, premiumHoldMicros
 const PREMIUM = { modelId: 'premium', label: 'Premium (fictional)' };
 
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
+  // Fixture bearer tokens of the fictional people of the `team` variant (each has their own workspace there); the default `token` is a
+  // person of the team too. Local fixtures, not an identity provider.
+  teamTokens = { 'fictional-user-a': randomUUID(), 'fictional-user-b': randomUUID() },
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
   scripted = process.env.STUDIO_MODEL === 'scripted',
   // Idle heartbeat of the chat watch stream (default 15 s). Behind a proxy or load balancer keep it under half the idle timeout.
@@ -79,6 +83,20 @@ export async function startStudio({ directory, port = 0, provider = process.env.
 
   const human = { scopeId: 'fictional-project', principalId: 'fictional-person', initiatorId: 'fictional-person' };
   const agentAccess = { scopeId: human.scopeId, principalId: 'fictional-agent', initiatorId: human.principalId };
+  /** The person a request authenticates as: the default token is the studio's person, the team tokens are the team's other people. */
+  function principalOf(request) {
+    const header = request.headers.get('authorization');
+    if (header === `Bearer ${token}`) return human.principalId;
+    return Object.entries(teamTokens).find(([, value]) => header === `Bearer ${value}`)?.[0] ?? null;
+  }
+  /** A person of the team and their agent, as the workspace provider's principals (one scope per person). */
+  const teamPerson = principal => ({ scopeId: `team-${principal}`, principalId: principal, initiatorId: principal });
+  const teamAgent = principal => ({ scopeId: `team-${principal}`, principalId: 'fictional-agent', initiatorId: principal });
+  /**
+   * The host's fictional vault: each person's credential for each connected service of the team variant. Tools ask for it per call
+   * (`credentials` below); it never enters a conversation, a tool result or a log.
+   */
+  const vault = principal => ({ harbour: `fictional-harbour-token:${principal}` });
   const hostInfo = { provider, context, directory, models: offered };
   let harness;
   const getHarness = () => { if (!harness) throw new Error('The harness is not open yet'); return harness; };
@@ -89,18 +107,18 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return undefined; }
   }
 
-  const readOf = (variant, path) => variant.files.read({ target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, revision: { kind: 'latest' } }, human);
+  const readOf = (ws, path) => ws.files.read({ target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, revision: { kind: 'latest' } }, ws.person);
   /** What `@path` mentions read: the person's view of the workspace through the variant's provider. */
-  const mentionReader = files => async path => {
+  const mentionReader = (files, person) => async path => {
     if (!safeMentionPath(path)) return undefined;
-    const read = await files.read({ target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, revision: { kind: 'latest' } }, human);
+    const read = await files.read({ target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, revision: { kind: 'latest' } }, person);
     if (read.kind !== 'available') return undefined;
     return read.snapshot.bytes.byteLength > 5_000_000 ? { size: read.snapshot.bytes.byteLength } : { size: read.snapshot.bytes.byteLength, bytes: read.snapshot.bytes };
   };
   /** Creates a file that must not exist yet, through the provider. `false` when it does. */
-  async function createFile(variant, path, bytes) {
-    const published = await variant.files.publication.publish({ operationId: randomUUID(), atomicity: 'all-or-nothing',
-      changes: [{ kind: 'create', target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, expected: { kind: 'absent' }, bytes, mediaType: mediaTypeOf(path) }] }, human);
+  async function createFile(ws, path, bytes) {
+    const published = await ws.files.publication.publish({ operationId: randomUUID(), atomicity: 'all-or-nothing',
+      changes: [{ kind: 'create', target: { resource: { providerId: 'workspace', path }, view: { kind: 'published' } }, expected: { kind: 'absent' }, bytes, mediaType: mediaTypeOf(path) }] }, ws.person);
     if (published.kind === 'conflict') return false;
     if (published.kind !== 'committed') throw new Error(`The file could not be saved: ${published.reason ?? published.kind}`);
     return true;
@@ -113,35 +131,78 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   // ---- Variants: infrastructure only. An unavailable one stays in the list with the reason.
   const descriptors = await loadVariants(hostInfo, only);
   const variants = new Map();
+  /**
+   * Which variant and person a conversation belongs to, from durable state: the owner its managed metadata names (`<agent id>` for a
+   * variant of the studio's person, `<agent id>/<person>` for the team), read for the conversation a subagent's child belongs to.
+   * The mapping never changes, so it is memoised.
+   */
+  const callers = new Map();
+  async function callerOf(conversationId, callContext = context) {
+    const known = callers.get(String(conversationId));
+    if (known) return known;
+    const root = await rootConversation(getHarness(), conversationId, callContext);
+    const owner = (await getHarness().snapshot(conversationMetadata, root, callContext))?.owner ?? '';
+    const [agentId, principal] = owner.split('/');
+    const variant = [...variants.values()].find(candidate => candidate.agent.id === agentId);
+    if (!variant || Boolean(variant.team) !== (principal !== undefined)) return undefined;
+    const caller = { variant, principal: principal ?? human.principalId };
+    callers.set(String(conversationId), caller);
+    return caller;
+  }
+  /** The host's per-call credentials (`CredentialResolver`): the vault entry of the person who owns the conversation, team variant only. */
+  const credentials = async (target, callContext, request) => {
+    const caller = await callerOf(target.conversationId, callContext);
+    return caller?.variant.team && request.server ? vault(caller.principal)[request.server] : undefined;
+  };
+  /** What the viewers of one workspace use: its resource handler (authenticated as the workspace's person only) and @mention reader. */
+  const viewersOf = (ws, allowed) => ({ ...ws,
+    resourceHandler: createResourceHandler({ authenticate: async request => allowed(principalOf(request)) ? ws.person : null, reader: ws.files, publisher: ws.files.publication, lookup: ws.files.reconciliation }),
+    mentions: createMentionResolver({ read: mentionReader(ws.files, ws.person) }) });
+
   for (const descriptor of descriptors) {
     if (descriptor.available !== true) continue;
     const infra = await descriptor.open();
-    const { env, root } = infra;
+    const { root } = infra;
     const capabilities = new Set(descriptor.capabilities);
-    // One workspace provider over the variant's environment: the one way to read a workspace file by revision and to write it
-    // conditionally (viewers, saves, uploads, `present`, and the documents the agent and the person share: notes.md and board.tldraw).
-    const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: descriptor.id, incarnation: 'studio', viewId: 'published' }, fs: env, journal });
     const target = path => ({ resource: { providerId: 'workspace', path }, view: { kind: 'published' } });
     const canvasTarget = target('board.tldraw');
+    // The workspace of each call, resolved like Pi's env (`@boring/agent/workspaces`). A variant with one workspace: one provider over
+    // its environment, the one way to read a workspace file by revision and to write it conditionally (viewers, saves, uploads,
+    // `present`, and the documents the agent and the person share: notes.md and board.tldraw). The team variant: one per person,
+    // opened on first use and closed when idle, by a cache whose `env` (given to the harness) and `workspace` (given to the tools) agree.
+    let single, team;
+    if (infra.workspace) {
+      team = createWorkspaceCache({
+        key: async (callTarget, callContext) => (await callerOf(callTarget.conversationId, callContext))?.principal,
+        open: async (principal, openContext) => viewersOf({ ...await infra.workspace(principal, openContext), access: teamAgent(principal), person: teamPerson(principal) }, candidate => candidate === principal),
+        idleMs: infra.idleMs,
+        // Pi does not report when a call stops using its env: a workspace stays open while the harness has live work.
+        busy: async () => (await getHarness().inspect(context)).tasks.length > 0,
+        onError: error => console.error('team workspace close:', error?.message ?? error),
+      });
+    } else {
+      const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: descriptor.id, incarnation: 'studio', viewId: 'published' }, fs: infra.env, journal });
+      single = viewersOf({ id: descriptor.id, files, root, env: infra.env, access: agentAccess, person: human }, candidate => candidate === human.principalId);
+    }
+    const workspace = team ? team.workspace : constantWorkspace(single);
     const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: configured.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
     const parts = [
       ...(capabilities.has('workspace') ? [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }] : []),
       ...(capabilities.has('shell') ? [{ capabilities: ['shell', ...(capabilities.has('python') ? ['python'] : [])], extensions: [shell] }] : []),
       ...(infra.repository ? [{ capabilities: ['git'], extensions: [defineExtension({ name: 'studio.git', tools: [createGitTool(infra.repository)] })] }] : []),
-      { capabilities: ['canvas'], tools: createCanvasTools({ files, path: 'board.tldraw', access: agentAccess, namespace: `studio-${descriptor.id}-canvas-v1` }) },
+      { capabilities: ['canvas'], tools: createCanvasTools({ workspace, path: 'board.tldraw', namespace: `studio-${descriptor.id}-canvas-v1` }) },
       { capabilities: ['subagents'], tools: subagents.tools, extensions: subagents.extensions },
       { capabilities: ['codemode'], tools: [runCodeTool] },
     ];
     // MCP servers the variant names (off unless it does): their allowed tools become native tools of the agent (../shared/mcp-tools.mjs).
+    // A `perPerson` server is reached with the credential of the person behind each call, from the host's vault.
     const mcp = [];
-    for (const server of descriptor.mcp?.servers ?? []) mcp.push(await connectMcpTools({ ...server, transport: server.transport() }));
+    for (const server of descriptor.mcp?.servers ?? []) mcp.push(await connectMcpTools({ ...server, ...(server.perPerson ? { credentials } : {}) }));
     if (mcp.length) parts.push({ capabilities: ['mcp'], tools: mcp.flatMap(connection => connection.tools) });
     const { agent, capabilities: all } = defineStandardAgent({ id: `standard-${descriptor.id}`, model: { provider, modelId: offered[0].modelId }, cwd: infra.cwd ?? root,
-      root, files, access: agentAccess, parts, ...(descriptor.selfEvolving ? { selfEvolving: descriptor.id } : {}) });
+      workspace, parts, ...(descriptor.selfEvolving ? { selfEvolving: descriptor.id } : {}) });
     // What the agent has, plus what the environment itself offers beyond tools (for example a remote sandbox's status tab).
-    const variant = { id: descriptor.id, descriptor, infra, mcp, env, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], files, subagents, notes: target('notes.md'), canvas: canvasTarget,
-      resourceHandler: createResourceHandler({ authenticate: async request => authenticated(request) ? human : null, reader: files, publisher: files.publication, lookup: files.reconciliation }),
-      mentions: createMentionResolver({ read: mentionReader(files) }) };
+    const variant = { id: descriptor.id, descriptor, infra, mcp, env: single?.env, files: single?.files, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], single, team, subagents, notes: target('notes.md'), canvas: canvasTarget };
     variants.set(descriptor.id, variant);
   }
   if (variants.size === 0) throw new Error('No variant is available');
@@ -149,24 +210,32 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   const entries = [...variants.values()];
   const fallback = entries[0];
   const variantOf = request => variants.get(request.headers.get('x-studio-variant') ?? '') ?? fallback;
+  /**
+   * The workspace a viewer request uses, resolved from the authenticated person like a call's from its conversation: the variant's one
+   * workspace (the studio's person only), or that person's team workspace, borrowed until `release` (which never closes it).
+   */
+  async function workspaceOfRequest(variant, principal) {
+    if (variant.team) { const lease = await variant.team.acquire(principal, context); return { ws: lease.workspace, release: lease.release }; }
+    return principal === human.principalId ? { ws: variant.single, release: () => {} } : undefined;
+  }
 
   // Paths: the browser names workspace files `/workspace/<path>`; a variant's environment may keep them elsewhere.
-  const virtual = (variant, path) => `${VIRTUAL_ROOT}${path.slice(variant.root.length)}`;
+  const virtual = (ws, path) => `${VIRTUAL_ROOT}${path.slice(ws.root.length)}`;
   const validPath = path => path.startsWith(`${VIRTUAL_ROOT}/`) && !path.split('/').includes('..');
-  async function walk(variant, path = variant.root) {
+  async function walk(ws, path = ws.root) {
     const files = [];
-    for (const entry of ok(await variant.env.listDir(path, context)).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of ok(await ws.env.listDir(path, context)).sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name === '.git' || isTemporary(entry.name)) continue;
       const child = `${path}/${entry.name}`;
-      if (entry.kind === 'directory') files.push(...await walk(variant, child)); else if (entry.kind === 'file') files.push(child);
+      if (entry.kind === 'directory') files.push(...await walk(ws, child)); else if (entry.kind === 'file') files.push(child);
     }
     return files;
   }
   const toBytes = content => typeof content === 'string' ? new TextEncoder().encode(content) : content;
   /** Puts a scenario's files in the workspace (only those that are missing) and commits them when the variant has a repository. */
-  async function seed(variant, scenario) {
+  async function seed(variant, ws, scenario) {
     const written = [];
-    for (const [path, content] of Object.entries(scenario.seed ?? {})) if (await createFile(variant, path, toBytes(content))) written.push(path);
+    for (const [path, content] of Object.entries(scenario.seed ?? {})) if (await createFile(ws, path, toBytes(content))) written.push(path);
     if (written.length && scenario.seedCommit && variant.infra.commit) await variant.infra.commit(written, scenario.seedCommit);
     return written;
   }
@@ -174,21 +243,43 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   // ---- Durable native sessions. Reopening the same file resumes unfinished work.
   const registry = createRegistry();
   for (const variant of entries) variant.agent.install(registry);
-  const environments = new Map(), byCwd = new Map(entries.map(variant => [variant.root, variant.env]));
+  // The environment of each use, from the conversation's durable owner: its variant's one workspace, or its person's team workspace (the
+  // same cache entry the tools resolve). A conversation no variant owns (an unmanaged native fork) gets the default workspace, never a team one.
+  const singles = entries.filter(variant => variant.single), byCwd = new Map(singles.map(variant => [variant.root, variant.env]));
   harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'session.sqlite')), { registry, models,
-    env: target => environments.get(String(target.conversationId)) ?? byCwd.get(target.cwd) ?? fallback.env }, context);
+    env: async (target, callContext) => {
+      const caller = await callerOf(target.conversationId, callContext);
+      if (caller) return caller.variant.team ? caller.variant.team.env(target, callContext) : caller.variant.env;
+      return byCwd.get(target.cwd) ?? singles[0]?.env;
+    } }, context);
   // The conversation list (title, last message, last activity, archived, deleted) is one native document per conversation
   // (`@boring/agent/conversations`), kept by Pi with the transcript. A conversation's owner is its variant's agent.
   const managed = createConversations({ harness, context, onError: error => console.error('conversation metadata:', error?.message ?? error) });
-  // The live handles the chat transport serves (deleted ones are dropped), and the variant each belongs to.
-  const conversations = new Map(), variantOfConversation = new Map();
-  const register = (variant, conversation) => {
-    conversations.set(String(conversation.id), conversation); environments.set(String(conversation.id), variant.env); variantOfConversation.set(String(conversation.id), variant);
+  // The live handles the chat transport serves (deleted ones are dropped), and the variant and person each belongs to.
+  const conversations = new Map(), variantOfConversation = new Map(), principalOfConversation = new Map();
+  /** The owner key of the conversations of a variant for a person: the agent id, and for the team the person too. */
+  const ownerKey = (variant, principal = human.principalId) => variant.team ? `${variant.agent.id}/${principal}` : variant.agent.id;
+  const register = (variant, conversation, principal = human.principalId) => {
+    conversations.set(String(conversation.id), conversation); variantOfConversation.set(String(conversation.id), variant); principalOfConversation.set(String(conversation.id), principal);
   };
-  async function create(variant) {
-    const conversation = await managed.create(variant.agent.id, { start: init => variant.agent.createConversation(harness, context, { init }) });
-    register(variant, conversation);
+  async function create(variant, principal = human.principalId) {
+    const conversation = await managed.create(ownerKey(variant, principal), { start: init => variant.agent.createConversation(harness, context, { init }) });
+    register(variant, conversation, principal);
     return conversation;
+  }
+  /** A person's conversations of the team variant are loaded on their first request (the host does not list every person at start). */
+  const loadedTeams = new Set();
+  async function loadTeamConversations(variant, principal) {
+    const key = ownerKey(variant, principal);
+    if (loadedTeams.has(key)) return;
+    let cursor;
+    do {
+      const page = await managed.list({ owner: key, archived: 'all', limit: 200, ...(cursor ? { cursor } : {}) });
+      for (const item of page.items) { const found = await harness.conversation(item.id, context); if (found) register(variant, found, principal); }
+      cursor = page.next;
+    } while (cursor);
+    if (![...variantOfConversation].some(([id, owner]) => owner === variant && principalOfConversation.get(id) === principal)) await create(variant, principal);
+    loadedTeams.add(key);
   }
   // Dev data of earlier studio versions: its own index and activity files are read once, their conversations adopted, then set aside.
   const legacyIndex = join(directory, 'conversations.json'), legacyActivity = join(directory, 'conversation-activity.json');
@@ -199,7 +290,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     renameSync(legacyIndex, `${legacyIndex}.migrated`);
     if (existsSync(legacyActivity)) renameSync(legacyActivity, `${legacyActivity}.migrated`);
   }
-  for (const variant of entries) {
+  for (const variant of singles) {
     let cursor;
     do {
       const page = await managed.list({ owner: variant.agent.id, archived: 'all', limit: 200, ...(cursor ? { cursor } : {}) });
@@ -209,14 +300,18 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (![...variantOfConversation.values()].includes(variant)) await create(variant);
   }
   // The History list's operations (list and search, create, rename, archive, delete, fork), scoped to the variant's agent.
-  for (const variant of entries) variant.conversationsHandler = createConversationsHandler({ conversations: managed, authenticate: async request => authenticated(request) ? {
-    owner: variant.agent.id, start: init => variant.agent.createConversation(harness, context, { init }),
-    opened: conversation => register(variant, conversation),
-    deleted: async id => {
-      conversations.delete(String(id)); environments.delete(String(id)); variantOfConversation.delete(String(id));
-      if (![...variantOfConversation.values()].includes(variant)) await create(variant);
-    },
-  } : null });
+  for (const variant of entries) variant.conversationsHandler = createConversationsHandler({ conversations: managed, authenticate: async request => {
+    const principal = principalOf(request);
+    if (principal === null || (!variant.team && principal !== human.principalId)) return null;
+    return {
+      owner: ownerKey(variant, principal), start: init => variant.agent.createConversation(harness, context, { init }),
+      opened: conversation => register(variant, conversation, principal),
+      deleted: async id => {
+        conversations.delete(String(id)); variantOfConversation.delete(String(id)); principalOfConversation.delete(String(id));
+        if (![...variantOfConversation].some(([other, owner]) => owner === variant && principalOfConversation.get(other) === principal)) await create(variant, principal);
+      },
+    };
+  } });
   // A self-evolving agent's `.agent/` lives in its workspace: the same scan as `reload` reinstalls it before any conversation resumes.
   for (const variant of entries) {
     if (!variant.agent.reload) continue;
@@ -233,26 +328,37 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   await meter.recover(harness);
   harness.resume();
   // External channels (WhatsApp) when configured: same harness and conversations, own signed webhook instead of the bearer token.
-  const channelEntries = entries.map(variant => ({ ...variant, agent: variant.agent }));
+  const channelEntries = singles.map(variant => ({ ...variant, agent: variant.agent }));
   const channels = whatsapp ? startChannels({ directory, harness, context, agents: channelEntries, conversations, create: entry => create(variants.get(entry.id)), whatsapp }) : undefined;
   await channels?.start();
 
-  function authenticated(request) { return request.headers.get('authorization') === `Bearer ${token}`; }
-  const ownerOf = conversation => variantOfConversation.get(String(conversation.id));
   const chat = createChatTransportHandler({ ...(heartbeatMs === undefined ? {} : { heartbeatMs }), authenticate: async request => {
-    const conversation = conversations.get(new URL(request.url).searchParams.get('conversation') ?? '');
-    if (!authenticated(request) || !conversation) return null;
-    const owner = ownerOf(conversation);
+    const principal = principalOf(request);
+    const id = new URL(request.url).searchParams.get('conversation') ?? '';
+    if (principal === null || !/^\d+$/.test(id)) return null;
+    // A person's team conversations may not be loaded yet after a restart: their durable owner says whose they are.
+    if (!conversations.has(id)) {
+      const caller = await callerOf(Number(id)).catch(() => undefined);
+      if (caller?.variant.team && caller.principal === principal) await loadTeamConversations(caller.variant, principal);
+    }
+    const conversation = conversations.get(id);
+    if (!conversation || principalOfConversation.get(id) !== principal) return null;
+    const owner = variantOfConversation.get(id);
     // Every message sees what the person attached or @mentioned: the host reads the workspace and adds the files to the input.
     // In a variant with credits a message is reserved against the person's balance before it reaches the conversation (or refused):
     // the host maps its authentication to the metering scope (the person, the variant's workspace, a fictional plan).
-    const scope = { userId: human.principalId, workspaceId: owner.descriptor.id, attributes: { plan: 'fictional-free' } };
-    return { conversation: owner.descriptor.credits ? meter.conversation(conversation, scope) : conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
+    const scope = { userId: principal, workspaceId: owner.team ? `${owner.descriptor.id}/${principal}` : owner.descriptor.id, attributes: { plan: 'fictional-free' } };
+    // @mentions read the conversation's own workspace, borrowed for the read only.
+    const prepareInput = async input => {
+      const borrowed = await workspaceOfRequest(owner, principal);
+      try { return await borrowed.ws.mentions(input); } finally { borrowed.release(); }
+    };
+    return { conversation: owner.descriptor.credits ? meter.conversation(conversation, scope) : conversation, context, prepareInput, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
       answer: (callId, answer) => answerUserQuestion(conversation, callId, answer, context), configure: change => configure(conversation, change) };
   } });
   // The host owns the allow-list: a change outside the declared models and efforts is refused, not applied.
   const configure = (conversation, change) => configureOffered(conversation, change, context, model => offered.some(item => item.provider === model.provider && item.modelId === model.modelId));
-  const describeVariant = (descriptor, variant) => ({
+  const describeVariant = (descriptor, variant, principal = human.principalId) => ({
     id: descriptor.id, title: descriptor.title, description: descriptor.description, available: variant !== undefined,
     ...(descriptor.available === true ? {} : { reason: descriptor.available.reason }), ...(descriptor.link ? { link: descriptor.link } : {}),
     ...(variant ? {
@@ -261,15 +367,21 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       tools: variant.agent.extensions.flatMap(extension => (extension.tools ?? []).map(tool => tool.name)),
       chat: { models: offered.map(model => ({ provider: model.provider, modelId: model.modelId, label: model.label })), efforts: EFFORTS },
       notes: variant.notes, canvas: variant.canvas,
-      conversations: [...variantOfConversation].filter(([, owner]) => owner === variant).map(([id]) => Number(id)).sort((a, b) => a - b),
+      conversations: [...variantOfConversation].filter(([id, owner]) => owner === variant && principalOfConversation.get(id) === principal).map(([id]) => Number(id)).sort((a, b) => a - b),
     } : {}),
   });
-  const describe = () => ({ variants: descriptors.map(descriptor => describeVariant(descriptor, variants.get(descriptor.id))), scenarios: scenarios.map(describeScenario) });
+  /** What the browser lists. The team's other people see only the team variant, with their own conversations. */
+  const describe = (principal = human.principalId) => ({
+    variants: descriptors.filter(descriptor => principal === human.principalId || variants.get(descriptor.id)?.team).map(descriptor => describeVariant(descriptor, variants.get(descriptor.id), principal)),
+    scenarios: scenarios.map(describeScenario) });
 
   async function api(request, url) {
-    if (!authenticated(request)) return Response.json({ reason: 'authentication-required' }, { status: 401 });
-    const variant = variantOf(request);
-    if (request.method === 'GET' && url.pathname === '/api/studio') return Response.json(describe());
+    const principal = principalOf(request);
+    if (principal === null) return Response.json({ reason: 'authentication-required' }, { status: 401 });
+    if (request.method === 'GET' && url.pathname === '/api/studio') {
+      for (const variant of entries) if (variant.team) await loadTeamConversations(variant, principal);
+      return Response.json(describe(principal));
+    }
     const listed = /^\/api\/variants\/([a-z0-9._-]+)\/conversations$/.exec(url.pathname);
     // The History list: the variant's conversations, newest activity first (`@boring/agent/conversations`).
     if (listed) {
@@ -277,9 +389,17 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       if (!target) return Response.json({ reason: 'unknown-variant' }, { status: 404 });
       return target.conversationsHandler(request);
     }
+    const variant = variantOf(request);
+    const borrowed = await workspaceOfRequest(variant, principal);
+    if (!borrowed) return Response.json({ reason: 'not-authorized' }, { status: 403 });
+    try { return await workspaceApi(request, url, variant, borrowed.ws, principal); } finally { borrowed.release(); }
+  }
+  /** The routes of one workspace: the variant's, or the requesting person's team workspace. */
+  async function workspaceApi(request, url, variant, ws, principal) {
+    if (url.pathname === '/api/resources') return ws.resourceHandler(request);
     // The person's fictional credits; POST tops them back up to the starting balance (the stand-in for buying more), or sets them to
     // `{ balanceMicros }` (a fixture for the low-balance scenario).
-    if (url.pathname === '/api/credits') {
+    if (url.pathname === '/api/credits' && principal === human.principalId) {
       if (request.method === 'POST') {
         const wanted = Number((await request.json().catch(() => ({})))?.balanceMicros ?? CREDITS.startMicros);
         if (!Number.isSafeInteger(wanted) || wanted < 0 || wanted > CREDITS.startMicros) return Response.json({ reason: 'invalid-balance' }, { status: 400 });
@@ -288,13 +408,13 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       }
       return Response.json({ ...await ledger.balance(human.principalId), holdMicros: CREDITS.holdMicros, premiumHoldMicros: CREDITS.premiumHoldMicros, variants: entries.filter(entry => entry.descriptor.credits).map(entry => entry.id) });
     }
-    if (request.method === 'GET' && url.pathname === '/api/files') return Response.json({ files: (await walk(variant)).map(path => virtual(variant, path)) });
+    if (request.method === 'GET' && url.pathname === '/api/files') return Response.json({ files: (await walk(ws)).map(path => virtual(ws, path)) });
     // The retained versions of one workspace file (relative path) with their save times, newest first: the version list of a presented file.
-    if (request.method === 'GET' && url.pathname === '/api/history') return Response.json({ saves: variant.files.saves(url.searchParams.get('path') ?? '') });
+    if (request.method === 'GET' && url.pathname === '/api/history') return Response.json({ saves: ws.files.saves(url.searchParams.get('path') ?? '') });
     if (request.method === 'GET' && url.pathname === '/api/file') {
       const path = url.searchParams.get('path') ?? '';
       if (!validPath(path)) return Response.json({ reason: 'invalid-path' }, { status: 400 });
-      const found = await readOf(variant, path.slice(VIRTUAL_ROOT.length + 1));
+      const found = await readOf(ws, path.slice(VIRTUAL_ROOT.length + 1));
       if (found.kind !== 'available') return Response.json({ reason: 'not-found' }, { status: 404 });
       const read = { value: found.snapshot.bytes };
       const mediaType = mediaTypeOf(path);
@@ -307,7 +427,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     }
     if (request.method === 'GET' && url.pathname === '/api/search') {
       const needle = (url.searchParams.get('q') ?? '').toLowerCase();
-      const paths = (await walk(variant)).map(path => virtual(variant, path).slice(VIRTUAL_ROOT.length + 1));
+      const paths = (await walk(ws)).map(path => virtual(ws, path).slice(VIRTUAL_ROOT.length + 1));
       const rank = path => path.split('/').pop().toLowerCase().includes(needle) ? 0 : 1;
       return Response.json({ results: paths.filter(path => path.toLowerCase().includes(needle)).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).slice(0, 8).map(path => ({ path, kind: 'file' })) });
     }
@@ -319,7 +439,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const bytes = new Uint8Array(await request.arrayBuffer());
       if (bytes.byteLength === 0 || bytes.byteLength > 5_000_000) return Response.json({ reason: bytes.byteLength ? 'file-too-large' : 'file-is-empty' }, { status: 413 });
       let saved = name;
-      for (let n = 2; !await createFile(variant, `uploads/${saved}`, bytes); n++) saved = name.replace(/(\.[^.]*)?$/, suffix => `-${n}${suffix}`);
+      for (let n = 2; !await createFile(ws, `uploads/${saved}`, bytes); n++) saved = name.replace(/(\.[^.]*)?$/, suffix => `-${n}${suffix}`);
       // An image is also handed back as base64 for the chat to attach; the file is kept either way.
       return Response.json({ name: saved, path: `uploads/${saved}`, ...(mimeType.startsWith('image/') ? { image: { data: Buffer.from(bytes).toString('base64'), mimeType } } : {}) });
     }
@@ -328,14 +448,16 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (scenarioRoute) {
       const scenario = scenarios.find(candidate => candidate.id === scenarioRoute[1]);
       if (!scenario) return Response.json({ reason: 'unknown-scenario' }, { status: 404 });
-      if (request.method === 'POST' && scenarioRoute[2] === 'seed') return Response.json({ written: await seed(variant, scenario) });
+      if (request.method === 'POST' && scenarioRoute[2] === 'seed') return Response.json({ written: await seed(variant, ws, scenario) });
       const upload = scenario.steps[Number(scenarioRoute[3])]?.upload;
       if (request.method === 'GET' && upload) return new Response(toBytes(upload.content), { headers: { 'content-type': upload.mimeType ?? mediaTypeOf(upload.name), 'content-disposition': `attachment; filename="${upload.name}"` } });
       return Response.json({ reason: 'not-found' }, { status: 404 });
     }
     // The Tasks tab: the child conversations of the open conversation (background subagents among them).
     if (request.method === 'GET' && url.pathname === '/api/tasks') {
-      const found = await variant.subagents.describe(Number(url.searchParams.get('conversation')), variant.agent.id);
+      const parent = Number(url.searchParams.get('conversation'));
+      if (principalOfConversation.get(String(parent)) !== principal) return Response.json({ reason: 'unknown-conversation' }, { status: 404 });
+      const found = await variant.subagents.describe(parent, variant.agent.id);
       return found ? Response.json(found) : Response.json({ reason: 'unknown-conversation' }, { status: 404 });
     }
     // The person's `/reload`: the same function as the agent's `reload` tool, over the same workspace environment.
@@ -344,7 +466,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const report = await variant.agent.reload(variant.env, context);
       return Response.json({ text: report.text, report });
     }
-    if (variant.infra.routes) { const response = await variant.infra.routes(request, url); if (response) return response; }
+    if (variant.infra.routes && principal === human.principalId) { const response = await variant.infra.routes(request, url); if (response) return response; }
     return Response.json({ reason: 'not-found' }, { status: 404 });
   }
 
@@ -379,7 +501,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       if (!request) return void outgoing.writeHead(413).end();
       const channel = channels && Object.hasOwn(channels.routes, url.pathname) ? channels.routes[url.pathname] : undefined;
       const response = channel ? await channel(request) : url.pathname === '/api/chat' ? await chatWithFaults(request)
-        : url.pathname === '/api/resources' ? await variantOf(request).resourceHandler(request) : await api(request, url);
+        : await api(request, url);
       await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
       if (!outgoing.headersSent) outgoing.writeHead(500);
@@ -389,10 +511,10 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   });
   await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}/`, port: server.address().port, token, provider, scripted, scriptMisses, channels: channels ? { whatsapp: channels.agent } : {},
+    url: `http://127.0.0.1:${server.address().port}/`, port: server.address().port, token, teamTokens, provider, scripted, scriptMisses, channels: channels ? { whatsapp: channels.agent } : {},
     /** The variants as the browser sees them, with availability. */
     watches, submitFaults, variants: () => describe().variants, scenarios: () => scenarios, agents: () => entries.map(variant => describeVariant(variant.descriptor, variant)),
-    harness, conversations, files: fallback.files, host: { ...hostInfo, agentAccess, env: fallback.env, variants },
+    harness, conversations, files: singles[0]?.single.files, host: { ...hostInfo, agentAccess, env: singles[0]?.env, variants },
     persist: async () => { for (const variant of entries) await variant.infra.persist?.(); },
     close: async () => {
       server.closeAllConnections();
@@ -402,7 +524,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       await managed.dispose();
       await harness.close(context);
       creditsDb.close();
-      for (const variant of entries) { for (const connection of variant.mcp) await connection.close(); await variant.infra.close?.(); }
+      for (const variant of entries) { for (const connection of variant.mcp) await connection.close(); await variant.team?.close(); await variant.infra.close?.(); }
       workspaceDb.close();
     },
   };

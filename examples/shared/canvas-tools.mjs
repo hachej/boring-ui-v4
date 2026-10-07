@@ -5,7 +5,8 @@
 // No Node-only imports.
 import { defineTool } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
-import { lastReadRevision, recordRevision } from '@boring/agent/file-guard';
+import { baselineKey, lastReadRevision, recordRevision } from '@boring/agent/file-guard';
+import { asWorkspaceResolver, workspaceFor } from '@boring/agent/workspaces';
 import { DocumentRecordType, PageRecordType, TLDOCUMENT_ID, createBindingId, createShapeId, createTLSchema, toRichText } from '@tldraw/tlschema';
 import { getIndexAbove } from '@tldraw/utils';
 
@@ -52,12 +53,22 @@ function describe(document) {
 }
 
 /**
- * The three canvas tools over one workspace file. `files` is the workspace provider (`@boring/files/workspace`), `path` the file,
- * `access` the agent's principal and `namespace` makes publication operation ids unique to the host.
+ * The three canvas tools over one workspace file. `workspace` is the workspace of each call, resolved like Pi's env
+ * (`@boring/agent/workspaces`: a resolver, or one binding `{ files, root, access? }` whose `files` is the workspace provider);
+ * `path` the file, `access` the agent's principal (default: the binding's) and `namespace` makes publication operation ids unique
+ * to the host. `files` alone is the one-workspace shorthand.
  */
-export function createCanvasTools({ files, path = 'board.tldraw', access, namespace = 'canvas-v1' }) {
-  const target = { resource: { providerId: files.providerId, path }, view: { kind: 'published' } };
-  async function load() {
+export function createCanvasTools({ files, workspace = { files, root: '/' }, path = 'board.tldraw', access, namespace = 'canvas-v1' }) {
+  const resolver = asWorkspaceResolver(workspace);
+  /** The call's workspace: its provider, the agent's access, the file's locator and the conversation's baseline key. */
+  async function bind(api, context) {
+    const resolved = await workspaceFor(resolver, api, context);
+    if (resolved.refused) return { refused: { kind: 'denied', reason: resolved.refused } };
+    const { binding } = resolved, granted = access ?? binding.access;
+    if (!granted) return { refused: { kind: 'denied', reason: 'The host gave no access for this workspace' } };
+    return { files: binding.files, access: granted, key: baselineKey(binding, path), target: { resource: { providerId: binding.files.providerId, path }, view: { kind: 'published' } } };
+  }
+  async function load({ files, access, target }) {
     const read = await files.read({ target, revision: { kind: 'latest' } }, access);
     if (read.kind === 'missing') return { kind: 'missing' };
     if (read.kind !== 'available') return { kind: 'failed', result: read };
@@ -66,16 +77,17 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
     } catch { return { kind: 'failed', result: { kind: 'unavailable', reason: 'The saved board is not a tldraw canvas' } }; }
   }
   /** Load for a change: the conversation must have read the saved canvas and it must be unchanged since; anything else is reported, never overwritten. */
-  async function loadForChange(api, context) {
-    const current = await load();
+  async function loadForChange(ws, api, context) {
+    const current = await load(ws);
     if (current.kind === 'failed') return { refused: current.result };
     if (current.kind === 'missing') return { document: emptyDocument(), revision: null };
-    const known = await lastReadRevision(api, path, context);
+    const known = await lastReadRevision(api, ws.key, context);
     if (known === undefined) return { refused: { kind: 'conflict', reason: 'You have not read the canvas yet. Call read_canvas first.' } };
     if (known !== current.revision) return { refused: { kind: 'conflict', reason: 'The canvas changed since you last read it. Call read_canvas again and redo the change.' } };
     return current;
   }
-  async function publish(api, context, document, revision) {
+  async function publish(ws, api, context, document, revision) {
+    const { files, access, target } = ws;
     const unsupported = [...shapesOf(document), ...bindingsOf(document)].find(record => !SUPPORTED.has(record.type));
     if (unsupported) return { kind: 'denied', reason: `The canvas contains an unsupported ${unsupported.type} record` };
     const bytes = new TextEncoder().encode(JSON.stringify(document));
@@ -83,8 +95,8 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
       changes: [revision === null ? { kind: 'create', target, expected: { kind: 'absent' }, bytes, mediaType: canvasMediaType }
         : { kind: 'replace', target: { ...target, revision }, bytes, mediaType: canvasMediaType }] }, access);
     if (result.kind !== 'committed') return result;
-    const saved = await load();
-    if (saved.kind === 'available') await recordRevision(api, path, saved.revision, context);
+    const saved = await load(ws);
+    if (saved.kind === 'available') await recordRevision(api, ws.key, saved.revision, context);
     return { kind: 'saved', revision: saved.kind === 'available' ? saved.revision : undefined, shapes: describe(document) };
   }
 
@@ -92,8 +104,10 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
     name: 'read_canvas', description: 'Read the saved canvas: a compact list of shapes (id, type, text, x, y, w, h; arrows have from and to shape ids). Read it before you change it. Reports missing when nothing is saved yet.',
     parameters: Type.Object({}, { additionalProperties: false }), replay: 'safe',
     execute: async (_args, api, context) => {
-      const current = await load();
-      if (current.kind === 'available') await recordRevision(api, path, current.revision, context);
+      const ws = await bind(api, context);
+      if (ws.refused) return reply(ws.refused);
+      const current = await load(ws);
+      if (current.kind === 'available') await recordRevision(api, ws.key, current.revision, context);
       return reply(current.kind === 'available' ? { kind: 'available', shapes: describe(current.document) } : current.kind === 'missing' ? { kind: 'missing', shapes: [] } : current.result);
     },
   });
@@ -121,7 +135,9 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
     execute: async (args, api, context) => {
       const shapes = args.shapes ?? [], arrows = args.arrows ?? [];
       if (shapes.length + arrows.length === 0) return reply({ kind: 'denied', reason: 'Nothing to add' });
-      const current = await loadForChange(api, context);
+      const ws = await bind(api, context);
+      if (ws.refused) return reply(ws.refused);
+      const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
       const { document } = current, page = pageOf(document);
       if (!page) return reply({ kind: 'denied', reason: 'The canvas has no page' });
@@ -152,7 +168,7 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
             props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false, snap: 'none' } }));
         }
       } catch (error) { return reply({ kind: 'denied', reason: `Invalid canvas record: ${error?.message ?? error}` }); }
-      return reply(await publish(api, context, document, current.revision));
+      return reply(await publish(ws, api, context, document, current.revision));
     },
   });
 
@@ -161,7 +177,9 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
     parameters: Type.Object({ ids: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) }, { additionalProperties: false }),
     replay: 'unsafe',
     execute: async (args, api, context) => {
-      const current = await loadForChange(api, context);
+      const ws = await bind(api, context);
+      if (ws.refused) return reply(ws.refused);
+      const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
       if (current.revision === null) return reply({ kind: 'denied', reason: 'No canvas is saved' });
       const { document } = current, doomed = new Set(args.ids.map(id => createShapeId(slug(id))));
@@ -172,7 +190,7 @@ export function createCanvasTools({ files, path = 'board.tldraw', access, namesp
       for (let grew = true; grew;) { grew = false; for (const shape of shapesOf(document)) if (doomed.has(shape.parentId) && !doomed.has(shape.id)) { doomed.add(shape.id); grew = true; } }
       for (const binding of bindingsOf(document)) if (doomed.has(binding.fromId) || doomed.has(binding.toId)) delete document.store[binding.id];
       for (const id of doomed) delete document.store[id];
-      return reply(await publish(api, context, document, current.revision));
+      return reply(await publish(ws, api, context, document, current.revision));
     },
   });
 

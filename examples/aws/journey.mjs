@@ -6,7 +6,8 @@
 //     workspace provider (the viewer's read) sees the command's change;
 //   - two users never see each other's folders: separate access points, folder-confined file tools, separate listings;
 //   - an expired interpreter session is reported lost to the command, and the next request starts a new session;
-//   - bearer, user and session checks, and /ping.
+//   - bearer, user and session checks, and /ping;
+//   - the per-owner harness pool: one harness per user and conversation key, closed once idle, reopened with its history.
 // Run: npm run build && node examples/aws/journey.mjs
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
@@ -57,7 +58,7 @@ const app = await startAwsHost({ port: 0, hostname: '127.0.0.1', efsRoot: efs, m
   users: async claims => USERS[claims.sub] ? { userId: claims.sub, uid: USERS[claims.sub].uid, accessPointArn: ARN(claims.sub), fileSystemArn: FILE_SYSTEM } : null,
   verifyToken: createJwtVerifier({ issuer: ISSUER, audience: AUDIENCE, jwks }),
   codeInterpreter: { client: await fake.client(), identifier: fake.codeInterpreterIdentifier, pollIntervalMs: 50 },
-  requireSessionHeader: true });
+  requireSessionHeader: true, harnessIdleMs: 1500 });
 
 const invoke = (user, body, { bearer = token(user), session = runtimeSessionId(user, body.conversation ?? 'main') } = {}) => fetch(`${app.url}/invocations`, {
   method: 'POST', body: JSON.stringify(body),
@@ -129,6 +130,19 @@ try {
     const renewed = await turn('user-a', 'After renewal: show the plan again.');
     assert.match(renewed.results.at(-1).text, /reviewed in the interpreter/);
     assert.notEqual(app.perUser.get('user-a').interpreter.sessionId(), before);
+  });
+  await step('per-owner pool: one harness per user and key, never shared; idle ones close; the next request reopens with the history', async () => {
+    const opened = await app.harnesses.opened();
+    assert.ok(opened.length <= 2 && new Set(opened.map(item => item.harness)).size === opened.length, 'one harness per owner');
+    await until('every idle harness closed', () => app.harnesses.owners().length === 0);
+    const renewed = await turn('user-a', 'After renewal: the plan once more, from a reopened harness.');
+    assert.match(renewed.results.at(-1).text, /reviewed in the interpreter/);
+    assert.deepEqual(app.harnesses.owners(), ['user-a/main']);
+    const { page } = await ok(await invoke('user-a', { op: 'entries', params: { limit: '50' } }));
+    const users = page.items.flatMap(entry => entry.model ?? []).filter(message => message.role === 'user').map(message => JSON.stringify(message.content));
+    assert.ok(users.some(text => text.includes('Shared folder check')), 'the conversation kept its history across the close');
+    await ok(await invoke('user-b', { op: 'files' }));
+    assert.deepEqual(app.harnesses.owners(), ['user-a/main'], 'a file listing opens no harness');
   });
   assert.ok(statuses.has('HealthyBusy'), '/ping reported HealthyBusy while a turn ran');
   assert.deepEqual(misses, [], 'every model turn was scripted');

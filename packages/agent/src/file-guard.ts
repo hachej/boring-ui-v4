@@ -4,7 +4,8 @@ import { getOrThrow } from '@earendil-works/pi-durable/env';
 import { createEditTool, createReadTool, createWriteTool } from '@earendil-works/pi-durable/tools';
 import type { Context } from '@earendil-works/chord';
 import type { ResourceAccess } from '@boring/files';
-import type { WorkspaceResourceProvider } from '@boring/files/workspace';
+import { asWorkspaceResolver, workspaceFor } from './workspaces.js';
+import type { WorkspaceBinding, WorkspaceResolver } from './workspaces.js';
 
 /*
  * The guard for Pi's own `read`, `write` and `edit`. It adds no tool and no file API: it wraps the native tools (public
@@ -22,30 +23,43 @@ import type { WorkspaceResourceProvider } from '@boring/files/workspace';
  * Pi's `edit` matches `oldText` exactly first and only then falls back to a fuzzy match (Unicode normalisation, trailing
  * whitespace, smart quotes, dashes and special spaces); that is Pi's behaviour and the guard does not change it. A shell write
  * (`bash`) is not intercepted, but it changes the revision, so the next `write` or `edit` of that file is refused until read.
+ *
+ * The workspace is resolved per call, like Pi's environment (`@boring/agent/workspaces`): one guard serves every conversation of
+ * a harness, each in its own workspace. Baselines are keyed by the workspace identity and the path.
  */
 
 type Baselines = { revisions: Record<string, string> };
-/** Conversation document: path (relative to the workspace root) to the revision this conversation last read or wrote. */
+/** Conversation document: workspace and path (relative to the workspace root; see `baselineKey`) to the revision this conversation last read or wrote. */
 export const lastReadRevisions = defineDoc<Baselines>({
   kind: 'boring.files.last-read', version: 1, scope: 'conversation', history: 'latest', fork: 'initial',
   initial: () => ({ revisions: {} }),
 });
 
-/** The revision of `path` (relative to the workspace root) this conversation last read or wrote, or undefined. Also what host tools over workspace files (such as the canvas tools) check. */
-export const lastReadRevision = async (api: ToolExecutionApi, path: string, context: Context): Promise<string | undefined> =>
-  (await api.snapshot(lastReadRevisions, api.conversationId, context))?.revisions[path];
-/** Record `revision` as the conversation's baseline for `path`, durably. */
-export const recordRevision = (api: ToolExecutionApi, path: string, revision: string, context: Context): Promise<void> => api.commit(async tx => {
+/** The baseline key of `path` in `workspace` (its `id`, or its provider id): `<workspace>:<path>`. */
+export const baselineKey = (workspace: Pick<WorkspaceBinding, 'id' | 'files'>, path: string): string => `${workspace.id ?? workspace.files.providerId}:${path}`;
+/** The revision this conversation last read or wrote under `key` (see `baselineKey`), or undefined. Also what host tools over workspace files (such as the canvas tools) check. */
+export const lastReadRevision = async (api: ToolExecutionApi, key: string, context: Context): Promise<string | undefined> =>
+  (await api.snapshot(lastReadRevisions, api.conversationId, context))?.revisions[key];
+/** Record `revision` as the conversation's baseline under `key` (see `baselineKey`), durably. */
+export const recordRevision = (api: ToolExecutionApi, key: string, revision: string, context: Context): Promise<void> => api.commit(async tx => {
   const doc = await tx.doc(lastReadRevisions, api.conversationId);
-  doc.revisions[path] = revision;
+  doc.revisions[key] = revision;
 }, context);
 
 export interface FileGuardOptions {
-  /** The workspace provider the viewers use: its queue serialises the calls, its reads name the revisions. */
-  readonly files: Pick<WorkspaceResourceProvider, 'providerId' | 'read' | 'queue'>;
-  /** The workspace root as the call's ExecutionEnv names it (the provider's `fs.cwd`). Paths outside it are refused. */
-  readonly root: string;
-  readonly resolveAccess: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
+  /**
+   * The workspace of each call: a resolver shaped like `HarnessOptions.env` (`@boring/agent/workspaces`), or one binding
+   * `{ files, root }` for a host with a single workspace. `files` is the provider the viewers use (its queue serialises the calls,
+   * its reads name the revisions); `root` is the workspace root as the call's ExecutionEnv names it. Paths outside it are refused.
+   */
+  readonly workspace: WorkspaceResolver | WorkspaceBinding;
+  /** The agent's principal for the provider. Default: the binding's `access`. */
+  readonly resolveAccess?: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
+  /**
+   * The extension name (default `boring.files.guard`). A registry keeps one extension per name, so two agents with different
+   * workspace resolvers in one registry need two names; otherwise the last installed guard wraps every agent's tools.
+   */
+  readonly name?: string;
 }
 
 type Observed = { readonly kind: 'file'; readonly revision: string } | { readonly kind: 'missing' } | { readonly kind: 'refused'; readonly reason: string };
@@ -57,16 +71,14 @@ const normalised = (path: string) => { const spaced = path.replace(/[  - �
 
 /** The guard as a native extension. Select it after the extension(s) that register `read`, `write` and `edit`. */
 export function createFileGuard(options: FileGuardOptions) {
-  const { files, resolveAccess } = options;
-  const root = options.root.replace(/\/+$/, '');
-  if (!root.startsWith('/')) throw new TypeError('The guard needs the absolute workspace root');
+  const resolver = asWorkspaceResolver(options.workspace);
 
-  async function relative(api: ToolExecutionApi, path: string, context: Context): Promise<string | undefined> {
+  async function relative(api: ToolExecutionApi, root: string, path: string, context: Context): Promise<string | undefined> {
     if (api.env === undefined) return undefined;
     const absolute = getOrThrow(await api.env.absolutePath(normalised(path), context));
     return absolute.startsWith(`${root}/`) ? absolute.slice(root.length + 1) : undefined;
   }
-  async function observe(path: string, access: ResourceAccess): Promise<Observed> {
+  async function observeIn(files: WorkspaceBinding['files'], path: string, access: ResourceAccess): Promise<Observed> {
     const read = await files.read({ target: { resource: { providerId: files.providerId, path }, view: { kind: 'published' } }, revision: { kind: 'latest' } }, access);
     if (read.kind === 'available') return { kind: 'file', revision: read.snapshot.ref.revision };
     if (read.kind === 'missing') return { kind: 'missing' };
@@ -75,29 +87,38 @@ export function createFileGuard(options: FileGuardOptions) {
   function guarded<Tool extends ToolRegistration>(tool: Tool, mode: 'read' | 'write' | 'edit'): Tool {
     const execute = async (args: Args, api: ToolExecutionApi, context: Context): Promise<ToolExecutionResult> => {
       const run = () => (tool.execute as (args: Args, api: ToolExecutionApi, context: Context) => Promise<ToolExecutionResult>)(args, api, context);
-      const access = { ...await resolveAccess(api, context) };
-      const path = await relative(api, args.path, context);
+      const resolved = await workspaceFor(resolver, api, context);
+      if ('refused' in resolved) return mode === 'read' ? run() : refusal(`Refused: ${resolved.refused}`);
+      const { binding } = resolved;
+      const { files } = binding;
+      const root = binding.root.replace(/\/+$/, '');
+      const granted = options.resolveAccess ? await options.resolveAccess(api, context) : binding.access;
+      if (granted === undefined) return refusal('Refused: the host gave no access for this workspace.');
+      const access = { ...granted };
+      const observe = (path: string) => observeIn(files, path, access);
+      const path = await relative(api, root, args.path, context);
       if (path === undefined) return mode === 'read' ? run() : refusal(`Refused: ${args.path} is outside the workspace.`);
+      const key = baselineKey(binding, path);
       return files.queue.run(async () => {
-        const before = await observe(path, access);
+        const before = await observe(path);
         if (mode === 'read') {
           const result = await run();
           if (result.isError || before.kind !== 'file') return result;
           // Record only the bytes the model saw: a change during the call (a shell) leaves the baseline alone.
-          const after = await observe(path, access);
-          if (after.kind === 'file' && after.revision === before.revision) await recordRevision(api, path, after.revision, context);
+          const after = await observe(path);
+          if (after.kind === 'file' && after.revision === before.revision) await recordRevision(api, key, after.revision, context);
           return result;
         }
         if (before.kind === 'refused') return refusal(`Refused: ${path} cannot be changed here (${before.reason}).`);
         if (before.kind === 'file') {
-          const known = await lastReadRevision(api, path, context);
+          const known = await lastReadRevision(api, key, context);
           if (known === undefined) return refusal(`Refused: ${path} already exists and you have not read it in this conversation. Read it with the read tool, then make your change.`);
           if (known !== before.revision) return refusal(`Refused: ${path} changed since you last read it (the person or another process saved it). Read it again with the read tool, then redo your change on top of what is there now.`);
         }
         const result = await run();
         if (!result.isError) {
-          const after = await observe(path, access);
-          if (after.kind === 'file') await recordRevision(api, path, after.revision, context);
+          const after = await observe(path);
+          if (after.kind === 'file') await recordRevision(api, key, after.revision, context);
         }
         return result;
       });
@@ -106,7 +127,7 @@ export function createFileGuard(options: FileGuardOptions) {
   }
 
   return defineExtension({
-    name: 'boring.files.guard',
+    name: options.name ?? 'boring.files.guard',
     wraps: [
       wrapTool(createReadTool() as ToolRegistration, tool => guarded(tool, 'read')),
       wrapTool(createWriteTool() as ToolRegistration, tool => guarded(tool, 'write')),

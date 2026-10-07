@@ -2,7 +2,9 @@ import { defineTool } from '@earendil-works/pi-durable';
 import type { ToolExecutionApi } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
 import type { Context } from '@earendil-works/chord';
-import type { ReadResult, ResourceAccess, ResourceLocator, ResourceReader } from '@boring/files';
+import type { ResourceAccess, ResourceLocator } from '@boring/files';
+import { asWorkspaceResolver, workspaceFor } from './workspaces.js';
+import type { WorkspaceBinding, WorkspaceResolver } from './workspaces.js';
 
 /*
  * Artifacts: substantial, self-contained content (a document, an HTML page, an SVG, code) that a chat shows as a card
@@ -84,11 +86,14 @@ const PRESENTED: Record<string, { readonly type: ArtifactType; readonly mediaTyp
 const LANGUAGE_OF: Record<string, string> = { js: 'javascript', mjs: 'javascript', ts: 'typescript', py: 'python', json: 'json', css: 'css', sql: 'sql', yaml: 'yaml', yml: 'yaml', sh: 'shell', rs: 'rust', go: 'go', java: 'java', csv: 'csv' };
 
 export interface PresentToolOptions {
-  /** The workspace's resource provider id (the `providerId` of its locators). */
-  readonly providerId: string;
-  /** The workspace's own provider (`@boring/files/workspace`): reads the file and retains the presented revision in its history. */
-  readonly files: { readonly read: ResourceReader['read']; readonly keep: (path: string, access: ResourceAccess) => Promise<ReadResult> };
-  readonly resolveAccess: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
+  /**
+   * The workspace of each call, resolved like Pi's environment (`@boring/agent/workspaces`), or one binding `{ files, root }`. Its
+   * provider (`@boring/files/workspace`) reads the file and retains the presented revision in its history; the descriptor names its
+   * provider id.
+   */
+  readonly workspace: WorkspaceResolver | WorkspaceBinding;
+  /** The agent's principal for the provider. Default: the binding's `access`. */
+  readonly resolveAccess?: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
   /** Largest file shown, in bytes. Defaults to 256 KiB. */
   readonly maxBytes?: number;
 }
@@ -98,8 +103,7 @@ export interface PresentToolOptions {
  * tools first. The card points at the file; the file's history (the provider's) is its list of versions. Nothing is written here.
  */
 export function createPresentTool(options: PresentToolOptions) {
-  const { providerId, files, resolveAccess } = options;
-  if (!providerId) throw new TypeError('A resource provider id is required');
+  const resolver = asWorkspaceResolver(options.workspace);
   const maxBytes = options.maxBytes ?? 256 * 1024;
   return defineTool({
     name: 'present',
@@ -114,7 +118,13 @@ export function createPresentTool(options: PresentToolOptions) {
     replay: 'safe',
     execute: async (args, api, context) => {
       const path = args.path.replace(/^\.\//, '');
-      const access = { ...await resolveAccess(api, context) };
+      const resolved = await workspaceFor(resolver, api, context);
+      if ('refused' in resolved) return reply({ kind: 'denied', reason: resolved.refused });
+      const { files } = resolved.binding;
+      const providerId = files.providerId;
+      const granted = options.resolveAccess ? await options.resolveAccess(api, context) : resolved.binding.access;
+      if (granted === undefined) return reply({ kind: 'denied', reason: 'The host gave no access for this workspace' });
+      const access = { ...granted };
       const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
       const kind = PRESENTED[extension] ?? { type: 'code' as const, mediaType: 'text/plain', language: LANGUAGE_OF[extension] };
       const target: ResourceLocator = { resource: { providerId, path }, view: { kind: 'published' } };

@@ -333,7 +333,7 @@ test('the file guard wraps Pi\'s read, write and edit: stale and unread changes 
   const journal = createWorkspaceJournal(openNodeConnection(join(directory, 'journal.sqlite')));
   const files = createWorkspaceProvider({ identity: { providerId: 'guarded', instanceId: 'one', incarnation: 'one', viewId: 'published' }, fs: env, journal });
   const person = { principalId: 'person', initiatorId: 'person', scopeId: 'fictional-project' };
-  const guard = createFileGuard({ files, root: workspace, resolveAccess: () => access });
+  const guard = createFileGuard({ workspace: { files, root: workspace }, resolveAccess: () => access });
   const open = async () => {
     const registry = createRegistry();
     registry.install(defineExtension({ name: 'fixture.files', tools: [createReadTool(), createWriteTool(), createEditTool()] }));
@@ -397,6 +397,120 @@ test('the file guard wraps Pi\'s read, write and edit: stale and unread changes 
   const outside = await toolResultText(harness, reopened, await admitDocumentTool(reopened, { path: '../outside.md', content: 'x' }, 'write'));
   assert.equal(outside.isError, true);
   assert.equal(existsSync(join(directory, 'outside.md')), false);
+});
+
+// ---- @boring/agent/workspaces: the workspace of each call, resolved like Pi's env, on ONE harness.
+test('per-call workspaces: one harness and one guard serve two owners, each conversation in its own workspace; the cache opens once per key, keeps leased ones and closes idle ones; a call whose env is another instance is refused', { timeout: 30000 }, async t => {
+  const { createWorkspaceCache, constantWorkspace, rootConversation } = await import('@boring/agent/workspaces');
+  const { lastReadRevisions } = await import('@boring/agent/file-guard');
+  const directory = mkdtempSync(join(tmpdir(), 'boring-per-call-'));
+  const journal = createWorkspaceJournal(openNodeConnection(join(directory, 'journal.sqlite')));
+  const opened = { a: 0, b: 0 }, closed = { a: 0, b: 0 };
+  const owners = new Map();
+  const cache = createWorkspaceCache({
+    key: target => owners.get(String(target.conversationId)),
+    open: owner => {
+      opened[owner]++;
+      const root = join(directory, owner);
+      mkdirSync(root, { recursive: true });
+      const env = new NodeExecutionEnv({ cwd: root });
+      const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: owner, incarnation: 'one', viewId: 'published' }, fs: env, journal });
+      return { id: owner, files, root, env, access: { principalId: 'agent', initiatorId: owner, scopeId: owner }, close: () => { closed[owner]++; } };
+    },
+    idleMs: 200,
+  });
+  const registry = createRegistry();
+  registry.install(defineExtension({ name: 'fixture.files', tools: [createReadTool(), createWriteTool(), createEditTool()] }));
+  registry.install(createFileGuard({ workspace: cache.workspace }));
+  const harness = await Harness.open(new MemoryStorage(), { registry, models: createModels(), env: cache.env }, context);
+  t.after(async () => { await harness.close(context); await cache.close(); rmSync(directory, { recursive: true, force: true }); });
+  const conversationOf = async owner => {
+    const conversation = await harness.createConversation({ ownership: { kind: 'ownerless' } }, context);
+    owners.set(String(conversation.id), owner);
+    return conversation;
+  };
+  const [a, b] = [await conversationOf('a'), await conversationOf('b')];
+  const run = async (conversation, name, args) => toolResultText(harness, conversation, await admitDocumentTool(conversation, args, name));
+  const onDisk = (owner, path) => existsSync(join(directory, owner, path)) ? readFileSync(join(directory, owner, path), 'utf8') : undefined;
+
+  // A writes notes.md in A's workspace; B does not see it and creates its own; neither touches the other's.
+  assert.equal((await run(a, 'write', { path: 'notes.md', content: 'A only\n' })).isError, false);
+  assert.equal(onDisk('a', 'notes.md'), 'A only\n');
+  assert.equal(onDisk('b', 'notes.md'), undefined);
+  assert.equal((await run(b, 'read', { path: 'notes.md' })).isError, true, 'B cannot read A\'s file: it is not in B\'s workspace');
+  assert.equal((await run(b, 'write', { path: 'notes.md', content: 'B only\n' })).isError, false, 'B creates its own: absent in B\'s workspace');
+  assert.equal((await run(a, 'edit', { path: 'notes.md', edits: [{ oldText: 'A only', newText: 'A again' }] })).isError, false);
+  assert.deepEqual([onDisk('a', 'notes.md'), onDisk('b', 'notes.md')], ['A again\n', 'B only\n']);
+  // Baselines stay per conversation, keyed by the workspace identity and the path.
+  assert.deepEqual(Object.keys((await harness.snapshot(lastReadRevisions, a.id, context)).revisions), ['a:notes.md']);
+  assert.deepEqual(Object.keys((await harness.snapshot(lastReadRevisions, b.id, context)).revisions), ['b:notes.md']);
+  // One provider instance per key however many calls: opened once each.
+  assert.deepEqual(opened, { a: 1, b: 1 });
+  assert.deepEqual(cache.keys().sort(), ['a', 'b']);
+
+  // A viewer borrows A's workspace: it outlives the idle time while held; B, idle, closes. Releasing never closes it at once.
+  const lease = await cache.acquire('a', context);
+  assert.equal(lease.workspace.root, join(directory, 'a'));
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.deepEqual({ closed, keys: cache.keys() }, { closed: { a: 0, b: 1 }, keys: ['a'] });
+  lease.release(); lease.release();
+  assert.deepEqual(closed, { a: 0, b: 1 }, 'release returns the hold; it does not close');
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.deepEqual({ closed, keys: cache.keys() }, { closed: { a: 1, b: 1 }, keys: [] });
+  // The next call reopens the workspace (a new instance) and the file is still there.
+  assert.equal((await run(a, 'read', { path: 'notes.md' })).isError, false);
+  assert.deepEqual(opened, { a: 2, b: 1 });
+
+  assert.equal(await rootConversation(harness, a.id, context), a.id, 'an ownerless conversation is its own root');
+
+  // Coherence: a binding naming another env than the one Pi gave the call is refused, not written through.
+  const other = new NodeExecutionEnv({ cwd: join(directory, 'a') });
+  const incoherent = createRegistry();
+  incoherent.install(defineExtension({ name: 'fixture.files', tools: [createReadTool(), createWriteTool(), createEditTool()] }));
+  const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: 'x', incarnation: 'one', viewId: 'published' }, fs: other, journal });
+  incoherent.install(createFileGuard({ workspace: constantWorkspace({ files, root: join(directory, 'a'), env: other, access: { principalId: 'agent', initiatorId: 'a', scopeId: 'a' } }) }));
+  const second = await Harness.open(new MemoryStorage(), { registry: incoherent, models: createModels(), env: () => new NodeExecutionEnv({ cwd: join(directory, 'a') }) }, context);
+  t.after(() => second.close(context));
+  const root = await second.root(context);
+  const refused = await toolResultText(second, root, await admitDocumentTool(root, { path: 'other.md', content: 'x' }, 'write'));
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /reopened during the call/);
+  assert.equal(onDisk('a', 'other.md'), undefined);
+});
+
+// ---- @boring/agent/harness-pool: one harness per owner, opened on demand, closed when idle.
+test('harness pool: one harness per owner, never shared; a held lease or a streaming response keeps it open; idle ones close; the next use reopens with the owner\'s durable state', { timeout: 30000 }, async t => {
+  const { createHarnessPool } = await import('@boring/agent/harness-pool');
+  const directory = mkdtempSync(join(tmpdir(), 'boring-harness-pool-'));
+  const created = [], closedOwners = [];
+  const pool = createHarnessPool({ context, idleMs: 200, create: async owner => {
+    created.push(owner);
+    const harness = await Harness.open(await openNodeSqliteStorage(join(directory, `${owner}.sqlite`)), { registry: createRegistry(), models: createModels() }, context);
+    return { harness, owner, close: async () => { closedOwners.push(owner); await harness.close(context); } };
+  } });
+  t.after(async () => { await pool.close(); rmSync(directory, { recursive: true, force: true }); });
+  const [first, again, other] = await Promise.all([pool.acquire('owner-a'), pool.acquire('owner-a'), pool.acquire('owner-b')]);
+  assert.equal(first.owned.harness, again.owned.harness, 'one harness per owner, even when acquired concurrently');
+  assert.notEqual(first.owned.harness, other.owned.harness, 'never shared between owners');
+  assert.deepEqual(created.sort(), ['owner-a', 'owner-b']);
+  const rootA = await first.owned.harness.root(context);
+  other.release();
+  // A response that streams (a watch) holds owner B's harness until its body ends.
+  let push;
+  const streaming = await pool.respond('owner-b', async () => new Response(new ReadableStream({ start(controller) { push = controller; } })));
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.deepEqual(closedOwners, [], 'held leases and an open stream keep both open');
+  first.release(); again.release();
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.deepEqual(closedOwners, ['owner-a'], 'owner A, idle, closed; owner B still streams');
+  push.close();
+  await streaming.text();
+  await new Promise(resolve => setTimeout(resolve, 450));
+  assert.deepEqual({ closed: closedOwners, open: pool.owners() }, { closed: ['owner-a', 'owner-b'], open: [] });
+  // The next use opens owner A's harness again over the same storage: its conversation is still there.
+  const reopened = await pool.use('owner-a', async owned => (await owned.harness.root(context)).id);
+  assert.equal(reopened, rootA.id);
+  assert.deepEqual(created, ['owner-a', 'owner-b', 'owner-a']);
 });
 
 test('self-evolution prompt assembly (SELF-3): the host instructions first and whole, the labelled and capped agent-written section last; a plain agent has none (SELF-1)', { timeout: 30000 }, async t => {

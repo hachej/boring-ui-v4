@@ -8,7 +8,8 @@
 //     on this host's mount, and the workspace provider (viewer, `present`, the file guard) reads the same folder;
 //   - the harness (one SQLite file per conversation key) and the provider's journal live in `/mnt/efs/state/<id>`, which
 //     the interpreter cannot reach. One writer per SQLite file: one AgentCore session per conversation key (decision 1 of
-//     docs/architecture/HOST-RECIPE-AWS.md), or a single ECS task.
+//     docs/architecture/HOST-RECIPE-AWS.md), or a single ECS task. The harnesses are a per-owner pool (`@boring/agent/harness-pool`,
+//     owner `<user>/<key>`): opened on the first request, closed after `harnessIdleMs` without requests or live work.
 //
 // `POST /invocations` carries one chat transport operation in its JSON body, because AgentCore routes only that path:
 //   { op: 'watch' | 'entries' | 'submission', conversation?: 'main', params?: { ... } }          read operations
@@ -25,6 +26,7 @@ import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
 import { createChatTransportHandler } from '@boring/agent/chat-transport';
+import { createHarnessPool } from '@boring/agent/harness-pool';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
@@ -49,8 +51,8 @@ export const runtimeSessionId = (userId, key) => `boring-${createHash('sha256').
  * @param {{ client: object, identifier: string, sessionTimeoutSeconds?: number, pollIntervalMs?: number }} options.codeInterpreter
  */
 export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot = '/mnt/efs', interpreterMountPath = '/mnt/workspace', users, verifyToken,
-  codeInterpreter, models, model, offered = [model], requireSessionHeader = false }) {
-  const perUser = new Map(), conversations = new Map();
+  codeInterpreter, models, model, offered = [model], requireSessionHeader = false, harnessIdleMs = 10 * 60_000 }) {
+  const perUser = new Map();
   const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 
   async function userOf(entry) {
@@ -78,30 +80,28 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
     return user;
   }
 
-  /** One harness per conversation key and one root conversation in it: the file has a single writer, this session. */
-  async function conversationOf(user, key) {
-    const id = `${user.userId}/${key}`;
-    const known = conversations.get(id);
-    if (known) return known;
-    const opening = (async () => {
+  /**
+   * One harness per conversation key and one root conversation in it: the file has a single writer, this session. Owner `<user>/<key>`;
+   * a request holds it (a watch stream until it ends), and it closes once idle with no live task or submission.
+   */
+  const harnesses = createHarnessPool({ context, idleMs: harnessIdleMs, onError: (error, owner) => console.error(`closing the harness of ${owner}:`, error?.message ?? error),
+    create: async owner => {
+      // The key has no '/' (KEY), a user id may.
+      const at = owner.lastIndexOf('/');
+      const user = perUser.get(owner.slice(0, at)), key = owner.slice(at + 1);
       const harness = await Harness.open(await openNodeSqliteStorage(user.layout.harnessFile(key)), { registry: user.registry, models, env: () => user.interpreter.env }, context);
       const conversation = await harness.root(context, { agent: user.agent.agent });
       harness.resume();
       return { harness, conversation };
-    })();
-    conversations.set(id, opening);
-    opening.catch(() => conversations.delete(id));
-    return opening;
-  }
+    } });
 
   // /ping: HealthyBusy while a harness has live tasks or unsettled submissions, so AgentCore keeps the session past its idle
   // timeout. `time_of_last_update` changes only when the status does (a timestamp that moves on every ping keeps a session alive forever).
   let status = 'Healthy', changedAt = Math.floor(Date.now() / 1000);
   async function ping() {
     let busy = false;
-    for (const opening of conversations.values()) {
-      const opened = await opening.catch(() => undefined);
-      const inspection = opened && await opened.harness.inspect(context);
+    for (const opened of await harnesses.opened()) {
+      const inspection = await opened.harness.inspect(context);
       if (inspection && (inspection.tasks.length > 0 || inspection.submissions.length > 0)) { busy = true; break; }
     }
     const next = busy ? 'HealthyBusy' : 'Healthy';
@@ -150,15 +150,16 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
       return json({ path, size: read.snapshot.bytes.byteLength, text: new TextDecoder().decode(read.snapshot.bytes) });
     }
     if (!READS.has(op) && !EFFECTS.has(op)) return json({ reason: 'unknown-operation' }, 404);
-    const { harness, conversation } = await conversationOf(user, key);
     const url = `http://aws.invalid/chat?${new URLSearchParams({ ...params, op })}`;
     const inner = READS.has(op) ? new Request(url, { method: 'GET', signal: request.signal })
       : new Request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input), signal: request.signal });
-    granted.set(inner, { conversation, context,
-      abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
-      answer: (callId, answer) => answerUserQuestion(conversation, callId, answer, context),
-      configure: change => configureOffered(conversation, change, context, candidate => offered.some(item => item.provider === candidate.provider && item.modelId === candidate.modelId)) });
-    return chat(inner);
+    return harnesses.respond(`${user.userId}/${key}`, async ({ harness, conversation }) => {
+      granted.set(inner, { conversation, context,
+        abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
+        answer: (callId, answer) => answerUserQuestion(conversation, callId, answer, context),
+        configure: change => configureOffered(conversation, change, context, candidate => offered.some(item => item.provider === candidate.provider && item.modelId === candidate.modelId)) });
+      return chat(inner);
+    });
   }
 
   const server = createServer(async (incoming, outgoing) => {
@@ -181,11 +182,11 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
   });
   await new Promise(resolve => server.listen(port, hostname, resolve));
   return {
-    url: `http://${hostname === '0.0.0.0' ? '127.0.0.1' : hostname}:${server.address().port}`, perUser, conversations,
+    url: `http://${hostname === '0.0.0.0' ? '127.0.0.1' : hostname}:${server.address().port}`, perUser, harnesses,
     close: async () => {
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));
-      for (const opening of conversations.values()) await (await opening.catch(() => undefined))?.harness.close(context);
+      await harnesses.close();
       for (const user of perUser.values()) { await user.interpreter.stop(context).catch(() => {}); user.database.close(); }
     },
   };
