@@ -448,7 +448,7 @@ test('self-evolution prompt assembly (SELF-3): the host instructions first and w
 });
 
 // ---- @boring/agent/metering: reserve before the native submit, usage from the durable transcript, exactly one settle or release.
-test('metering: reserve, record and settle a run; replays never charge twice; a stop without usage releases; a refusal never calls the model', { timeout: 20000 }, async t => {
+test('metering: reserve with the host scope, the resolved model and the kind, record and settle; replays never charge twice; a stop without usage releases; a refusal (low balance, or a costly model) never calls the model', { timeout: 20000 }, async t => {
   const { createMeter, createMemoryLedger, createSqliteLedger, MeteringRefused } = await import('@boring/agent/metering');
   const { createChatTransportHandler } = await import('@boring/agent/chat-transport');
   const { createFakeChatModel } = await import('@boring/testing/model');
@@ -456,19 +456,30 @@ test('metering: reserve, record and settle a run; replays never charge twice; a 
   const connection = openNodeConnection(':memory:');
   const harness = await Harness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);
   t.after(async () => { await harness.close(context); connection.close(); });
-  for (const [name, ledger] of [['memory', createMemoryLedger({ holdMicros: 5000 })], ['sqlite', createSqliteLedger({ connection, holdMicros: 5000 })]]) {
-    const account = `fictional-${name}`;
+  // Model-aware admission: a fictional premium model holds ten times more, so a balance that still admits the default model refuses it.
+  const holdMicros = input => input.model?.id === 'fictional-premium' ? 50_000 : 5000;
+  const attributes = { plan: 'fictional-free', seats: 1 };
+  // The memory ledger keys balances by the person (the default); the SQLite one pools the workspace with `balanceKey`.
+  for (const [name, ledger, scopeOf] of [
+    ['memory', createMemoryLedger({ holdMicros }), account => ({ userId: account, attributes })],
+    ['sqlite', createSqliteLedger({ connection, holdMicros, balanceKey: scope => scope.workspaceId ?? scope.userId }), account => ({ userId: 'fictional-person', workspaceId: account, attributes })],
+  ]) {
+    const account = `fictional-${name}`, scope = scopeOf(account);
     await ledger.grant(account, 10_000, 'signup'); await ledger.grant(account, 10_000, 'signup');
-    const calls = [];
+    const calls = [], reserves = [];
     let outage = false;
     const sink = { ...ledger, ...Object.fromEntries(['reserveRun', 'recordUsage', 'settleRun', 'releaseRun'].map(key => [key, async input => {
       calls.push([key, input.usageId ?? input.reason ?? input.status ?? '']);
+      if (key === 'reserveRun') reserves.push(input);
+      else assert.deepEqual([input.userId, input.workspaceId, input.attributes], [scope.userId, scope.workspaceId, attributes], `${name}: ${key} carries the run's scope`);
       if (outage && key === 'recordUsage') throw new Error('fictional ledger outage');
       return ledger[key](input);
     }])) };
     const meter = createMeter({ sink, context, models: fake.models, markup: 1.5, onError: () => {} });
     const native = await harness.createConversation({ ownership: { kind: 'ownerless' }, agent: { model: fake.model } }, context);
-    const conversation = meter.conversation(native, account);
+    assert.throws(() => meter.conversation(native, { userId: '' }), /userId/);
+    assert.throws(() => meter.conversation(native, { userId: 'fictional', attributes: { nested: {} } }), /attributes/);
+    const conversation = meter.conversation(native, scope);
     // reserve -> record -> settle: 1000 input + 500 output tokens at $1/$2 per million = 2000 micro-dollars, times the 1.5 markup.
     const submitted = await conversation.submit({ type: 'input', requestId: 'first', content: 'Fictional question' }, context);
     assert.equal((await ledger.balance(account)).heldMicros, 5000, `${name}: the hold is placed before the model runs`);
@@ -477,12 +488,25 @@ test('metering: reserve, record and settle a run; replays never charge twice; a 
     assert.deepEqual(await ledger.balance(account), { balanceMicros: 7000, heldMicros: 0, availableMicros: 7000 }, name);
     const entryId = (await native.commit(tx => tx.submissionByRequest(native.id, 'first'), context)).answer;
     assert.deepEqual(calls, [['reserveRun', ''], ['recordUsage', `entry:${native.id}:${entryId}`], ['settleRun', 'done']], name);
+    // The reservation carries the host's scope, the model the run will use (resolved through Pi), the native kind and a preview.
+    const { content: _content, ...reserved } = reserves[0];
+    assert.deepEqual(reserved, { ...scope, conversationId: Number(native.id), requestId: 'first', runId: `run:${native.id}:first`,
+      model: { provider: 'fictional-chat-provider', id: 'fictional-chat' }, kind: 'input', message: 'Fictional question' }, name);
+    if (name === 'sqlite') assert.deepEqual({ ...connection.get('SELECT balance_key, user_id, workspace_id, attributes, model, kind FROM boring_metering_runs WHERE run_id = ?', `run:${native.id}:first`) },
+      { balance_key: account, user_id: 'fictional-person', workspace_id: account, attributes: JSON.stringify(attributes), model: 'fictional-chat-provider/fictional-chat', kind: 'input' });
     // A client retry of the same request ID: same submission, same reservation, the usage replayed under its key, no second charge.
     const retried = await conversation.submit({ type: 'input', requestId: 'first', content: 'Fictional question' }, context);
     assert.equal(retried.id, submitted.id); await meter.flush();
-    const replay = { account, conversationId: Number(native.id), requestId: 'first', runId: `run:${native.id}:first`, usageId: `entry:${native.id}:${entryId}`, bucket: 'x', usage: {}, amountMicros: 999_999 };
+    const replay = { ...scope, conversationId: Number(native.id), requestId: 'first', runId: `run:${native.id}:first`, usageId: `entry:${native.id}:${entryId}`, bucket: 'x', usage: {}, amountMicros: 999_999 };
     assert.equal((await ledger.recordUsage(replay)).billedMicros, 3000);
     assert.equal((await ledger.balance(account)).balanceMicros, 7000, `${name}: replays never charge twice`);
+    // 7000 available: the person selects the premium model, the reservation sees it and the ledger refuses it; nothing reaches the
+    // conversation. Back on the default model the next messages are admitted.
+    await native.configure({ model: { provider: 'fictional-chat-provider', modelId: 'fictional-premium' } }, context);
+    await assert.rejects(conversation.submit({ type: 'input', requestId: 'premium', content: 'A premium question' }, context), error => error instanceof MeteringRefused && /needs 0\.0500/.test(error.message));
+    assert.deepEqual(reserves.at(-1).model, { provider: 'fictional-chat-provider', id: 'fictional-premium' });
+    assert.equal(await native.commit(tx => tx.submissionByRequest(native.id, 'premium'), context), undefined);
+    await native.configure({ model: fake.model }, context);
     // A person's stop before any usage: the hold is freed, nothing charged.
     calls.length = 0;
     const stopped = await conversation.submit({ type: 'input', requestId: 'second', content: 'Fictional long question' }, context);
@@ -493,7 +517,8 @@ test('metering: reserve, record and settle a run; replays never charge twice; a 
     assert.deepEqual(await ledger.balance(account), { balanceMicros: 7000, heldMicros: 0, availableMicros: 7000 }, name);
     // A usage report the ledger keeps refusing: the run cannot close free, so its hold is charged instead.
     calls.length = 0; outage = true;
-    const lost = await conversation.submit({ type: 'input', requestId: 'lost', content: 'Fictional question again' }, context);
+    const lost = await conversation.submit({ type: 'input', requestId: 'lost', content: 'Fictional question again', whenBusy: 'followUp' }, context);
+    assert.equal(reserves.at(-1).kind, 'followUp', `${name}: the native submission kind`);
     (await fake.nextCall()).respond('Fictional answer', { input: 1000, output: 500 });
     await lost.wait(context); await meter.flush(); outage = false;
     assert.deepEqual([...new Set(calls.map(([key, detail]) => key === 'recordUsage' ? key : `${key}:${detail}`))], ['reserveRun:', 'recordUsage', 'releaseRun:usage-write-failed'], name);
@@ -540,6 +565,9 @@ for (const phase of ['interrupt', 'settle']) test(`metering: a run killed ${phas
   assert.deepEqual(await start('recover').exited, { code: 0, signal: null });
   const result = JSON.parse(readFileSync(join(directory, 'recovered.json'), 'utf8'));
   assert.equal(result.before.open.length, 1, 'the run was still open in the ledger after the crash');
+  // The open run keeps the host's scope across the crash, so `recover` settles or releases it under the same person and workspace.
+  const { conversationId: _conversation, ...open } = result.before.open[0];
+  assert.deepEqual(open, { userId: 'fictional-person', workspaceId: 'fictional-workspace', attributes: { plan: 'fictional-free' }, requestId: 'fictional-request', runId: open.runId, reservationId: open.runId });
   assert.equal(result.record.status, 'done');
   if (phase === 'interrupt') {
     // The lost attempt's usage is unknown (an aborted partial): the run is charged its hold, which covers the retried answer's 2000.

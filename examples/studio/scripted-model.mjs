@@ -12,8 +12,10 @@ export { answeredGenerically } from '@boring/testing/model';
 
 /** Fictional rates (USD per million tokens), so a metered host has usage to charge. */
 const RATES = { input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 };
-const MODELS = [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }, { id: 'gpt-5-nano', name: 'GPT-5 nano' }]
-  .map(model => ({ ...model, input: ['text', 'image'], contextWindow: 128000, maxTokens: 4096, cost: RATES }));
+const MODELS = [{ id: 'gpt-5-mini', name: 'GPT-5 mini' }, { id: 'gpt-5-nano', name: 'GPT-5 nano' },
+  // A costly fictional model: the studio's metered variant refuses it below a higher balance (model-aware admission).
+  { id: 'premium', name: 'Premium (fictional)', cost: { input: 5, output: 40, cacheRead: 0, cacheWrite: 0 } }]
+  .map(model => ({ input: ['text', 'image'], contextWindow: 128000, maxTokens: 4096, cost: RATES, ...model }));
 
 /** The scripts of every scenario and journey, as `{ name, entries: [{ match, turns }] }`. */
 export async function loadSources() {

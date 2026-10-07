@@ -139,7 +139,7 @@ async function menus(t) {
     const settled = text => `${q(chat('[data-testid=composer-model-label]'))}.textContent === ${JSON.stringify(text)} && !${q(chat('[data-testid=composer-model]'))}.disabled`;
     assert.equal(await pill(), 'GPT-5 mini · Medium', 'one pill with the model and the effort');
     await browser.click(q(chat('[data-testid=composer-model]')));
-    await browser.until('model and effort menu', `${qa('[data-testid=composer-model-option]')}.length === 2 && ${qa('[data-testid=composer-effort-option]')}.length === 4`, 3000);
+    await browser.until('model and effort menu', `${qa('[data-testid=composer-model-option]')}.length === ${t.app.host.models.length} && ${qa('[data-testid=composer-effort-option]')}.length === 4`, 3000);
     await bothThemes('menus-model');
     await browser.click(`${qa('[data-testid=composer-model-option]')}.find(e => e.dataset.value.endsWith('gpt-5-nano'))`);
     await browser.until('the pill follows the change', settled('GPT-5 nano · Medium'), 10000);
