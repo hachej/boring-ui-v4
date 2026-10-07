@@ -20,7 +20,8 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  for (const name of ['execution']) {
+  // The selected subpath reads request bodies through @boring/files/request-guard (their one owner), so a real consumer installs files too.
+  for (const name of ['files', 'execution']) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -56,7 +57,7 @@ try {
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
   run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
   run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
-  for (const name of ['@boring/files', '@boring/ui', '@boring/agent', 'just-bash', 'isomorphic-git']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  for (const name of ['@boring/ui', '@boring/agent', 'just-bash', 'isomorphic-git']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createRemoteFileSystemHandler, createRemoteFileSystemLease, type RemoteFileSystemAccess, type RemoteFileSystemCall } from '@boring/execution/remote-files';
 import type { FileSystem, TextLineReader } from '@earendil-works/pi-durable/env';
 import type { WorkspaceLease } from '@boring/execution/contracts';
@@ -79,5 +80,5 @@ void authorize;
   for (const path of ['test/packages', 'test/fixtures']) mkdirSync(join(directory, path), { recursive: true });
   for (const path of ['test/packages/execution-remote-files.test.mjs', 'test/packages/execution-remote-file-lines.test.mjs', 'test/fixtures/native-document.mjs']) copyFileSync(join(root, path), join(directory, path));
   run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/execution-remote-files.test.mjs', 'test/packages/execution-remote-file-lines.test.mjs'], isolated);
-  console.log('PASS: packed native remote FileSystem and line readers, pinned registry dependencies, strict public declarations and actual native files/ToolTask/stream lifetimes; no Boring files/UI/agent or virtual/Git peers installed');
+  console.log('PASS: packed native remote FileSystem and line readers, pinned registry dependencies, strict public declarations and actual native files/ToolTask/stream lifetimes; with Boring files (request guard); no Boring UI/agent or virtual/Git peers installed');
 } finally { rmSync(directory, { recursive: true, force: true }); }

@@ -78,10 +78,21 @@ import { createElement } from 'react';
 declare const props: CanvasEditorProps;
 createElement(CanvasEditor, props);` : ''}
 `);
-  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: ['node'], lib: ['ES2023', 'DOM'] }, include: ['consumer.ts'] }));
+  // The consumer recipe sets skipLibCheck, as tldraw apps do: the pinned SDK's own declarations do not check strictly
+  // (@tldraw/utils imports lodash.* whose @types it lists only as devDependencies; tldraw's ArrowShapeUtil overrides break
+  // under exactOptionalPropertyTypes). The consumer's own code is still checked strictly against our declarations.
+  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: true, noEmit: true, types: ['node'], lib: ['ES2023', 'DOM'] }, include: ['consumer.ts'] }));
   const declarations = runCaptured(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--listFiles'], { cwd: directory, timeout: 120000, env: isolated });
   process.stdout.write(declarations.stdout); process.stderr.write(declarations.stderr);
+  assert.equal(declarations.status, 0, 'Canvas consumer type check failed');
   assertConsumerTypeFiles(declarations.stdout.split('\n').filter(isAbsolute).join('\n'), directory);
+  // skipLibCheck must not hide errors in Boring's declarations: rerun with library checking and allow diagnostics only in tldraw's.
+  const strict = runCaptured(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--skipLibCheck', 'false', '--pretty', 'false'], { cwd: directory, timeout: 120000, env: isolated });
+  const located = strict.stdout.split('\n').filter(line => /^\S.*\(\d+,\d+\): error TS\d+/.test(line));
+  const ours = located.filter(line => !/^node_modules\/(?:tldraw|@tldraw\/[\w-]+)\//.test(line));
+  assert.deepEqual(ours, [], 'Strict library check reports errors outside the upstream tldraw declarations');
+  assert.ok(strict.status === 0 || located.length > 0, `Strict library check failed without located diagnostics:\n${strict.stdout}${strict.stderr}`);
+  if (located.length) console.log(`Upstream tldraw declaration diagnostics (skipLibCheck in the consumer recipe):\n${located.join('\n')}`);
   const tests = ['ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
   // Tests are copied flat; their host (one SQLite workspace per scope, public @boring/files entries only) sits beside them.
   copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'sqlite-workspaces.mjs'));
@@ -99,6 +110,5 @@ createElement(CanvasEditor, props);` : ''}
     assert.ok(readFileSync(join(directory, 'browser.css'), 'utf8').length > 0, 'selected native CSS must build');
   }
   console.log('PASS: isolated pinned registry dependencies, packed canvas, native store/publication tests and browser bundle; browser journeys, license, real fonts/assets and migrations remain unqualified');
-  assert.equal(declarations.status, 0, 'Strict canvas declaration checking failed; prior runtime/bundle results do not qualify declarations');
-  console.log('PASS: strict canvas declarations');
+  console.log('PASS: canvas declarations (strict consumer code; Boring declarations library-checked; upstream tldraw declarations need skipLibCheck)');
 } finally { rmSync(directory, { recursive: true, force: true }); }

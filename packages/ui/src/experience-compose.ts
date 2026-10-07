@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import { experimental_composeSpec } from '@json-render/core';
-import { compositionDefinition, compositionCandidate, compositionLimits } from './experience-composition-schema.js';
+import { compositionDefinition, compositionCandidate, compositionLimits, compositionId as newCompositionId } from './experience-composition-schema.js';
 import type { Experimental_CompositionCandidate, Experimental_CompositionEvaluator, Spec } from '@json-render/core';
 import { experienceCatalog, layoutProps, experienceIdentifier } from './experience-catalog.js';
-import { randomUUID } from '@boring/files/platform';
 
 const id = experienceIdentifier;
 const element = z.strictObject({ type: z.enum(['boring/stack', 'boring/row', 'boring/grid', 'boring/cell', 'boring/generated']), props: z.record(z.string(), z.unknown()), children: z.array(id).max(200).default([]) });
@@ -176,7 +175,7 @@ function rebindComposition(spec: Spec, prepared: ReturnType<typeof prepareCompos
 }
 
 export async function* composeExperience(options: ExperienceCompositionOptions): AsyncGenerator<ExperienceCompositionSnapshot> {
-  const compositionId = randomUUID();
+  const compositionId = newCompositionId();
   const { signal, evaluate, canView } = options;
   const access: ExperienceAccess = { cells: options.cells.map(cell => ({ ...cell })), canView };
   const initial = descriptor.safeParse(options.fallback);
