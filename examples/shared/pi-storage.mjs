@@ -6,10 +6,16 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { SqliteStorage } from '@earendil-works/pi-durable/storage/sqlite';
 import { NodeSqliteDatabase } from '@earendil-works/pi-durable/storage/sqlite/node';
-import { openNodeDatabase } from '@boring/files/sqlite';
+import { openNodeDatabase, sqliteSettings } from '@boring/files/sqlite';
 
-/** `settings`: a preset of `sqliteSettings` (`localDisk` by default, `networkFilesystem` on EFS) or partial `SqliteSettings`. */
-export async function openPiStorage(filename, settings = {}) {
+/**
+ * Pi's own choice on local disk: WAL with `synchronous = NORMAL` (a commit is durable at the next checkpoint, never corrupt), which
+ * avoids an fsync per commit; `synchronous = FULL` doubles Pi's commit time on an ext4 disk. The default when the host passes nothing.
+ */
+export const PI_LOCAL_DISK = Object.freeze({ ...sqliteSettings.localDisk, synchronous: 'normal' });
+
+/** `settings`: `PI_LOCAL_DISK` by default, `sqliteSettings.networkFilesystem` on EFS, or partial `SqliteSettings` over local disk. */
+export async function openPiStorage(filename, settings = PI_LOCAL_DISK) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
   const database = new NodeSqliteDatabase(openNodeDatabase(filename, settings));
   try { return await SqliteStorage.open(database); } catch (error) { await database.close().catch(() => {}); throw error; }

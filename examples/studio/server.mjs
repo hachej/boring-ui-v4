@@ -63,9 +63,10 @@ const PREMIUM = { modelId: 'premium', label: 'Premium (fictional)' };
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
   scripted = process.env.STUDIO_MODEL === 'scripted',
-  // SQLite settings of the studio's files (workspace journal, Pi session, credits): local disk (WAL) by default;
-  // `sqliteSettings.networkFilesystem` from @boring/files/sqlite when `directory` is on NFS such as EFS.
-  sqlite = {},
+  // SQLite settings of the studio's files (workspace journal, Pi session, credits): unset, each file keeps its local-disk default
+  // (WAL; full sync for the journal and credits, Pi's normal sync for the session); `sqliteSettings.networkFilesystem` from
+  // @boring/files/sqlite when `directory` is on NFS such as EFS.
+  sqlite,
   // Idle heartbeat of the chat watch stream (default 15 s). Behind a proxy or load balancer keep it under half the idle timeout.
   heartbeatMs = process.env.STUDIO_HEARTBEAT_MS ? Number(process.env.STUDIO_HEARTBEAT_MS) : undefined,
   // Test hook: the answer to a chat submit is held this long after the host handled it (the message is already recorded), like a slow
