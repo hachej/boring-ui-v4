@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { InboxItem } from '@earendil-works/pi-durable';
 import type { ChatDraft } from '@boring/ui/native-chat';
 import { CornerDownRightIcon, EllipsisIcon, ListEndIcon, LoaderIcon, PencilIcon, RouteIcon, Trash2Icon } from 'lucide-react';
-import { isFileBlock } from './rows';
+import { isFileBlock, type QueuedMessage } from './rows';
 
-export type QueuedMessage = Extract<InboxItem, { readonly mode: 'steer' | 'followUp' }>;
+export type { QueuedMessage } from './rows';
 
 /** Display text of a queued submission: the text parts of its content, plus a count of images. */
 export function queuedText(item: QueuedMessage): string {

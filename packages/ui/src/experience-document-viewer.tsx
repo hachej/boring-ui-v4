@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ExperienceRenderer } from './experience-renderer.js';
-import type { RenderedExperienceCell } from './experience.js';
+import type { RenderedExperienceCell } from './experience-renderer.js';
 import type { ExperienceAccess } from './experience-compose.js';
 import type { ExperienceDocumentController, ExperienceRegionRequest } from './experience-document.js';
 import type { ReadResult } from '@boring/files';

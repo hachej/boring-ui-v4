@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
-import type { ConversationView, EntryRecord, JsonObject } from '@earendil-works/pi-durable';
+import type { ConversationView, EntryRecord, InboxItem, JsonObject } from '@earendil-works/pi-durable';
 import type { JsonValue } from '@earendil-works/chord';
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage, UserMessage } from '@earendil-works/pi-ai';
 import type { ToolEntry, ToolStatus } from './tool';
-import type { QueuedMessage } from './queue';
 import { ASK_USER_TOOL } from './question-card';
 import { PRESENT_TOOL, artifactKey, detectArtifact, pendingId, pendingTitle } from './artifact';
 import type { ArtifactDescriptor, ArtifactsConfig } from './artifact';
 
 /** The host adds file content for `@path` mentions as parts that start like this; the message already shows the mention itself. */
 export const isFileBlock = (text: string): boolean => text.startsWith('<file path="');
+
+/** A submission waiting in the native inbox (steer or follow-up); `queuedMessages` reads them from the view, the queue renders them. */
+export type QueuedMessage = Extract<InboxItem, { readonly mode: 'steer' | 'followUp' }>;
 
 /*
  * The one message model is the native Pi view: entries (with their model messages) plus the live `pi.live` document.

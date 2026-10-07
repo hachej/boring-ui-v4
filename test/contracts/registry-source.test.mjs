@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { registrySchema, registryItemSchema } from 'shadcn/schema';
 import { runCaptured } from '../../scripts/run-captured.mjs';
+import { checkRegistryBlocks } from '../../scripts/check-registry-blocks.mjs';
 import { viewersCss } from '../../registry/viewers/build-css.mjs';
 import { feedbackCss } from '../../scripts/build-feedback-css.mjs';
 
@@ -140,4 +141,27 @@ test('registry dependency pins and scoped styles preserve the declared source di
       assert.doesNotMatch(source, /dangerouslySetInnerHTML|eval\s*\(|new Function|<script\b/);
     }
   }
+});
+
+test('the block check rejects an import cycle in a registry block or a package source and prints its path', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'boring-registry-cycle-'));
+  try {
+    cpSync(join(root, 'registry.json'), join(directory, 'registry.json'));
+    cpSync(join(root, 'registry'), join(directory, 'registry'), { recursive: true });
+    for (const name of readdirSync(join(root, 'packages'))) cpSync(join(root, 'packages', name, 'src'), join(directory, 'packages', name, 'src'), { recursive: true });
+    assert.deepEqual(checkRegistryBlocks(directory).errors, []);
+    // The cycle the owner found: the row model (a leaf lib) taking its queued-message type from the queue component.
+    const rows = join(directory, 'registry/pi-chat/rows.ts');
+    writeFileSync(rows, "import type { QueuedMessage as Queued } from './queue';\nexport type Fixture = Queued;\n" + readFileSync(rows, 'utf8'));
+    // A longer, runtime cycle in a package source.
+    const ui = join(directory, 'packages/ui/src');
+    writeFileSync(join(ui, 'cycle-a.ts'), "import { b } from './cycle-b.js';\nexport const a = () => b;\n");
+    writeFileSync(join(ui, 'cycle-b.ts'), "import { c } from './cycle-c.js';\nexport const b = () => c;\n");
+    writeFileSync(join(ui, 'cycle-c.ts'), "export { a as c } from './cycle-a.js';\n");
+    const cycles = checkRegistryBlocks(directory).errors.filter(error => error.includes('import cycle'));
+    assert.deepEqual(cycles.map(error => /import cycle: (.*) \(/.exec(error)[1]), [
+      'packages/ui/src/cycle-a.ts -> packages/ui/src/cycle-b.ts -> packages/ui/src/cycle-c.ts -> packages/ui/src/cycle-a.ts',
+      'registry/pi-chat/queue.tsx -> registry/pi-chat/rows.ts -> registry/pi-chat/queue.tsx',
+    ]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

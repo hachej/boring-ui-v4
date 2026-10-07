@@ -2,13 +2,11 @@
 
 import { useState } from 'react';
 import { ExperienceRenderer } from './experience-renderer.js';
-import type { ReactNode } from 'react';
+import type { RenderedExperienceCell } from './experience-renderer.js';
 import { validateExperience } from './experience-compose.js';
-import type { ExperienceAccess, ExperienceCell, ExperienceDescriptor } from './experience-compose.js';
+import type { ExperienceAccess, ExperienceDescriptor } from './experience-compose.js';
 
-export interface RenderedExperienceCell extends ExperienceCell {
-  readonly render: () => ReactNode;
-}
+export type { RenderedExperienceCell } from './experience-renderer.js';
 export interface ExperienceProps {
   readonly descriptor: unknown;
   readonly cells: readonly RenderedExperienceCell[];
