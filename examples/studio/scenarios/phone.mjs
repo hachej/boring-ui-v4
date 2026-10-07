@@ -137,7 +137,7 @@ export default [
   },
   {
     id: 'phone-queue-history', group: 'Phone layout', title: 'Queue and History on a phone', viewport: 'phone',
-    description: 'A message sent while busy waits in the queue with Steer now, edit and remove; History is a full-screen sheet.',
+    description: 'A message sent while busy waits in the queue with Steer now, edit and remove; the sessions pane is a drawer.',
     steps: [{ prompt: 'Without using tools or artifacts, write the numbers from 1 to 250 in English words, one per line, directly in the chat.', wait: false }],
     async verify(t) {
       const { browser, q, qa, MESSAGE, SUBMIT, pause, shots } = t;
@@ -157,15 +157,16 @@ export default [
       await browser.until('removed', `${qa('[data-testid=queue-item]')}.length === 0`, 15000);
       await browser.tap(SUBMIT);
       await browser.until('idle', `${SUBMIT}?.dataset.state === 'send'`, 30000);
-      await browser.tap(q('[data-testid=history-open]'));
-      await browser.until('History sheet', `!!${q('[data-testid=conversations]')}`, 5000);
+      await browser.tap(q('[data-testid=sessions-toggle]'));
+      await browser.until('sessions drawer', `${q('[data-testid=conversations]')}?.dataset.drawer === 'true'`, 5000);
       await pause(300);
-      assert.deepEqual(await browser.evaluate(`(() => { const r = ${q('[data-testid=conversations]')}.getBoundingClientRect(); return { w: r.width, h: r.height }; })()`), { w: 390, h: 844 }, 'full screen');
+      const drawer = await browser.evaluate(`(() => { const r = ${q('[data-testid=conversations]')}.getBoundingClientRect(); return { x: r.x, w: r.width, h: r.height }; })()`);
+      assert.ok(drawer.x === 0 && drawer.w > 300 && drawer.w <= 390 && drawer.h === 844, `a full-height drawer inside the screen: ${JSON.stringify(drawer)}`);
       await p.noOverflow('history');
       await shots('mobile-history');
       await p.check('history', 'document.querySelector("[data-testid=conversations]")');
       await browser.tap(q('[data-testid=conversation-new]'));
-      await browser.until('a new conversation, History closed', `!${q('[data-testid=conversations]')} && ${q('[data-testid=transcript]')}?.innerText.trim() === ''`, 20000);
+      await browser.until('a new conversation, the drawer closed', `!${q('[data-testid=conversations]')} && ${q('[data-testid=transcript]')}?.innerText.trim() === ''`, 20000);
       await p.reportSmall('mobile-queue-history');
     },
   },

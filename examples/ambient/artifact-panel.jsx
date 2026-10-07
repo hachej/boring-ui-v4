@@ -14,7 +14,7 @@ import { ViewerFrame, ViewerWindowProvider } from '../../registry/viewers/viewer
 import { downloadFile } from '../../registry/viewers/download.ts';
 import { copyText } from '../../registry/utils/utils.ts';
 import { randomUUID } from '@boring/files/platform';
-import { savedLabel, useSaved } from '../studio/saved-resource.mjs';
+import { savedLabel, useSaved } from '../../registry/pi-app/use-saved.ts';
 
 const NOOP = () => () => {};
 const EXTENSION = /\.([A-Za-z0-9]{1,8})$/;

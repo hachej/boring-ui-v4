@@ -8,8 +8,9 @@ The studio is the one reference page that assembles the full workspace. Each blo
 
 | Block | What the studio uses it for |
 | --- | --- |
+| `pi-app` | `AgentWorkspace`, the page layout: the sessions pane (a drawer below 901px), the chat, and the artifact / file viewers in the panel (versions, auto-open). The studio adds its own panel view (the Workspace tabs), the canvas viewer, share links and the variant header |
 | `pi-chat` | the conversation (`PiChat`), composer features, cards |
-| `pi-workspace` | `ArtifactWorkspace`: chat plus the resizable artifact / file panel, full screen, phone sheet, float-when-narrow |
+| `pi-workspace` | `ArtifactWorkspace` (inside `pi-app`): the resizable panel, full screen, phone sheet, float-when-narrow |
 | `pi-ambient` | `AmbientChat`, the chat's floating form when the workspace is narrower than `floatBelow` |
 | `viewers` | the panes inside the panel (Markdown, HTML, image, PDF) |
 | variants and scenarios | below: where tools run, and what a person can ask |
@@ -224,7 +225,7 @@ more to show: Git (variants with git, with a count of changes), Tasks (once the 
 Attachments and `@path` mentions: the server passes `createMentionResolver` (`@boring/agent/mentions`) as `prepareInput`, so the workspace file
 reaches the model whether or not it has a file tool. Limits: 100 KB per file, 300 KB per message, text and images only; the rest become a short note.
 
-Conversations: the History list is `@boring/agent/conversations` behind `/api/variants/:id/conversations` (owner: the variant's agent), so
+Conversations: the sessions pane (left; the chat header's History pages the earlier records of the open one) is `@boring/agent/conversations` behind `/api/variants/:id/conversations` (owner: the variant's agent, read by `useConversations` of `pi-app`), so
 titles, last messages, archive and delete marks live in Pi's `session.sqlite` with the transcripts. Rows offer rename, archive (an Archived
 filter shows them again) and delete; a settled reply has a Fork button. Data from earlier versions (`conversations.json`,
 `conversation-activity.json`) is adopted once at start and renamed to `*.migrated`.
@@ -260,7 +261,7 @@ const controller = createNativeChatController({ identity, ...remote });
 ## Styles
 
 `tailwind.mjs` compiles Tailwind v4 once at startup with the library API (theme and utilities only, no preflight, so the
-viewer panels keep their own styles). It scans `registry/button`, `utils`, `pi-chat`, `pi-ambient`, `pi-workspace`, `viewers` and this folder for classes, and
+viewer panels keep their own styles). It scans `registry/button`, `utils`, `pi-chat`, `pi-ambient`, `pi-workspace`, `pi-app`, `viewers` and this folder for classes, and
 `themeCss()` renders the registry `theme` item (the same shadcn tokens a consumer installs) for light and dark (`prefers-color-scheme`); every example uses it. `styles.css` is the shell and panel CSS. The chat toolkit hooks
 for journeys are `data-testid` attributes: `composer-input`, `composer-submit` (`data-state` is `send` or `stop`), `connection`,
 `transcript`, `tool-card`, `tool-name`, `queue-item`, `question-card`, and for scenarios `scenario-list`, `scenario`, `scenario-next`.

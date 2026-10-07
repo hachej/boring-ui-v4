@@ -33,6 +33,7 @@ export type { CommandMention, CommandMentions } from './markdown';
 export { FeedbackCard, FeedbackMention, feedbackMentionId, feedbackRenderTool, feedbackResultView } from './feedback-card';
 export type { FeedbackCardConfig, FeedbackShowOutcome, FeedbackShowRequest } from './feedback-card';
 export type { Suggestion } from './empty-state';
+export { ConversationList, relativeTime } from './history';
 export type { AttachmentsConfig, ConversationItem, ConversationsConfig, EffortConfig, MentionResult, MentionsConfig, ModelConfig, ModelRef, SlashApi, SlashCommand, SlashConfig, SlashSkill, UploadResult } from './config';
 
 export interface PiChatProps extends ChatFeatureProps {
@@ -50,6 +51,11 @@ export interface PiChatProps extends ChatFeatureProps {
   readonly suggestions?: readonly Suggestion[];
   /** Past conversations. The header's History button then opens a searchable list with the open one marked and a New action. Omit it and History pages through the earlier records of this conversation. */
   readonly conversations?: ConversationsConfig;
+  /**
+   * `false`: the host shows `conversations` itself (for example the `pi-app` sessions pane), so History pages through the earlier records of this
+   * conversation while replies keep their Fork button (`conversations.fork`). Default `true`: History opens the list.
+   */
+  readonly historyList?: boolean;
   /** The optional Feedback button in the composer (the registry `feedback` item's `useComposerFeedback`). Omit it and nothing changes. */
   readonly feedback?: ComposerFeedback;
 }
@@ -73,7 +79,7 @@ function ConnectionBadge({ kind }: { readonly kind: string }) {
 }
 
 function PiChatSession({ controller, title = 'Conversation', mode = 'expert', className, actions, decisions, controls, headerStart, renderEntry, renderTool, groupTool, commandMentions,
-  onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept = 'image/*', emptyState, emptyDescription, suggestions, slash, mentions, attachments, model, effort, artifacts, conversations, feedback, activeController: active }: PiChatProps & { readonly activeController: { readonly current: NativeChatController } }) {
+  onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept = 'image/*', emptyState, emptyDescription, suggestions, slash, mentions, attachments, model, effort, artifacts, conversations, historyList = true, feedback, activeController: active }: PiChatProps & { readonly activeController: { readonly current: NativeChatController } }) {
   const [browsingHistory, setBrowsingHistory] = useState(false);
   const [pickingConversation, setPickingConversation] = useState(false);
   const scrollToBottom = useRef<() => void>(() => {});
@@ -96,7 +102,7 @@ function PiChatSession({ controller, title = 'Conversation', mode = 'expert', cl
     <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
       {headerStart}
       <h2 className="m-0 min-w-0 flex-1 truncate text-[0.9375rem] font-semibold tracking-tight">{title}</h2>
-      {conversations
+      {conversations && historyList
         ? <Button size="sm" data-testid="history-open" className="text-muted-foreground" aria-haspopup="dialog" aria-expanded={pickingConversation} disabled={state.disposed}
           onClick={() => setPickingConversation(open => !open)}><HistoryIcon className="size-3.5" aria-hidden="true" />History</Button>
         : state.history.kind !== 'disabled' && !browsingHistory && <Button size="sm" data-testid="history-open" className="text-muted-foreground" disabled={state.disposed || !connected}
@@ -112,7 +118,7 @@ function PiChatSession({ controller, title = 'Conversation', mode = 'expert', cl
         <span className="flex-1">{connectionKind === 'error' ? 'Conversation could not be loaded.' : 'Disconnected. Last observed messages remain visible.'}</span>
         {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}><RefreshCwIcon className="size-3.5" aria-hidden="true" />Reconnect</Button>}
       </Notice></div>}
-    {pickingConversation && conversations && <ConversationHistory conversations={conversations} onClose={() => setPickingConversation(false)}
+    {pickingConversation && conversations && historyList && <ConversationHistory conversations={conversations} onClose={() => setPickingConversation(false)}
       onBrowseEarlier={state.history.kind !== 'disabled' && connected && Boolean(state.view?.entries.length) ? () => { setBrowsingHistory(true); act(controller.loadEarlier); } : undefined} />}
     {browsingHistory && state.history.kind !== 'disabled' && <HistoryPanel history={state.history} developer={developer} connected={!state.disposed && connected}
       onLoad={() => act(controller.loadEarlier)} onClose={() => { setBrowsingHistory(false); if (!state.disposed) controller.clearHistory(); }} />}

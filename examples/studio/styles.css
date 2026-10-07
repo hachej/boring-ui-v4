@@ -24,12 +24,10 @@ body { margin: 0; background: var(--shell); color: var(--foreground); font: 15px
 .studio-panel li button:hover, .studio-panel li button[aria-pressed="true"] { background: var(--muted); }
 .studio-panel pre:not(.boring-viewer *) { margin: 0; padding: 0.75rem; background: var(--muted); border-radius: 0.5rem; font: 0.8125rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-/* The main card holds the chat and, beside it, the artifact / file panel (ArtifactWorkspace from registry/pi-workspace). */
+/* The main card holds the pi-app block (AgentWorkspace from registry/pi-app): sessions, the chat and, beside it, the artifact / file panel. */
 .studio-main { min-width: 0; min-height: 0; display: flex; overflow: hidden; background: var(--background); border: 1px solid var(--border); border-radius: var(--radius); }
-.studio-chat { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.studio-chat > * { flex: 1; }
 /* The person's `/reload` report, above the chat until dismissed. */
-.studio-chat > .studio-notice { flex: none; display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.5rem 0.75rem 0; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--muted); color: var(--foreground); max-height: 30dvh; overflow: auto; }
+.studio-notice { flex: none; display: flex; align-items: flex-start; gap: 0.5rem; margin: 0.5rem 0.75rem 0; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--muted); color: var(--foreground); max-height: 30dvh; overflow: auto; }
 .studio-notice pre { flex: 1; margin: 0; font: 0.75rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .studio-notice button { flex: none; min-width: 2.75rem; min-height: 2.75rem; border: 0; background: transparent; color: var(--muted-foreground); font-size: 1.125rem; cursor: pointer; }
 
@@ -43,12 +41,10 @@ body { margin: 0; background: var(--shell); color: var(--foreground); font: 15px
 /* A viewer in a side panel: the standard frame (registry/viewers) fills a bordered slot below the panel's own heading and list. */
 .studio-viewer { height: clamp(26rem, 72dvh, 56rem); margin-top: 0.75rem; border: 1px solid var(--border); border-radius: 0.75rem; overflow: hidden; }
 .studio-viewer > .boring-viewer, .studio-viewer > [data-testid="file-preview"] { height: 100%; }
-.studio-artifact .studio-viewer { height: 100%; margin: 0; border: 0; border-radius: 0; }
+[data-testid="viewer-panel"] .studio-viewer { height: 100%; margin: 0; border: 0; border-radius: 0; }
 
-/* The panel beside the chat: the header and body fill it; the library viewers keep their own toolbars. */
-.studio-artifact { padding: 0; display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.studio-artifact > * { flex: 1; min-height: 0; }
-.studio-artifact nav[aria-label="Document outline"] { display: none; }
+/* The panel beside the chat: the library viewers keep their own toolbars; the document outline is hidden there. */
+[data-testid="viewer-panel"] nav[aria-label="Document outline"] { display: none; }
 
 /* Desktop: the mobile-only controls are absent. */
 .studio-panel-toggle { align-items: center; justify-content: center; gap: 0.375rem; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; border-radius: 0.5rem; }
@@ -72,7 +68,7 @@ body { margin: 0; background: var(--shell); color: var(--foreground); font: 15px
   .studio-panel [data-testid="document"] button:not(.boring-viewer *), .studio-panel li button, .studio-panel select:not(.boring-viewer *) { min-height: 2.5rem; min-width: 2.5rem; }
   .studio-panel [role="toolbar"]:not(.boring-viewer *), .studio-panel [data-boring]:not(.boring-viewer *) > div:has(> button) { flex-wrap: wrap; }
   .studio-panel table:not(.boring-viewer *) { display: block; max-width: 100%; overflow-x: auto; }
-  .studio-panel textarea:not(.boring-viewer *), .studio-artifact textarea:not(.boring-viewer *) { font-size: 1rem; min-height: 45dvh; }
+  .studio-panel textarea:not(.boring-viewer *), [data-testid="viewer-panel"] textarea:not(.boring-viewer *) { font-size: 1rem; min-height: 45dvh; }
   .studio-panel img:not(.boring-viewer *), .studio-panel iframe:not(.boring-viewer *) { max-width: 100%; }
   .studio-viewer { height: max(24rem, calc(100dvh - 12rem)); }
   .studio-facts { grid-template-columns: 1fr; }

@@ -1,6 +1,6 @@
 // The scenario list in the empty chat and the "next step" strip. Scenarios are data (scenarios/*.mjs, served by /api/studio): the page
 // only lists them, starts the one a person clicks and suggests the following step. It knows nothing about any scenario's content.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DownloadIcon, LayersIcon, ListChecksIcon } from 'lucide-react';
 import { unavailableReason } from './scenario-availability.mjs';
 
@@ -44,6 +44,14 @@ export function NextStep({ scenario, step, onUse, fixture }) {
       <span className="truncate">{step.upload ? 'Attach it, then ask: ' : ''}{step.prompt}</span>
     </button>
   </div>;
+}
+
+const NOOP = () => () => {};
+/** How many messages the person has typed in the open conversation (a background subagent's report is a user message too, but not typed). */
+export function useTyped(controller) {
+  const view = useSyncExternalStore(controller ? controller.subscribe : NOOP, () => controller?.getSnapshot().view, () => undefined);
+  return useMemo(() => (view?.entries ?? []).reduce((count, entry) => count + (entry.model ?? []).filter(message => message.role === 'user'
+    && !(typeof message.content === 'string' ? message.content : message.content.map(part => part.type === 'text' ? part.text : '').join('')).startsWith('[Background subagent #')).length, 0), [view]);
 }
 
 const recall = key => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; } };

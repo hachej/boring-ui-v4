@@ -6,7 +6,7 @@ import { MicIcon } from 'lucide-react';
 import { AmbientChat, createNotificationStore, watchConversation } from '../../registry/pi-ambient/ambient.tsx';
 import { createNativeChatController } from '@boring/ui/native-chat';
 import { createRemoteChat } from '@boring/ui/remote-chat';
-import { useChat } from '../shared/use-chat.mjs';
+import { useRemoteChat } from '../../registry/pi-app/use-remote-chat.ts';
 import { createArtifactPanel } from './artifact-panel.jsx';
 import { PiChat } from '../../registry/pi-chat/pi-chat.tsx';
 import { micSupported, openMicrophone } from './mic.mjs';
@@ -114,7 +114,7 @@ function App() {
     if (items.length) select([...items].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0].id); else void newConversation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, conversationId]);
-  const next = useChat(conversationId, authorized, identity);
+  const next = useRemoteChat({ conversationId: conversationId === undefined ? undefined : String(conversationId), endpoint: id => new URL(`/api/chat?conversation=${id}`, location.href), fetch: authorized, identity });
   // Keep the bar on screen while a newly selected conversation connects: it shows the previous one until the new controller is ready.
   const shown = useRef(null);
   if (next.status === 'ready') shown.current = next;

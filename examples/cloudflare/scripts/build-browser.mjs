@@ -10,13 +10,7 @@ const here = path => fileURLToPath(new URL(path, import.meta.url));
 const out = here('../public');
 mkdirSync(out, { recursive: true });
 
-// The studio's artifact panel imports the tldraw canvas; this page has no canvas artifacts, so the import resolves to an empty component.
-const withoutCanvas = { name: 'without-canvas', setup(builder) {
-  builder.onResolve({ filter: /panels[\\/]canvas\.jsx$/ }, () => ({ path: 'canvas-stub', namespace: 'stub' }));
-  builder.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export function Canvas() { return null; }', loader: 'js' }));
-} };
-
-const bundle = await build({ entryPoints: [here('../browser/app.jsx')], plugins: [withoutCanvas], bundle: true, write: false, outdir: out, format: 'esm', platform: 'browser', jsx: 'automatic',
+const bundle = await build({ entryPoints: [here('../browser/app.jsx')], bundle: true, write: false, outdir: out, format: 'esm', platform: 'browser', jsx: 'automatic',
   minify: true, loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.svg': 'dataurl', '.png': 'dataurl' }, define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'silent' });
 const script = bundle.outputFiles.find(file => file.path.endsWith('.js')).text;
 const tailwind = await buildTailwind();
