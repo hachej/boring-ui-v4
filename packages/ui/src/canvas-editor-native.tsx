@@ -1,13 +1,29 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { CSSProperties } from 'react';
 import { useEditor, useValue, GeoShapeGeoStyle, LANGUAGES } from '@tldraw/editor';
-import type { Editor } from '@tldraw/editor';
+import type { Editor, TLOnMountHandler } from '@tldraw/editor';
 import { Tldraw, iconTypes, DEFAULT_EMBED_DEFINITIONS } from 'tldraw';
+import type { TLDefaultFonts, TLUiAssetUrls } from 'tldraw';
 import type { ReadResult } from '@boring/files';
 import type { SaveResult } from './resources.js';
-import type { CanvasEditorProps, CanvasFontUrls, CanvasAssetUrls } from './canvas-editor.js';
 import type { CanvasController } from './canvas.js';
+
+export type CanvasFontUrls = Readonly<Record<`${keyof TLDefaultFonts}${'' | '_italic' | '_bold' | '_italic_bold'}`, string>>;
+export type CanvasAssetUrls = Omit<TLUiAssetUrls, 'fonts' | 'embedIcons'> & {
+  readonly fonts: CanvasFontUrls;
+  readonly embedIcons: Required<TLUiAssetUrls['embedIcons']>;
+};
+export interface CanvasEditorProps {
+  readonly controller: CanvasController;
+  readonly assetUrls: CanvasAssetUrls;
+  readonly title?: string;
+  readonly className?: string;
+  readonly height?: CSSProperties['height'];
+  readonly licenseKey?: string;
+  readonly onMount?: TLOnMountHandler;
+}
 
 const fontKeys: readonly (keyof CanvasFontUrls)[] = [
   'tldraw_draw', 'tldraw_draw_italic', 'tldraw_draw_bold', 'tldraw_draw_italic_bold',

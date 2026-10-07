@@ -3,7 +3,7 @@ import type { Extension, PromptSection, Registry, ToolExecutionResult, ToolRegis
 import type { ExecutionEnv } from '@earendil-works/pi-durable/env';
 import { Type } from '@earendil-works/pi-ai';
 import type { Context } from '@earendil-works/chord';
-import type { Skill } from './agents.js';
+import type { Skill } from './skills.js';
 import { jsonSchemaTool } from './json-schema-tool.js';
 
 /*

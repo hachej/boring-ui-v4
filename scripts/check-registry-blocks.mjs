@@ -10,6 +10,9 @@
 //    `.tsx` is a component (`registry:ui` for a shared primitive such as the button); every file has the target
 //    `components/<item>/<file>`, so the installed folders mirror registry/ and the sibling imports above resolve.
 // 5. No file name is shipped by two items: a shared helper is one item (utils, button) that the others depend on.
+// 6. No import cycle in registry blocks or package sources (packages/*/src), type-only and lazy imports included: copied-in
+//    code with a cycle breaks some bundlers, HMR and tree-shaking. Shared types and helpers live in the module that owns them
+//    (a leaf lib never imports a component), and a module that needs them imports them in one direction.
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +22,58 @@ const source = /\.(?:tsx?|jsx?|mjs)$/;
 const namespace = '@boring-ui/';
 const local = (dependency) => dependency.startsWith(namespace) ? dependency.slice(namespace.length) : dependency;
 const importPattern = /\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
+
+/** Cycles among the source files under `folders`, following relative imports (`./x`, `./x.js` for `x.ts`, `./x` for `x.tsx`). */
+export function importCycles(root, folders) {
+  const files = [];
+  const walk = (folder) => {
+    for (const entry of readdirSync(resolve(root, folder), { withFileTypes: true })) {
+      const path = posix.join(folder, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'node_modules') walk(path); }
+      else if (source.test(entry.name) && !entry.name.endsWith('.d.ts')) files.push(path);
+    }
+  };
+  for (const folder of folders) if (existsSync(resolve(root, folder))) walk(folder);
+  const known = new Set(files);
+  const target = (from, specifier) => {
+    const base = posix.normalize(posix.join(posix.dirname(from), specifier)), stem = base.replace(/\.(?:m?js|jsx)$/, '');
+    return [base, `${stem}.ts`, `${stem}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find((candidate) => known.has(candidate));
+  };
+  const graph = new Map(files.map((file) => [file, [...new Set([...readFileSync(resolve(root, file), 'utf8').matchAll(importPattern)]
+    .map(([, specifier]) => specifier).filter((specifier) => specifier.startsWith('.')).map((specifier) => target(file, specifier)).filter(Boolean))].sort()]));
+  // Tarjan's strongly connected components; each component with an edge back is reported once, as one concrete path.
+  let next = 0;
+  const order = new Map(), low = new Map(), stack = [], open = new Set(), cycles = [];
+  const visit = (file) => {
+    order.set(file, next); low.set(file, next++); stack.push(file); open.add(file);
+    for (const other of graph.get(file)) {
+      if (!order.has(other)) { visit(other); low.set(file, Math.min(low.get(file), low.get(other))); }
+      else if (open.has(other)) low.set(file, Math.min(low.get(file), order.get(other)));
+    }
+    if (low.get(file) !== order.get(file)) return;
+    const component = [];
+    for (let member; member !== file;) { member = stack.pop(); open.delete(member); component.push(member); }
+    if (component.length > 1 || graph.get(file).includes(file)) cycles.push(shortestLoop(graph, new Set(component)));
+  };
+  for (const file of files.sort()) if (!order.has(file)) visit(file);
+  return cycles.sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function shortestLoop(graph, component) {
+  const start = [...component].sort()[0];
+  const previous = new Map([[start, null]]), queue = [start];
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const other of graph.get(queue[index])) {
+      if (!component.has(other)) continue;
+      if (other === start) { const path = [start]; for (let at = queue[index]; at !== start; at = previous.get(at)) path.splice(1, 0, at); return [...path, start]; }
+      if (!previous.has(other)) { previous.set(other, queue[index]); queue.push(other); }
+    }
+  }
+  return [start, start];
+}
+
+/** Folders the cycle rule covers: every registry block and every package's sources. */
+export const cycleFolders = (root) => ['registry', ...readdirSync(resolve(root, 'packages'), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => `packages/${entry.name}/src`)];
 
 export function checkRegistryBlocks(root) {
   const errors = [];
@@ -71,11 +126,12 @@ export function checkRegistryBlocks(root) {
     }
     for (const file of own) if (!existsSync(resolve(root, file))) errors.push(`BORING-BLOCKS ${item.name}: listed file ${file} does not exist`);
   }
+  for (const cycle of importCycles(root, cycleFolders(root))) errors.push(`BORING-BLOCKS import cycle: ${cycle.join(' -> ')} (move the shared piece to the module that owns it so imports go one way)`);
   return { errors, files };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = checkRegistryBlocks(realpathSync(fileURLToPath(new URL('../', import.meta.url))));
   if (result.errors.length) { console.error(result.errors.join('\n')); process.exitCode = 1; }
-  else console.log(`ok: ${result.files} registry source files are listed in their item with their type and target, and import only items they depend on`);
+  else console.log(`ok: ${result.files} registry source files are listed in their item with their type and target, and import only items they depend on; no import cycle in registry blocks or package sources`);
 }

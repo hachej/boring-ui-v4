@@ -1,10 +1,15 @@
 'use client';
 
 import { createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
 import { defineRegistry, JSONUIProvider, Renderer } from '@json-render/react';
 import { experienceCatalog } from './experience-catalog.js';
-import type { ExperienceAccess, ExperienceDescriptor } from './experience-compose.js';
-import type { RenderedExperienceCell } from './experience.js';
+import type { ExperienceAccess, ExperienceCell, ExperienceDescriptor } from './experience-compose.js';
+
+/** A cell the host can show: its access record plus how to render it. */
+export interface RenderedExperienceCell extends ExperienceCell {
+  readonly render: () => ReactNode;
+}
 
 interface LiveCells {
   readonly cells: readonly RenderedExperienceCell[];
