@@ -32,3 +32,13 @@ export async function copyText(text: string, onCopy?: (text: string) => Promise<
   }
   throw new ManualCopyError(text);
 }
+
+/**
+ * A block's `labels` or `icons`: `defaults` with each partial override on top, later ones winning. A key an override leaves `undefined`
+ * keeps the value below it, so a host can pass `{ title: maybe }` safely.
+ */
+export function withDefaults<T extends object>(defaults: T, ...overrides: readonly (Partial<T> | undefined)[]): T {
+  const merged: Record<string, unknown> = { ...defaults as Record<string, unknown> };
+  for (const override of overrides) for (const [key, value] of Object.entries(override ?? {})) if (value !== undefined) merged[key] = value;
+  return merged as T;
+}

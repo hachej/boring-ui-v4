@@ -5,6 +5,8 @@ import type { ReactNode } from 'react';
 import { Marked } from 'marked';
 import { decodeHTML } from 'entities';
 import { CodeBlock } from './code-block';
+import { useChatText } from './labels';
+import type { ChatLabels } from './labels';
 
 /*
  * Safe Markdown for model output. Tokens are mapped to React elements one by one: raw HTML is shown as text, images are
@@ -34,7 +36,7 @@ function containsHtml(value: unknown): boolean {
 }
 function literal(value: string): ReactNode { return <span className="whitespace-pre-wrap">{value}</span>; }
 
-interface Context { readonly mentions: CommandMentions | undefined; readonly onCopy: ((text: string) => Promise<void>) | undefined }
+interface Context { readonly mentions: CommandMentions | undefined; readonly onCopy: ((text: string) => Promise<void>) | undefined; readonly labels: ChatLabels }
 
 function children(value: unknown, context: Context, before = '', after = '', inline = false): ReactNode {
   if (!Array.isArray(value)) return null;
@@ -50,7 +52,7 @@ function children(value: unknown, context: Context, before = '', after = '', inl
 }
 
 const mentionPattern = /(^|[\s(\[{"'“‘])\/([A-Za-z0-9_][A-Za-z0-9_-]*)(?=$|\s|[.,;!?)}\]"'”’]+(?=$|\s))/g;
-function mentionText(value: string, mentions: CommandMentions | undefined, before: string, after: string): ReactNode {
+function mentionText(value: string, mentions: CommandMentions | undefined, before: string, after: string, labels: ChatLabels): ReactNode {
   if (!mentions?.commands.length || !value.includes('/')) return value;
   const commands = new Map(mentions.commands.filter(item => /^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(item.name)
     && (item.behavior === 'execute' || item.behavior === 'insert')).map(item => [item.name, item]));
@@ -68,7 +70,7 @@ function mentionText(value: string, mentions: CommandMentions | undefined, befor
     const selected = { name: command.name, behavior: command.behavior };
     const at = offset - start;
     if (at > cursor) pieces.push(value.slice(cursor, at));
-    pieces.push(<button key={at} type="button" data-testid="command-mention" aria-label={`${selected.behavior === 'execute' ? 'Run' : 'Insert'} /${selected.name} command`}
+    pieces.push(<button key={at} type="button" data-testid="command-mention" aria-label={labels.runCommand(selected.name, selected.behavior === 'execute')}
       className="cursor-pointer rounded bg-muted px-1 font-mono text-[0.92em] text-foreground hover:bg-accent" onClick={() => mentions.onActivate(selected)}>/{selected.name}</button>);
     cursor = limit - start;
   }
@@ -119,7 +121,7 @@ function renderToken(value: unknown, context: Context, before = '', after = ''):
         ? createElement(`h${depth}`, { className: `${HEADINGS[depth]} first:mt-0` }, children(value['tokens'], context, '', '', true)) : literal(raw);
     }
     case 'text': return Array.isArray(value['tokens']) ? children(value['tokens'], context, before, after, true)
-      : value['escaped'] === true ? literal(content) : mentionText(decodeHTML(content), mentions, before, after);
+      : value['escaped'] === true ? literal(content) : mentionText(decodeHTML(content), mentions, before, after, context.labels);
     case 'escape': return content;
     case 'strong': return <strong className="font-semibold text-foreground">{children(value['tokens'], context, before, after, true)}</strong>;
     case 'em': return <em>{children(value['tokens'], context, before, after, true)}</em>;
@@ -143,7 +145,7 @@ function renderToken(value: unknown, context: Context, before = '', after = ''):
         : <ul className="my-3 list-disc ps-6 marker:text-muted-foreground">{children(value['items'], context)}</ul>;
     }
     case 'list_item': return <li className="ps-1 [&+li]:mt-1 [&>p]:my-1 [&>ol]:my-1 [&>ul]:my-1">{children(value['tokens'], context, '', '', true)}</li>;
-    case 'checkbox': return <input type="checkbox" checked={value['checked'] === true} disabled readOnly aria-label="Task status" className="me-1.5 align-middle accent-foreground" />;
+    case 'checkbox': return <input type="checkbox" checked={value['checked'] === true} disabled readOnly aria-label={context.labels.taskStatus} className="me-1.5 align-middle accent-foreground" />;
     case 'table': return <div className="my-3 overflow-x-auto rounded-lg border border-border"><table className="w-full border-collapse text-left tabular-nums">
       <thead className="bg-muted/50">{<tr>{cells(value['header'], true, context)}</tr>}</thead>
       <tbody className="[&_tr]:border-t [&_tr]:border-border">{Array.isArray(value['rows']) ? value['rows'].map((row: unknown, index) => <tr key={index}>{cells(row, false, context)}</tr>) : null}</tbody></table></div>;
@@ -154,14 +156,15 @@ function renderToken(value: unknown, context: Context, before = '', after = ''):
 /** One top-level block; unchanged blocks skip re-rendering while a long answer streams. */
 const Block = memo(function Block({ token, context }: { readonly token: unknown; readonly context: Context }) {
   return <>{renderToken(token, context)}</>;
-}, (a, b) => isRecord(a.token) && isRecord(b.token) && a.token['raw'] === b.token['raw'] && a.token['type'] === b.token['type'] && a.context.mentions === b.context.mentions && a.context.onCopy === b.context.onCopy);
+}, (a, b) => isRecord(a.token) && isRecord(b.token) && a.token['raw'] === b.token['raw'] && a.token['type'] === b.token['type'] && a.context.mentions === b.context.mentions && a.context.onCopy === b.context.onCopy && a.context.labels === b.context.labels);
 
 export const Markdown = memo(function Markdown({ text: source, commandMentions, onCopy, streaming = false }: {
   readonly text: string; readonly commandMentions?: CommandMentions; readonly onCopy?: (text: string) => Promise<void>; readonly streaming?: boolean;
 }) {
   const tokens = useMemo(() => { try { return markdown.lexer(source); } catch { return null; } }, [source]);
   const mentions = source.includes('/') && commandMentions?.commands.length ? commandMentions : undefined;
-  const context = useMemo<Context>(() => ({ mentions, onCopy }), [mentions, onCopy]);
+  const { labels } = useChatText();
+  const context = useMemo<Context>(() => ({ mentions, onCopy, labels }), [mentions, onCopy, labels]);
   const body = useMemo(() => {
     if (!tokens) return literal(source);
     // With mentions enabled, positions are relative to the whole text, so render the token list as one unit.

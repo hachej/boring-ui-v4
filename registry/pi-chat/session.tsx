@@ -16,6 +16,9 @@ import type { AnswerOutcome } from './question-card';
 import type { ArtifactsConfig } from './artifact';
 import { derive, isFileBlock, object, queuedMessages } from './rows';
 import type { ChatCard, Mode } from './rows';
+import { useChatText } from './labels';
+import type { BlockAction } from '../button/actions';
+import type { ReplyRef } from './config';
 
 /** What the host lets the person do beyond typing. Pass `remote.answer` and `remote.withdraw` from `createRemoteChat()`. */
 export interface PiChatActions {
@@ -50,7 +53,13 @@ export interface ChatFeatureProps {
   readonly effort?: EffortConfig;
   /** Artifact cards: tool results that carry a descriptor become a card that opens the artifact in the host's panel. Omit it and nothing changes. */
   readonly artifacts?: ArtifactsConfig;
+  /**
+   * Host actions under each settled reply, beside Copy (and Fork): `header` ones as buttons, `menu` ones in a "…" menu. Test ids
+   * `reply-action-<id>`, the menu `reply-action-more`.
+   */
+  readonly messageActions?: ((reply: ReplyRef) => readonly BlockAction[]) | undefined;
 }
+
 
 export type FilesHandler = (files: readonly File[], target: Pick<ReturnType<NativeChatController['getSnapshot']>, 'identity' | 'conversationId'> & { readonly signal: AbortSignal }) => Promise<readonly ChatAttachment[]>;
 
@@ -72,7 +81,8 @@ export interface ChatSessionOptions extends Readonly<{ [Key in keyof ChatFeature
 
 export function useChatSession(options: ChatSessionOptions) {
   const { controller, activeController: active, mode, actions, renderEntry, renderTool, groupTool, commandMentions, onOpenImage, onCopy, onComposerKeyDown, onFiles, fileAccept,
-    slash, mentions, attachments, model, effort, artifacts, afterSend, rowExtras, feedback } = options;
+    slash, mentions, attachments, model, effort, artifacts, messageActions, afterSend, rowExtras, feedback } = options;
+  const { labels } = useChatText();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(0);
@@ -88,7 +98,7 @@ export function useChatSession(options: ChatSessionOptions) {
   useEffect(() => {
     mounted.current = true;
     // A controller disposed before mount throws synchronously; the chat then renders its disposed state.
-    if (!controller.getSnapshot().disposed) void controller.connect().catch(cause => { if (current()) setError(cause instanceof Error ? cause.message : 'Connection failed'); });
+    if (!controller.getSnapshot().disposed) void controller.connect().catch(cause => { if (current()) setError(cause instanceof Error ? cause.message : labels.connectionFailed); });
     return () => { mounted.current = false; for (const upload of uploads.current) upload.abort(); uploads.current.clear(); };
   }, [controller]);
 
@@ -99,7 +109,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const queued = useMemo(() => queuedMessages(state.view), [state.view]);
   const { rows, run } = derived;
 
-  const report = (cause: unknown) => { if (current()) setError(cause instanceof Error ? cause.message : 'Action failed'); };
+  const report = (cause: unknown) => { if (current()) setError(cause instanceof Error ? cause.message : labels.actionFailedShort); };
   const act = (action: () => Promise<unknown>) => {
     setError(null);
     try { void action().catch(report); } catch (cause) { report(cause); }
@@ -145,9 +155,9 @@ export function useChatSession(options: ChatSessionOptions) {
   };
   // A queued message is taken back (withdrawn) before it is edited or steered; if Pi already placed it, that is reported and nothing is lost.
   async function takeBack(item: QueuedMessage) {
-    if (!actions?.withdraw) throw new Error('Queued messages cannot be changed here.');
+    if (!actions?.withdraw) throw new Error(labels.queueLocked);
     const outcome = await actions.withdraw(item.id);
-    if (outcome === 'already_placed' || outcome === 'settled') throw new Error('Too late: that message has already started.');
+    if (outcome === 'already_placed' || outcome === 'settled') throw new Error(labels.tooLate);
   }
   const queuedContent = (item: QueuedMessage) => {
     const parts = Array.isArray(item.content) ? item.content as readonly { type?: unknown; text?: unknown; data?: unknown; mimeType?: unknown }[] : [];
@@ -165,15 +175,15 @@ export function useChatSession(options: ChatSessionOptions) {
       textarea.current?.focus();
     },
     steer: async item => {
-      if (sendBlocked) throw new Error('Wait for the current send to finish, then steer.');
+      if (sendBlocked) throw new Error(labels.waitToSteer);
       await takeBack(item);
       const { text, images } = queuedContent(item);
       // Sent as explicit content, so the person's own draft is never touched; a refused steer comes back into the composer (the controller
       // puts it back), an unknown one is held for checking.
       try {
         const submission = await controller.send('steer', { text, attachments: images });
-        if (!submission && current() && controller.getSnapshot().send.kind === 'blocked') setError('The message could not be steered; it is back in the message box.');
-      } catch (cause) { putBack(text, images); if (current()) setError(cause instanceof Error ? cause.message : 'The message could not be steered.'); }
+        if (!submission && current() && controller.getSnapshot().send.kind === 'blocked') setError(labels.steerRefused);
+      } catch (cause) { putBack(text, images); if (current()) setError(cause instanceof Error ? cause.message : labels.steerFailed); }
     },
   } : undefined;
   const addMentions = (paths: readonly string[]) => {
@@ -202,7 +212,7 @@ export function useChatSession(options: ChatSessionOptions) {
         if (paths.length) addMentions(paths);
         settle();
       }
-    } catch (cause) { if (!abort.signal.aborted) { settle(cause instanceof Error ? cause.message : 'Upload failed'); if (!attachments) report(cause); } }
+    } catch (cause) { if (!abort.signal.aborted) { settle(cause instanceof Error ? cause.message : labels.uploadFailedShort); if (!attachments) report(cause); } }
     finally { uploads.current.delete(abort); if (current()) setUploading(value => value - 1); }
   }
   const agentDoc = object(state.view?.docs['pi.agent']);
@@ -219,7 +229,7 @@ export function useChatSession(options: ChatSessionOptions) {
     if (changing || !current()) return;
     setChanging(kind); setChangeError(null);
     try { await apply(); if (current()) accepted(); }
-    catch (cause) { if (current()) { rejected(); setChangeError(cause instanceof Error && cause.message ? cause.message : 'The change was refused'); } }
+    catch (cause) { if (current()) { rejected(); setChangeError(cause instanceof Error && cause.message ? cause.message : labels.changeRefused); } }
     finally { if (current()) setChanging(null); }
   }
   const activateMention = (command: { readonly name: string; readonly behavior: 'execute' | 'insert' }) => {
@@ -233,10 +243,11 @@ export function useChatSession(options: ChatSessionOptions) {
     commandMentions: commandMentions ? { commands: commandMentions.commands, onActivate: activateMention } : undefined,
     answer: actions?.answer,
     artifacts: artifacts ? { open: artifacts.open, isOpen: artifacts.isOpen } : undefined,
+    messageActions,
     pieces: slash?.skills?.length || mentions ? { mentions: Boolean(mentions), skills: (slash?.skills ?? []).map(skill => skill.name), openMention: mentions?.open } : undefined,
     ...rowExtras,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [developer, groupTool, onOpenImage, onCopy, commandMentions, actions?.answer, slash?.skills, mentions, mentions?.open, artifacts?.open, artifacts?.isOpen, rowExtras]);
+  }), [developer, groupTool, onOpenImage, onCopy, commandMentions, actions?.answer, slash?.skills, mentions, mentions?.open, artifacts?.open, artifacts?.isOpen, messageActions, rowExtras]);
 
   /** The model-and-effort pill and the note that reports a refused change. */
   const pickers = () => {
@@ -244,7 +255,7 @@ export function useChatSession(options: ChatSessionOptions) {
     const barStart = model || effort ? <ModelEffortPicker model={model} effort={effort} currentModel={optimistic.model ?? viewModel} currentEffort={optimistic.effort ?? viewEffort} disabled={disabled} busy={changing}
       onModel={next => void change('model', () => model!.change(next), () => setOptimistic(value => ({ ...value, model: next })), () => {})}
       onEffort={next => void change('effort', () => effort!.change(next), () => setOptimistic(value => ({ ...value, effort: next })), () => {})} /> : undefined;
-    const barNote = changeError ? <button type="button" role="alert" data-testid="configure-error" title={`${changeError} (click to dismiss)`} onClick={() => setChangeError(null)}
+    const barNote = changeError ? <button type="button" role="alert" data-testid="configure-error" title={`${changeError} (${labels.dismissHint})`} onClick={() => setChangeError(null)}
       className="min-w-0 max-w-[16rem] cursor-pointer truncate rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring/60">{changeError}</button> : undefined;
     return { barStart, barNote };
   };

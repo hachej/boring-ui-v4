@@ -50,8 +50,8 @@ function App() {
   return <div className="bot">
     <main className="bot-chat">
       {chat.status === 'ready'
-        ? <PiChat controller={chat.controller} title="Bot" mode={details ? 'developer' : 'expert'} actions={chat.actions} onCopy={text => copyToClipboard(text)}
-            emptyDescription="One conversation for life. It remembers everything you say and can rewrite its own persona and abilities."
+        ? <PiChat controller={chat.controller} mode={details ? 'developer' : 'expert'} actions={chat.actions} onCopy={text => copyToClipboard(text)}
+            labels={{ title: 'Bot', emptyDescription: 'One conversation for life. It remembers everything you say and can rewrite its own persona and abilities.' }}
             controls={<>
               <label className="bot-toggle"><input type="checkbox" data-testid="bot-details" checked={details} onChange={event => setDetails(event.target.checked)} /> Tool calls</label>
               <button type="button" className="bot-panel-open" data-testid="bot-panel-open" onClick={() => setSheet(true)}><BrainIcon size={16} aria-hidden="true" />Memory</button>

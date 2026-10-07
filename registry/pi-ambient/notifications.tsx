@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent } from 'react';
 import { CircleCheckIcon, CircleAlertIcon, MessageCircleQuestionIcon, XIcon } from 'lucide-react';
 import type { NativeChatController } from '@boring/ui/native-chat';
@@ -8,7 +8,7 @@ import { notifyWhenHidden } from './browser-notify';
 import { parseQuestion } from '../pi-chat/question-card';
 import { derive, object } from '../pi-chat/rows';
 import type { Row } from '../pi-chat/rows';
-import { cn } from '../utils/utils';
+import { cn, withDefaults } from '../utils/utils';
 
 /** `done`: a run finished. `input`: the agent waits for an answer (never auto-dismissed). `error`: a run failed. */
 export type NotificationKind = 'done' | 'input' | 'error';
@@ -123,10 +123,23 @@ export function watchConversation(controller: NativeChatController, store: Notif
 }
 
 const ICONS = {
-  done: { Icon: CircleCheckIcon, label: 'Finished', tone: 'text-emerald-500' },
-  input: { Icon: MessageCircleQuestionIcon, label: 'Needs your input', tone: 'text-amber-400' },
-  error: { Icon: CircleAlertIcon, label: 'Failed', tone: 'text-destructive' },
+  done: { Icon: CircleCheckIcon, label: 'finished', tone: 'text-emerald-500' },
+  input: { Icon: MessageCircleQuestionIcon, label: 'needsInput', tone: 'text-amber-400' },
+  error: { Icon: CircleAlertIcon, label: 'failedRun', tone: 'text-destructive' },
 } as const;
+
+/** The toasts' words; `AmbientChat`'s `labels` carries them too. */
+export const defaultNotificationLabels = {
+  finished: 'Finished',
+  needsInput: 'Needs your input',
+  failedRun: 'Failed',
+  notifications: 'Agent notifications',
+  /** A toast's accessible name: its kind, title and summary, then what a press does. */
+  openNotification: (kind: string, title: string, summary: string | undefined) => `${kind}: ${title}${summary ? `. ${summary}` : ''}. Open`,
+  dismissNotification: (title: string) => `Dismiss: ${title}`,
+  dismissShort: 'Dismiss',
+};
+export type NotificationLabels = typeof defaultNotificationLabels;
 
 /** The status icon of a notification, also used by the ambient header. */
 export function KindIcon({ kind, className }: { readonly kind: NotificationKind; readonly className?: string }) {
@@ -134,8 +147,8 @@ export function KindIcon({ kind, className }: { readonly kind: NotificationKind;
   return <Icon className={cn('size-5 shrink-0', tone, className)} aria-hidden="true" />;
 }
 
-function Toast({ item, autoDismissMs, onActivate, onDismiss }: {
-  readonly item: AgentNotification; readonly autoDismissMs: number;
+function Toast({ item, autoDismissMs, onActivate, onDismiss, labels }: {
+  readonly item: AgentNotification; readonly autoDismissMs: number; readonly labels: NotificationLabels;
   readonly onActivate: (item: AgentNotification) => void; readonly onDismiss: (item: AgentNotification) => void;
 }) {
   const [paused, setPaused] = useState(false);
@@ -145,16 +158,16 @@ function Toast({ item, autoDismissMs, onActivate, onDismiss }: {
     const timer = setTimeout(() => onDismiss(item), autoDismissMs);
     return () => clearTimeout(timer);
   }, [dismissible, paused, autoDismissMs, item, onDismiss]);
-  const { label } = ICONS[item.kind];
+  const label = labels[ICONS[item.kind].label];
   return <li data-testid="agent-toast" data-kind={item.kind} data-conversation-id={item.conversationId} className="pointer-events-auto relative list-none"
     onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}
     onKeyDown={(event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); onDismiss(item); } }}>
-    <button type="button" data-testid="agent-toast-open" onClick={() => onActivate(item)} aria-label={`${label}: ${item.title}${item.summary ? `. ${item.summary}` : ''}. Open`}
+    <button type="button" data-testid="agent-toast-open" onClick={() => onActivate(item)} aria-label={labels.openNotification(label, item.title, item.summary)}
       className="block w-full cursor-pointer rounded-[1.75rem] border border-border bg-background py-3.5 pr-6 pl-4 text-left text-foreground shadow-xl outline-none transition-colors hover:bg-popover focus-visible:ring-2 focus-visible:ring-ring/70 motion-reduce:transition-none">
       <span className="flex items-center gap-2.5"><KindIcon kind={item.kind} /><span className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium">{item.title}</span></span>
       {item.summary && <span data-testid="agent-toast-summary" className="mt-1 block truncate text-sm text-muted-foreground">{item.summary}</span>}
     </button>
-    <button type="button" data-testid="agent-toast-close" aria-label={`Dismiss: ${item.title}`} title="Dismiss" onClick={() => onDismiss(item)}
+    <button type="button" data-testid="agent-toast-close" aria-label={labels.dismissNotification(item.title)} title={labels.dismissShort} onClick={() => onDismiss(item)}
       className="absolute -top-2 -left-2 inline-flex size-6 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-foreground shadow-md outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/70 max-sm:size-8 pointer-coarse:size-8 motion-reduce:transition-none">
       <XIcon className="size-3.5" aria-hidden="true" /></button>
   </li>;
@@ -173,6 +186,8 @@ export interface AgentNotificationsProps {
   readonly variant?: 'contrast' | 'surface';
   /** `fixed` docks the stack at the bottom right of the page; `inline` leaves placement to `className`. */
   readonly placement?: 'fixed' | 'inline';
+  /** The toasts' words, over `defaultNotificationLabels`. */
+  readonly labels?: Partial<NotificationLabels> | undefined;
   readonly className?: string;
 }
 
@@ -180,7 +195,8 @@ export interface AgentNotificationsProps {
  * A stack of toasts for finished, failed and waiting tasks, driven by a `NotificationStore`. It is a polite live region;
  * Escape closes the focused toast. `AmbientChat` renders one above its bar; use this directly for a host-placed stack.
  */
-export function AgentNotifications({ store, max = 3, autoDismissMs = 8000, onActivate, systemNotifications = false, variant = 'contrast', placement = 'fixed', className }: AgentNotificationsProps) {
+export function AgentNotifications({ store, max = 3, autoDismissMs = 8000, onActivate, systemNotifications = false, variant = 'contrast', placement = 'fixed', labels: given, className }: AgentNotificationsProps) {
+  const labels = useMemo(() => withDefaults(defaultNotificationLabels, given), [given]);
   const items = useNotifications(store);
   const seen = useRef(new Set<string>());
   const dismiss = useCallback((item: AgentNotification) => store.dismiss(item.id), [store]);
@@ -189,14 +205,14 @@ export function AgentNotifications({ store, max = 3, autoDismissMs = 8000, onAct
     for (const item of items) {
       if (seen.current.has(`${item.id}:${item.createdAt}`)) continue;
       seen.current.add(`${item.id}:${item.createdAt}`);
-      if (systemNotifications) notifyWhenHidden(item.title, item.summary ?? ICONS[item.kind].label, item.id, () => { globalThis.focus?.(); activate(item); });
+      if (systemNotifications) notifyWhenHidden(item.title, item.summary ?? labels[ICONS[item.kind].label], item.id, () => { globalThis.focus?.(); activate(item); });
     }
-  }, [items, systemNotifications, activate]);
+  }, [items, systemNotifications, activate, labels]);
   const shown = items.slice(-max);
-  return <div data-boring="agent-notifications" data-variant={variant} role="status" aria-live="polite" aria-relevant="additions" aria-label="Agent notifications"
+  return <div data-boring="agent-notifications" data-variant={variant} role="status" aria-live="polite" aria-relevant="additions" aria-label={labels.notifications}
     className={cn('pi-chat pi-ambient pointer-events-none z-50', placement === 'fixed' && 'fixed right-4 bottom-4 w-[min(26rem,calc(100vw-2rem))]', className)}>
     <ul className="m-0 flex list-none flex-col gap-3 p-0">
-      {shown.map(item => <Toast key={`${item.id}:${item.createdAt}`} item={item} autoDismissMs={autoDismissMs} onActivate={activate} onDismiss={dismiss} />)}
+      {shown.map(item => <Toast key={`${item.id}:${item.createdAt}`} item={item} autoDismissMs={autoDismissMs} onActivate={activate} onDismiss={dismiss} labels={labels} />)}
     </ul>
   </div>;
 }

@@ -32,6 +32,8 @@ const chatEndpoint = id => new URL(`/api/chat?conversation=${id}`, location.href
 const resources = { endpoint: new URL('/api/resources', location.href), fetch: authorized, identity, history: new URL('/api/history', location.href),
   locate: path => ({ resource: { providerId: 'workspace', path: path.replace(/^\/workspace\//, '') }, view: { kind: 'published' } }) };
 const viewers = { canvas: ({ target, title, revision, frame }) => <Canvas panel={{ target, title, ...(revision ? { revision } : {}) }} authorized={authorized} identity={identity} frame={frame} /> };
+// The chat's words: only its name differs from the defaults (`defaultChatLabels`).
+const CHAT_LABELS = { title: 'Assistant' };
 
 // Host commands the `/` menu offers next to the agent's skills.
 // `/reload` exists only for a self-evolving agent: the same reload as the agent's tool, run by the host for the person.
@@ -154,7 +156,7 @@ function App() {
       <AgentWorkspace controller={controller} conversationId={active} conversations={conversations} resources={resources} detect={detect} viewers={viewers} interactive={INTERACTIVE_HTML} share={shareStudioLink}
         opened={opened} onOpenedChange={setOpened} panels={panels} fileBack={{ label: 'Files', onBack: () => setOpened({ kind: 'workspace', tab: 'files' }) }}
         storageKey="studio" sheetBelow={901} drawerBelow={901} floatBelow={320}
-        chat={{ title: 'Assistant', mode, actions: chat.actions, ...composer, emptyState: scenarioRun.emptyState, decisions: scenarioRun.decisions }}
+        chat={{ labels: CHAT_LABELS, mode, actions: chat.actions, ...composer, emptyState: scenarioRun.emptyState, decisions: scenarioRun.decisions }}
         connecting={<p className="studio-loading" role="status">{chat.status === 'offline' ? 'Server unreachable. Retrying…' : 'Connecting…'}</p>}
         floatingChat={floating}
         controls={({ panelOpen }) => panelOpen ? undefined : <button type="button" className="studio-panel-toggle" data-testid="studio-panel-open" onClick={() => setOpened({ kind: 'workspace', tab: 'files' })}><PanelRightOpenIcon size={16} aria-hidden="true" />Workspace</button>}
