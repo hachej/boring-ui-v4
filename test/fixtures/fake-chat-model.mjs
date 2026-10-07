@@ -1,12 +1,15 @@
 import { createModels, createProvider } from '@earendil-works/pi-ai/models';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
 
-/** A local public provider whose real stream advances only when the test responds. */
-export function createFakeChatModel() {
+/**
+ * A local public provider whose real stream advances only when the test responds. `cost` sets its rates (USD per million tokens);
+ * `respond(text, usage)` reports token counts for the answer, priced with those rates.
+ */
+export function createFakeChatModel({ cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } } = {}) {
   const model = {
     id: 'fictional-chat', name: 'Fictional local chat', provider: 'fictional-chat-provider', api: 'fictional-chat-api',
     baseUrl: 'https://fixture.invalid', input: ['text', 'image'], reasoning: false, contextWindow: 32768, maxTokens: 1024,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost,
   };
   const calls = [], waiting = [], unread = [];
   const stream = (_model, transcript, options = {}) => {
@@ -39,8 +42,13 @@ export function createFakeChatModel() {
     };
     const call = {
       transcript: structuredClone(transcript), signal: options.signal, aborted, append,
-      respond: text => {
+      respond: (text, usage) => {
         append(text);
+        if (usage) {
+          const input = usage.input ?? 0, output = usage.output ?? 0;
+          const price = { input: cost.input * input / 1e6, output: cost.output * output / 1e6, cacheRead: 0, cacheWrite: 0 };
+          message.usage = { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output, cost: { ...price, total: price.input + price.output } };
+        }
         events.push({ type: 'text_end', contentIndex: 0, content: message.content[0].text, partial: message });
         events.push({ type: 'done', reason: 'stop', message });
         events.end(message); ended = true;

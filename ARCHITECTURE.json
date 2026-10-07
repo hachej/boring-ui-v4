@@ -101,6 +101,18 @@
           ]
         },
         {
+          "prefix": "src/metering",
+          "forbidden": [
+            "node:*",
+            "@boring/ui*",
+            "@boring/feedback*",
+            "@boring/execution*"
+          ],
+          "forbiddenRelative": [
+            "src/"
+          ]
+        },
+        {
           "prefix": "src/model-gateway",
           "forbidden": [
             "node:*",

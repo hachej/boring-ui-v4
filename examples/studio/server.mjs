@@ -20,6 +20,7 @@ import { createGitTool } from '@boring/agent/git';
 import { createChatTransportHandler } from '@boring/agent/chat-transport';
 import { createConversations, createConversationsHandler } from '@boring/agent/conversations';
 import { createMentionResolver, safeMentionPath } from '@boring/agent/mentions';
+import { createMeter, createSqliteLedger } from '@boring/agent/metering';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
@@ -48,6 +49,11 @@ const DEFAULT_MODELS = {
 const here = name => fileURLToPath(new URL(name, import.meta.url));
 /** The workspace as the browser and the journeys see it, whatever directory a variant's environment really uses. */
 const VIRTUAL_ROOT = '/workspace';
+/**
+ * Fictional credits of the variants that declare `credits: true` (local): every message holds `holdMicros` while it runs and is charged its
+ * usage, priced by Pi's `calculateCost` from the model's rates with a 1.25 markup (@boring/agent/metering). One millionth is one micro.
+ */
+const CREDITS = { startMicros: 50_000_000, holdMicros: 20_000, markup: 1.25 };
 
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
@@ -211,6 +217,12 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const report = await variant.agent.reload(variant.env, context);
     if (report.errors.length) console.error(`.agent/ of ${variant.id} on open:\n${report.text}`);
   }
+  // Metering: the ledger is a SQLite file of the host; runs a previous process left open are finished from Pi's durable state.
+  const creditsDb = openNodeConnection(join(directory, 'credits.sqlite'));
+  const ledger = createSqliteLedger({ connection: creditsDb, holdMicros: CREDITS.holdMicros });
+  await ledger.grant(human.principalId, CREDITS.startMicros, 'studio-start');
+  const meter = createMeter({ sink: ledger, context, models, markup: CREDITS.markup });
+  await meter.recover(harness);
   harness.resume();
   // External channels (WhatsApp) when configured: same harness and conversations, own signed webhook instead of the bearer token.
   const channelEntries = entries.map(variant => ({ ...variant, agent: variant.agent }));
@@ -224,7 +236,8 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (!authenticated(request) || !conversation) return null;
     const owner = ownerOf(conversation);
     // Every message sees what the person attached or @mentioned: the host reads the workspace and adds the files to the input.
-    return { conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
+    // In a variant with credits a message is reserved against the person's balance before it reaches the conversation (or refused).
+    return { conversation: owner.descriptor.credits ? meter.conversation(conversation, human.principalId) : conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
       answer: (callId, answer) => answerUserQuestion(conversation, callId, answer, context), configure: change => configure(conversation, change) };
   } });
   // The host owns the allow-list: a change outside the declared models and efforts is refused, not applied.
@@ -253,6 +266,11 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const target = variants.get(listed[1]);
       if (!target) return Response.json({ reason: 'unknown-variant' }, { status: 404 });
       return target.conversationsHandler(request);
+    }
+    // The person's fictional credits; POST tops them back up to the starting balance (the stand-in for buying more).
+    if (url.pathname === '/api/credits') {
+      if (request.method === 'POST') { const { balanceMicros } = await ledger.balance(human.principalId); await ledger.grant(human.principalId, CREDITS.startMicros - balanceMicros, `top-up-${randomUUID()}`); }
+      return Response.json({ ...await ledger.balance(human.principalId), holdMicros: CREDITS.holdMicros, variants: entries.filter(entry => entry.descriptor.credits).map(entry => entry.id) });
     }
     if (request.method === 'GET' && url.pathname === '/api/files') return Response.json({ files: (await walk(variant)).map(path => virtual(variant, path)) });
     // The retained versions of one workspace file (relative path) with their save times, newest first: the version list of a presented file.
@@ -371,8 +389,10 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));
       await channels?.close();
+      await meter.close();
       await managed.dispose();
       await harness.close(context);
+      creditsDb.close();
       for (const variant of entries) { for (const connection of variant.mcp) await connection.close(); await variant.infra.close?.(); }
       workspaceDb.close();
     },

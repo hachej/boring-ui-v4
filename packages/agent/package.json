@@ -1,6 +1,6 @@
 {
   "name": "@boring/agent", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
-  "description": "Native Pi attachment, the read/write/edit guard, durable questions and conditional document delivery.",
+  "description": "Native Pi attachment, the read/write/edit guard, durable questions, conditional document delivery and metering.",
   "sideEffects": false,
   "files": ["dist", "README.md"],
   "types": "./dist/index.d.ts",
@@ -26,7 +26,8 @@
     "./approval": { "types": "./dist/approval.d.ts", "import": "./dist/approval.js" },
     "./memory/optchat": { "types": "./dist/memory/optchat.d.ts", "import": "./dist/memory/optchat.js" },
     "./model-gateway": { "types": "./dist/model-gateway.d.ts", "import": "./dist/model-gateway.js" },
-    "./gateway-provider": { "types": "./dist/gateway-provider.d.ts", "import": "./dist/gateway-provider.js" }
+    "./gateway-provider": { "types": "./dist/gateway-provider.d.ts", "import": "./dist/gateway-provider.js" },
+    "./metering": { "types": "./dist/metering.d.ts", "import": "./dist/metering.js" }
   },
   "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0" },
   "peerDependenciesMeta": { "@boring/files": { "optional": true } },

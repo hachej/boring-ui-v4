@@ -38,6 +38,11 @@ export interface RemoteChat {
   readonly close: () => Promise<void>;
   /** Withdraw a queued message before it runs. `already_placed` and `settled` mean it was too late. */
   readonly withdraw: (submissionId: SubmissionRecord['id']) => Promise<'aborted' | 'already_placed' | 'settled'>;
+  /**
+   * True for a `SubmissionRefused` error: the input was definitely not admitted, so the controller shows the host's refusal as a
+   * blocked send instead of reconciling an unknown one. Spreading the remote chat into the controller options passes it.
+   */
+  readonly definitelyNotAdmitted: (error: unknown) => boolean;
   /** Whether a lost watch stream is being reopened. Spreading the remote chat into the controller options passes it, so the controller reads `reconnecting`. */
   readonly link: ChatLink;
 }
@@ -52,6 +57,12 @@ type Watch = ConversationWatch & { readonly lost: () => boolean };
 /** A watch request the host answered with an error status. */
 class WatchRefused extends Error {
   constructor(message: string, readonly status: number) { super(message); }
+}
+
+/** The host refused a submitted input before it reached the conversation (status 402, `submission-refused`); `message` is the host's words. */
+export class SubmissionRefused extends Error {
+  readonly code = 'submission-refused';
+  constructor(message: string) { super(message); this.name = 'SubmissionRefused'; }
 }
 
 async function reason(response: Response): Promise<string> {
@@ -75,6 +86,10 @@ export async function createRemoteChat(options: RemoteChatOptions): Promise<Remo
   };
   async function call<T>(op: string, init: RequestInit = {}, extra: Record<string, string> = {}): Promise<T> {
     const response = await send(new Request(url(op, extra), init));
+    if (response.status === 402 && op === 'submit') {
+      const refused = await response.json().catch(() => ({})) as { reason?: unknown; message?: unknown };
+      if (refused.reason === 'submission-refused') throw new SubmissionRefused(typeof refused.message === 'string' && refused.message ? refused.message : 'The host refused this message');
+    }
     if (!response.ok) throw new Error(`Remote chat ${op} failed: ${await reason(response)}`);
     return await response.json() as T;
   }
@@ -264,6 +279,6 @@ export async function createRemoteChat(options: RemoteChatOptions): Promise<Remo
   };
   const context = Object.freeze({}) as unknown as Context;
   const close = async () => { const first = unclaimed; unclaimed = undefined; await first?.stop(); };
-  return { conversation, context, close, link, withdraw: id => withdraw(id),
+  return { conversation, context, close, link, withdraw: id => withdraw(id), definitelyNotAdmitted: error => error instanceof SubmissionRefused,
     answer: (callId, answer) => post('answer', { callId, answer }), configure: change => post('configure', change) };
 }
