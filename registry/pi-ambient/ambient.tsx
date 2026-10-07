@@ -414,7 +414,7 @@ function AmbientSession({ controller, title = 'Agent', variant = 'contrast', mod
             <span className="flex-1">{connectionKind === 'error' ? 'Could not load the conversation.' : 'Disconnected.'}</span>
             {!state.disposed && <Button size="sm" variant="outline" onClick={() => act(controller.connect)}>Reconnect</Button>}</Notice>}
         </div>
-        <MessageQueue items={queued} withdraw={actions?.withdraw} actions={queueActions} />
+        <MessageQueue items={queued} sending={state.outbox} withdraw={actions?.withdraw} actions={queueActions} />
         <Composer {...composer} layout="inline" placeholder={working || waitingForAnswer ? label : placeholder} barStart={barStart} barNote={barNote} barEnd={tools} />
       </div>
       </section>} />

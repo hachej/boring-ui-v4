@@ -91,7 +91,11 @@ function MarkdownEditorSession({ controller, title = 'Document', initialMode = '
   }, [controller]);
   useEffect(() => {
     if (!editor || editor.isDestroyed || state.text === projected.current) return;
-    editor.commands.setContent(state.text, { contentType: 'markdown', emitUpdate: false });
+    // Text from outside (a load, a refresh, a discard, the source box) starts with the selection at the beginning, where the browser leaves
+    // its caret when the text is replaced. Replacing the whole document would otherwise leave the editor's selection at the end while the
+    // caret shows the start: a click there changes nothing the editor sees, so formatting applied to the end, and ProseMirror's own sync
+    // after a focus or click put the caret back at the end.
+    editor.chain().setContent(state.text, { contentType: 'markdown', emitUpdate: false }).setTextSelection(0).run();
     projected.current = state.text;
   }, [editor, state.text]);
   useEffect(() => { editor?.setEditable(!state.readOnly && state.lifecycle === 'active'); }, [editor, state.readOnly, state.lifecycle]);

@@ -59,7 +59,10 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
   scripted = process.env.STUDIO_MODEL === 'scripted',
   // Idle heartbeat of the chat watch stream (default 15 s). Behind a proxy or load balancer keep it under half the idle timeout.
-  heartbeatMs = process.env.STUDIO_HEARTBEAT_MS ? Number(process.env.STUDIO_HEARTBEAT_MS) : undefined } = {}) {
+  heartbeatMs = process.env.STUDIO_HEARTBEAT_MS ? Number(process.env.STUDIO_HEARTBEAT_MS) : undefined,
+  // Test hook: the answer to a chat submit is held this long after the host handled it (the message is already recorded), like a slow
+  // network. Also settable at run time through the returned `submitFaults` (journeys); `refuse` answers the next N submits with a refusal.
+  submitDelayMs = Number(process.env.STUDIO_SUBMIT_DELAY_MS ?? 0) } = {}) {
   if (!directory) throw new Error('A data directory is required');
   mkdirSync(directory, { recursive: true });
   let models = modelsOverride, scriptMisses = [];
@@ -345,6 +348,15 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   const statics = { '/': ['text/html; charset=utf-8', page], '/app.js': ['text/javascript; charset=utf-8', script], '/styles.css': ['text/css; charset=utf-8', styles] };
 
   const watches = { open: 0, peak: 0, total: 0 };
+  const submitFaults = { delayMs: submitDelayMs, refuse: 0 };
+  /** The chat transport behind the submit test hook: a delayed confirmation, or a 402 `submission-refused` that never reaches the conversation. */
+  const chatWithFaults = async request => {
+    if (new URL(request.url).searchParams.get('op') !== 'submit' || (!submitFaults.delayMs && !submitFaults.refuse)) return chat(request);
+    const refused = submitFaults.refuse > 0 && submitFaults.refuse--;
+    const response = refused ? Response.json({ reason: 'submission-refused', message: 'Fictional refusal (studio test hook)' }, { status: 402 }) : await chat(request);
+    if (submitFaults.delayMs) await new Promise(resolve => setTimeout(resolve, submitFaults.delayMs));
+    return response;
+  };
   const server = createServer(async (incoming, outgoing) => {
     const url = new URL(incoming.url, `http://${incoming.headers.host}`);
     const closed = new AbortController();
@@ -357,7 +369,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const request = await webRequest(incoming, url, { signal: closed.signal });
       if (!request) return void outgoing.writeHead(413).end();
       const channel = channels && Object.hasOwn(channels.routes, url.pathname) ? channels.routes[url.pathname] : undefined;
-      const response = channel ? await channel(request) : url.pathname === '/api/chat' ? await chat(request)
+      const response = channel ? await channel(request) : url.pathname === '/api/chat' ? await chatWithFaults(request)
         : url.pathname === '/api/resources' ? await variantOf(request).resourceHandler(request) : await api(request, url);
       await sendWebResponse(response, outgoing, { signal: closed.signal });
     } catch (error) {
@@ -370,7 +382,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   return {
     url: `http://127.0.0.1:${server.address().port}/`, port: server.address().port, token, provider, scripted, scriptMisses, channels: channels ? { whatsapp: channels.agent } : {},
     /** The variants as the browser sees them, with availability. */
-    watches, variants: () => describe().variants, scenarios: () => scenarios, agents: () => entries.map(variant => describeVariant(variant.descriptor, variant)),
+    watches, submitFaults, variants: () => describe().variants, scenarios: () => scenarios, agents: () => entries.map(variant => describeVariant(variant.descriptor, variant)),
     harness, conversations, files: fallback.files, host: { ...hostInfo, agentAccess, env: fallback.env, variants },
     persist: async () => { for (const variant of entries) await variant.infra.persist?.(); },
     close: async () => {
