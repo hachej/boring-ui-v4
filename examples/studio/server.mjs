@@ -53,8 +53,12 @@ const VIRTUAL_ROOT = '/workspace';
 /**
  * Fictional credits of the variants that declare `credits: true` (local): every message holds `holdMicros` while it runs and is charged its
  * usage, priced by Pi's `calculateCost` from the model's rates with a 1.25 markup (@boring/agent/metering). One millionth is one micro.
+ * A message to the scripted layer's fictional `premium` model holds `premiumHoldMicros`: below that balance it is refused while the
+ * default model is still admitted (model-aware admission: the ledger sees the model each run will use).
  */
-const CREDITS = { startMicros: 50_000_000, holdMicros: 20_000, markup: 1.25 };
+const CREDITS = { startMicros: 50_000_000, holdMicros: 20_000, premiumHoldMicros: 5_000_000, markup: 1.25 };
+/** The scripted layer's costly fictional model (./scripted-model.mjs), offered in the composer next to the defaults. */
+const PREMIUM = { modelId: 'premium', label: 'Premium (fictional)' };
 
 export async function startStudio({ directory, port = 0, provider = process.env.STUDIO_PROVIDER ?? 'openai', models: modelOptions, modelsOverride, variants: only, token = randomUUID(), whatsapp = whatsAppFromEnv(),
   // The deterministic test layer (./scripted-model.mjs): chosen by the host process only, never by a request. Absent unless STUDIO_MODEL=scripted or the caller asks.
@@ -69,7 +73,8 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   let models = modelsOverride, scriptMisses = [];
   if (scripted && !models) { provider = 'openai'; ({ models, misses: scriptMisses } = await (await import('./scripted-model.mjs')).createScriptedModels()); }
   if (!models) { models = createModels(); models.setProvider(await PROVIDERS[provider]()); }
-  const offered = (modelOptions ?? DEFAULT_MODELS[provider] ?? []).map(model => ({ provider, ...model }));
+  const configured = (modelOptions ?? DEFAULT_MODELS[provider] ?? []).map(model => ({ provider, ...model }));
+  const offered = [...configured, ...(scripted && !modelOptions ? [{ provider, ...PREMIUM }] : [])];
   if (offered.length === 0) throw new Error(`No models are configured for provider ${provider}; pass { models: [{ modelId, label }] }`);
 
   const human = { scopeId: 'fictional-project', principalId: 'fictional-person', initiatorId: 'fictional-person' };
@@ -118,7 +123,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: descriptor.id, incarnation: 'studio', viewId: 'published' }, fs: env, journal });
     const target = path => ({ resource: { providerId: 'workspace', path }, view: { kind: 'published' } });
     const canvasTarget = target('board.tldraw');
-    const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: offered.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
+    const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: configured.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
     const parts = [
       ...(capabilities.has('workspace') ? [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }] : []),
       ...(capabilities.has('shell') ? [{ capabilities: ['shell', ...(capabilities.has('python') ? ['python'] : [])], extensions: [shell] }] : []),
@@ -220,7 +225,9 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   }
   // Metering: the ledger is a SQLite file of the host; runs a previous process left open are finished from Pi's durable state.
   const creditsDb = openNodeConnection(join(directory, 'credits.sqlite'));
-  const ledger = createSqliteLedger({ connection: creditsDb, holdMicros: CREDITS.holdMicros });
+  const premium = input => input.model?.id === PREMIUM.modelId;
+  const ledger = createSqliteLedger({ connection: creditsDb, holdMicros: input => premium(input) ? CREDITS.premiumHoldMicros : CREDITS.holdMicros,
+    refusal: (available, hold, input) => `Not enough credits ${premium(input) ? 'for the premium model' : 'to send this message'}: ${(Math.max(0, available) / 1e6).toFixed(4)} available, a message needs ${(hold / 1e6).toFixed(4)}.` });
   await ledger.grant(human.principalId, CREDITS.startMicros, 'studio-start');
   const meter = createMeter({ sink: ledger, context, models, markup: CREDITS.markup });
   await meter.recover(harness);
@@ -237,8 +244,10 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (!authenticated(request) || !conversation) return null;
     const owner = ownerOf(conversation);
     // Every message sees what the person attached or @mentioned: the host reads the workspace and adds the files to the input.
-    // In a variant with credits a message is reserved against the person's balance before it reaches the conversation (or refused).
-    return { conversation: owner.descriptor.credits ? meter.conversation(conversation, human.principalId) : conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
+    // In a variant with credits a message is reserved against the person's balance before it reaches the conversation (or refused):
+    // the host maps its authentication to the metering scope (the person, the variant's workspace, a fictional plan).
+    const scope = { userId: human.principalId, workspaceId: owner.descriptor.id, attributes: { plan: 'fictional-free' } };
+    return { conversation: owner.descriptor.credits ? meter.conversation(conversation, scope) : conversation, context, prepareInput: owner.mentions, abortSubmission: id => harness.abortSubmission(id, context, conversation.id),
       answer: (callId, answer) => answerUserQuestion(conversation, callId, answer, context), configure: change => configure(conversation, change) };
   } });
   // The host owns the allow-list: a change outside the declared models and efforts is refused, not applied.
@@ -268,10 +277,16 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       if (!target) return Response.json({ reason: 'unknown-variant' }, { status: 404 });
       return target.conversationsHandler(request);
     }
-    // The person's fictional credits; POST tops them back up to the starting balance (the stand-in for buying more).
+    // The person's fictional credits; POST tops them back up to the starting balance (the stand-in for buying more), or sets them to
+    // `{ balanceMicros }` (a fixture for the low-balance scenario).
     if (url.pathname === '/api/credits') {
-      if (request.method === 'POST') { const { balanceMicros } = await ledger.balance(human.principalId); await ledger.grant(human.principalId, CREDITS.startMicros - balanceMicros, `top-up-${randomUUID()}`); }
-      return Response.json({ ...await ledger.balance(human.principalId), holdMicros: CREDITS.holdMicros, variants: entries.filter(entry => entry.descriptor.credits).map(entry => entry.id) });
+      if (request.method === 'POST') {
+        const wanted = Number((await request.json().catch(() => ({})))?.balanceMicros ?? CREDITS.startMicros);
+        if (!Number.isSafeInteger(wanted) || wanted < 0 || wanted > CREDITS.startMicros) return Response.json({ reason: 'invalid-balance' }, { status: 400 });
+        const { balanceMicros } = await ledger.balance(human.principalId);
+        await ledger.grant(human.principalId, wanted - balanceMicros, `top-up-${randomUUID()}`);
+      }
+      return Response.json({ ...await ledger.balance(human.principalId), holdMicros: CREDITS.holdMicros, premiumHoldMicros: CREDITS.premiumHoldMicros, variants: entries.filter(entry => entry.descriptor.credits).map(entry => entry.id) });
     }
     if (request.method === 'GET' && url.pathname === '/api/files') return Response.json({ files: (await walk(variant)).map(path => virtual(variant, path)) });
     // The retained versions of one workspace file (relative path) with their save times, newest first: the version list of a presented file.

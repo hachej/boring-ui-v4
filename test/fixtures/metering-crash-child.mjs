@@ -14,7 +14,7 @@ import { createFakeChatModel } from '@boring/testing/model';
 
 const [directory, phase] = process.argv.slice(2);
 const keepAlive = setInterval(() => {}, 1000); // the crash phases wait here for SIGKILL
-const ACCOUNT = 'fictional-account', USAGE = { input: 1000, output: 500 };
+const ACCOUNT = 'fictional-person', SCOPE = { userId: ACCOUNT, workspaceId: 'fictional-workspace', attributes: { plan: 'fictional-free' } }, USAGE = { input: 1000, output: 500 };
 const fake = createFakeChatModel({ cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } });
 const connection = openNodeConnection(join(directory, 'ledger.sqlite'));
 const ledger = createSqliteLedger({ connection, holdMicros: 5000 });
@@ -25,7 +25,7 @@ const harness = await Harness.open(await openNodeSqliteStorage(join(directory, '
 const conversation = await harness.root(context, { agent: { model: fake.model } });
 
 if (phase !== 'recover') {
-  await meter.conversation(conversation, ACCOUNT).submit({ type: 'input', requestId: 'fictional-request', content: 'Fictional question' }, context);
+  await meter.conversation(conversation, SCOPE).submit({ type: 'input', requestId: 'fictional-request', content: 'Fictional question' }, context);
   const call = await fake.nextCall();
   if (phase === 'settle') { call.respond('Fictional answer', USAGE); await new Promise(() => {}); }
   call.append('Fictional partial');

@@ -164,9 +164,12 @@ section per capability, so an agent without a shell is never told about bash.
 | `aws` | commands in an AgentCore Code Interpreter session (`@boring/execution/aws-code-interpreter`), files on the user's EFS folder mounted here and in the session; here only against the offline fake Code Interpreter behind the real AWS SDK (scenario `aws-shared-folder`). The deployable recipe is [`examples/aws`](../aws/README.md) | a directory in the data directory standing for EFS, the same journal | when `STUDIO_AWS=fake` |
 
 Credits: a variant with `credits: true` (only `local`) meters every message with `@boring/agent/metering` ([agent README](../../packages/agent/README.md#metering)) against the person's
-fictional balance in `credits.sqlite` of the data directory (a starting grant of 50 credits, a hold of 0.02 per message, Pi's `calculateCost` with a 1.25 markup). An exhausted balance
-refuses the next message with a notice above the composer and the draft kept. `GET /api/credits` returns the balance; `POST /api/credits` tops it back up to the start (the
-stand-in for buying credits). Runs a restart interrupted are finished from Pi's state when the studio opens. The scenario `chat-credits` drives it.
+fictional balance in `credits.sqlite` of the data directory (a starting grant of 50 credits, a hold of 0.02 per message, Pi's `calculateCost` with a 1.25 markup). The host maps its
+fixture identity to the metering scope (`userId` the person, `workspaceId` the variant, a fictional `plan` attribute). An exhausted balance refuses the next message with a notice
+above the composer and the draft kept. Admission is model-aware: the scripted layer also offers a fictional `Premium` model whose messages hold 5 credits, so below that balance
+choosing it is refused with the reason while the default model still answers. `GET /api/credits` returns the balance and both holds; `POST /api/credits` tops it back up to the
+start (the stand-in for buying credits), or sets it to `{ balanceMicros }` (a fixture). Runs a restart interrupted are finished from Pi's state when the studio opens. The
+scenario `chat-credits` drives it.
 
 ### Adding a variant
 
