@@ -87,11 +87,12 @@ const LANGUAGE_OF: Record<string, string> = { js: 'javascript', mjs: 'javascript
 
 export interface PresentToolOptions {
   /**
-   * The workspace of each call, resolved like Pi's environment (`@boring/agent/workspaces`), or one binding `{ files, root }`. Its
+   * The workspace of each call, resolved like Pi's environment (`@boring/agent/workspaces`), or one binding `{ files, root }`; absent: the
+   * workspace attached to the call's env (`withWorkspace`). Its
    * provider (`@boring/files/workspace`) reads the file and retains the presented revision in its history; the descriptor names its
    * provider id.
    */
-  readonly workspace: WorkspaceResolver | WorkspaceBinding;
+  readonly workspace?: WorkspaceResolver | WorkspaceBinding | undefined;
   /** The agent's principal for the provider. Default: the binding's `access`. */
   readonly resolveAccess?: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
   /** Largest file shown, in bytes. Defaults to 256 KiB. */
@@ -102,7 +103,7 @@ export interface PresentToolOptions {
  * `present(path)`: show a workspace file to the person as a card and a side panel. The agent writes the file with its ordinary file
  * tools first. The card points at the file; the file's history (the provider's) is its list of versions. Nothing is written here.
  */
-export function createPresentTool(options: PresentToolOptions) {
+export function createPresentTool(options: PresentToolOptions = {}) {
   const resolver = asWorkspaceResolver(options.workspace);
   const maxBytes = options.maxBytes ?? 256 * 1024;
   return defineTool({

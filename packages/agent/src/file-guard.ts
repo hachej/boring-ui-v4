@@ -49,10 +49,10 @@ export const recordRevision = (api: ToolExecutionApi, key: string, revision: str
 export interface FileGuardOptions {
   /**
    * The workspace of each call: a resolver shaped like `HarnessOptions.env` (`@boring/agent/workspaces`), or one binding
-   * `{ files, root }` for a host with a single workspace. `files` is the provider the viewers use (its queue serialises the calls,
+   * `{ files, root }` for a host with a single workspace; absent: the workspace attached to the call's env (`withWorkspace`). `files` is the provider the viewers use (its queue serialises the calls,
    * its reads name the revisions); `root` is the workspace root as the call's ExecutionEnv names it. Paths outside it are refused.
    */
-  readonly workspace: WorkspaceResolver | WorkspaceBinding;
+  readonly workspace?: WorkspaceResolver | WorkspaceBinding | undefined;
   /** The agent's principal for the provider. Default: the binding's `access`. */
   readonly resolveAccess?: (api: ToolExecutionApi, context: Context) => ResourceAccess | Promise<ResourceAccess>;
   /**
@@ -70,7 +70,7 @@ const refusal = (text: string): ToolExecutionResult => ({ content: [{ type: 'tex
 const normalised = (path: string) => { const spaced = path.replace(/[  -   　]/g, ' '); return spaced.startsWith('@') ? spaced.slice(1) : spaced; };
 
 /** The guard as a native extension. Select it after the extension(s) that register `read`, `write` and `edit`. */
-export function createFileGuard(options: FileGuardOptions) {
+export function createFileGuard(options: FileGuardOptions = {}) {
   const resolver = asWorkspaceResolver(options.workspace);
 
   async function relative(api: ToolExecutionApi, root: string, path: string, context: Context): Promise<string | undefined> {

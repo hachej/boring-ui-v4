@@ -56,9 +56,9 @@ function describe(document) {
  * The three canvas tools over one workspace file. `workspace` is the workspace of each call, resolved like Pi's env
  * (`@boring/agent/workspaces`: a resolver, or one binding `{ files, root, access? }` whose `files` is the workspace provider);
  * `path` the file, `access` the agent's principal (default: the binding's) and `namespace` makes publication operation ids unique
- * to the host. `files` alone is the one-workspace shorthand.
+ * to the host. `files` alone is the one-workspace shorthand; neither: the workspace attached to the call's env (`withWorkspace`).
  */
-export function createCanvasTools({ files, workspace = { files, root: '/' }, path = 'board.tldraw', access, namespace = 'canvas-v1' }) {
+export function createCanvasTools({ files, workspace = files ? { files, root: '/' } : undefined, path = 'board.tldraw', access, namespace = 'canvas-v1' } = {}) {
   const resolver = asWorkspaceResolver(workspace);
   /** The call's workspace: its provider, the agent's access, the file's locator and the conversation's baseline key. */
   async function bind(api, context) {

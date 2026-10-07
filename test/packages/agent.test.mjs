@@ -400,8 +400,10 @@ test('the file guard wraps Pi\'s read, write and edit: stale and unread changes 
 });
 
 // ---- @boring/agent/workspaces: the workspace of each call, resolved like Pi's env, on ONE harness.
-test('per-call workspaces: one harness and one guard serve two owners, each conversation in its own workspace; the cache opens once per key, keeps leased ones and closes idle ones; a call whose env is another instance is refused', { timeout: 30000 }, async t => {
-  const { createWorkspaceCache, constantWorkspace, rootConversation } = await import('@boring/agent/workspaces');
+test('per-call workspaces: one harness and one guard serve two owners, each conversation in its own workspace taken from its env (one host function); the cache opens once per key, keeps leased ones and closes idle ones; a call whose env is another instance is refused', { timeout: 30000 }, async t => {
+  const { createWorkspaceCache, constantWorkspace, rootConversation, withWorkspace, workspaceOfEnv } = await import('@boring/agent/workspaces');
+  const { createGitTool } = await import('@boring/agent/git');
+  const { createEnvGitFs, createGitRepository } = await import('@boring/files/git');
   const { lastReadRevisions } = await import('@boring/agent/file-guard');
   const directory = mkdtempSync(join(tmpdir(), 'boring-per-call-'));
   const journal = createWorkspaceJournal(openNodeConnection(join(directory, 'journal.sqlite')));
@@ -415,13 +417,17 @@ test('per-call workspaces: one harness and one guard serve two owners, each conv
       mkdirSync(root, { recursive: true });
       const env = new NodeExecutionEnv({ cwd: root });
       const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: owner, incarnation: 'one', viewId: 'published' }, fs: env, journal });
-      return { id: owner, files, root, env, access: { principalId: 'agent', initiatorId: owner, scopeId: owner }, close: () => { closed[owner]++; } };
+      // The owner's repository over the same env (isomorphic-git through Pi's FileSystem).
+      const repository = createGitRepository({ fs: createEnvGitFs(env, context), directory: root, author: { name: 'Fictional', email: 'fixture@example.invalid' }, authorize: () => true });
+      return { id: owner, files, root, env, repository, access: { principalId: 'agent', initiatorId: owner, scopeId: owner }, close: () => { closed[owner]++; } };
     },
     idleMs: 200,
   });
   const registry = createRegistry();
   registry.install(defineExtension({ name: 'fixture.files', tools: [createReadTool(), createWriteTool(), createEditTool()] }));
-  registry.install(createFileGuard({ workspace: cache.workspace }));
+  // No `workspace` option: the guard and working_git take the workspace attached to the env Pi resolved for each call (`cache.env`).
+  registry.install(createFileGuard());
+  registry.install(defineExtension({ name: 'fixture.git', tools: [createGitTool()] }));
   const harness = await Harness.open(new MemoryStorage(), { registry, models: createModels(), env: cache.env }, context);
   t.after(async () => { await harness.close(context); await cache.close(); rmSync(directory, { recursive: true, force: true }); });
   const conversationOf = async owner => {
@@ -446,6 +452,10 @@ test('per-call workspaces: one harness and one guard serve two owners, each conv
   assert.deepEqual(Object.keys((await harness.snapshot(lastReadRevisions, b.id, context)).revisions), ['b:notes.md']);
   // One provider instance per key however many calls: opened once each.
   assert.deepEqual(opened, { a: 1, b: 1 });
+  const leased = await cache.acquire('a', context);
+  assert.equal(workspaceOfEnv(leased.workspace.env)?.files, leased.workspace.files, 'the cache attaches each workspace to its env');
+  leased.release();
+  assert.throws(() => withWorkspace(new NodeExecutionEnv({ cwd: directory }), { files: leased.workspace.files, root: directory, env: leased.workspace.env }), /another env/);
   assert.deepEqual(cache.keys().sort(), ['a', 'b']);
 
   // A viewer borrows A's workspace: it outlives the idle time while held; B, idle, closes. Releasing never closes it at once.
@@ -462,6 +472,11 @@ test('per-call workspaces: one harness and one guard serve two owners, each conv
   assert.deepEqual(opened, { a: 2, b: 1 });
 
   assert.equal(await rootConversation(harness, a.id, context), a.id, 'an ownerless conversation is its own root');
+  // working_git: the repository of each call's own workspace; A's commit stays in A's folder.
+  for (const args of [{ operation: 'init' }, { operation: 'add', path: 'notes.md' }, { operation: 'commit', message: 'A notes' }]) assert.equal((await run(a, 'working_git', args)).isError, false);
+  assert.match((await run(a, 'working_git', { operation: 'log' })).text, /A notes/);
+  assert.equal(existsSync(join(directory, 'b', '.git')), false);
+  assert.equal((await run(b, 'working_git', { operation: 'log' })).isError, true, 'B has no repository yet: A\'s is not B\'s');
 
   // Coherence: a binding naming another env than the one Pi gave the call is refused, not written through.
   const other = new NodeExecutionEnv({ cwd: join(directory, 'a') });
@@ -540,6 +555,15 @@ test('self-evolution prompt assembly (SELF-3): the host instructions first and w
   const plain = defineAgent({ id: 'plain', model, instructions: 'HOST BASE PROMPT', skills: [skill] });
   const evolving = defineAgent({ id: 'evolving', model, instructions: 'HOST BASE PROMPT', skills: [skill], selfEvolving: true, workspace: 'one' });
   assert.deepEqual(evolving.extensions.map(extension => extension.name), ['agent.evolving', 'self-evolving:one']);
+  // A workspace per conversation: one definition, one extension per workspace, each configuration selecting only its own.
+  const perPerson = defineAgent({ id: 'per-person', model, instructions: 'HOST BASE PROMPT', skills: [skill], selfEvolving: true });
+  assert.equal(perPerson.reload, undefined);
+  assert.deepEqual(perPerson.extensions.map(extension => extension.name), ['agent.per-person', 'agent.per-person.skills']);
+  assert.equal(perPerson.inWorkspace('a'), perPerson.inWorkspace('a'), 'made once per workspace');
+  assert.deepEqual(perPerson.inWorkspace('a').agent.extensions.map(extension => extension.name), ['agent.per-person', 'self-evolving:a']);
+  assert.deepEqual(perPerson.inWorkspace('b').agent.extensions.map(extension => extension.name), ['agent.per-person', 'self-evolving:b']);
+  assert.notEqual(perPerson.inWorkspace('a').reload, perPerson.inWorkspace('b').reload);
+  assert.equal(evolving.inWorkspace, undefined);
   assert.equal(plain.reload, undefined);
   const registry = createRegistry();
   plain.install(registry); evolving.install(registry);

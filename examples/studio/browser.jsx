@@ -15,7 +15,14 @@ import { setStudioContext, shareStudioLink, takeLink } from './share-link.mjs';
 import { savedResource } from './saved-resource.mjs';
 import { INTERACTIVE_HTML } from './interactive.mjs';
 
-const { token, identity } = window.__STUDIO__;
+// The bearer token: the page's own (the studio's person), or one a link carried in its fragment (`#token=...`, a fixture token of a
+// team person), kept for this tab and removed from the address bar. The identity is what the server says this token is (/api/studio).
+const token = (() => {
+  const carried = new URLSearchParams(location.hash.slice(1)).get('token');
+  if (carried) { try { sessionStorage.setItem('studio.token', carried); } catch { /* optional */ } history.replaceState(null, '', location.pathname + location.search); return carried; }
+  try { return sessionStorage.getItem('studio.token') ?? window.__STUDIO__.token; } catch { return window.__STUDIO__.token; }
+})();
+let identity = window.__STUDIO__.identity;
 // Every request names the variant the page is showing; the server keeps one workspace and one resource store per variant.
 let shown;
 const authorized = request => {
@@ -28,10 +35,10 @@ const api = async (path, init) => { const response = await authorized(new Reques
 const remember = (key, value) => { try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* optional convenience */ } };
 const recall = key => { try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; } };
 const chatEndpoint = id => new URL(`/api/chat?conversation=${id}`, location.href);
-/** The browser names workspace files `/workspace/<path>`; the resource is the variant's `workspace` provider at `<path>`. */
-const resources = { endpoint: new URL('/api/resources', location.href), fetch: authorized, identity, history: new URL('/api/history', location.href),
-  locate: path => ({ resource: { providerId: 'workspace', path: path.replace(/^\/workspace\//, '') }, view: { kind: 'published' } }) };
-const viewers = { canvas: ({ target, title, revision, frame }) => <Canvas panel={{ target, title, ...(revision ? { revision } : {}) }} authorized={authorized} identity={identity} frame={frame} /> };
+/** The browser names workspace files `/workspace/<path>`; the resource is the person's `workspace` provider at `<path>`, as `who`. */
+const resourcesOf = who => ({ endpoint: new URL('/api/resources', location.href), fetch: authorized, identity: who, history: new URL('/api/history', location.href),
+  locate: path => ({ resource: { providerId: 'workspace', path: path.replace(/^\/workspace\//, '') }, view: { kind: 'published' } }) });
+const viewersOf = who => ({ canvas: ({ target, title, revision, frame }) => <Canvas panel={{ target, title, ...(revision ? { revision } : {}) }} authorized={authorized} identity={who} frame={frame} /> });
 // The chat's words: only its name differs from the defaults (`defaultChatLabels`).
 const CHAT_LABELS = { title: 'Assistant' };
 
@@ -81,7 +88,7 @@ function restored() {
 
 function App() {
   const [studio, setStudio] = useState(null);
-  const refresh = () => api('/api/studio').then(setStudio);
+  const refresh = () => api('/api/studio').then(value => { if (value.identity) identity = value.identity; setStudio(value); });
   // A shared link names the variant (and conversation) to open; it wins over what this tab last showed.
   const [selected, setSelected] = useState(() => {
     const variant = takeLink('variant'), conversation = takeLink('conversation');
@@ -109,7 +116,12 @@ function App() {
   }, [variant?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const conversationId = variant ? (variant.conversations.includes(selected?.conversation) ? selected.conversation : variant.conversations.at(-1)) : undefined;
   const active = conversationId === undefined ? undefined : String(conversationId);
-  const chat = useRemoteChat({ conversationId: active, endpoint: chatEndpoint, fetch: authorized, identity });
+  // Stable across refreshes: the same person keeps the same object (clients and viewers are made per identity).
+  const whoKey = JSON.stringify(studio?.identity ?? identity);
+  const who = useMemo(() => JSON.parse(whoKey), [whoKey]);
+  const chat = useRemoteChat({ conversationId: active, endpoint: chatEndpoint, fetch: authorized, identity: who });
+  const resources = useMemo(() => resourcesOf(who), [who]);
+  const viewers = useMemo(() => viewersOf(who), [who]);
   const controller = chat.status === 'ready' ? chat.controller : undefined;
   setStudioContext({ variant: variant?.id, conversation: conversationId });
   // The sessions list: `@boring/agent/conversations` behind /api/variants/:id/conversations. A change reloads the variant (its conversations).

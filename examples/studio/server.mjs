@@ -23,7 +23,7 @@ import { createMeter, createSqliteLedger } from '@boring/agent/metering';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
-import { constantWorkspace, createWorkspaceCache, rootConversation } from '@boring/agent/workspaces';
+import { createWorkspaceCache, rootConversation, withWorkspace } from '@boring/agent/workspaces';
 import { createResourceHandler } from '@boring/files/remote';
 import { withSubmitFaults } from '@boring/testing/network';
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
@@ -164,6 +164,17 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     resourceHandler: createResourceHandler({ authenticate: async request => allowed(principalOf(request)) ? ws.person : null, reader: ws.files, publisher: ws.files.publication, lookup: ws.files.reconciliation }),
     mentions: createMentionResolver({ read: mentionReader(ws.files, ws.person) }) });
 
+  /** The workspace name of a person in a variant: the variant's one workspace, or the person's team workspace. */
+  const workspaceName = (variant, principal = human.principalId) => variant.team ? `team-${principal}` : variant.id;
+  /** The agent as a conversation of that workspace uses it: a self-evolving agent selects that workspace's own extension. */
+  const agentOf = (variant, principal) => variant.agent.inWorkspace?.(workspaceName(variant, principal)) ?? variant.agent;
+  /** Installs a workspace's self-evolution and rescans its `.agent/` (on open, before any of its conversations runs). */
+  async function evolve(agent, env, callContext, label) {
+    if (!agent.reload) return;
+    agent.install(registry);
+    const report = await agent.reload(env, callContext);
+    if (report.errors.length) console.error(`.agent/ of ${label} on open:\n${report.text}`);
+  }
   for (const descriptor of descriptors) {
     if (descriptor.available !== true) continue;
     const infra = await descriptor.open();
@@ -171,15 +182,21 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const capabilities = new Set(descriptor.capabilities);
     const target = path => ({ resource: { providerId: 'workspace', path }, view: { kind: 'published' } });
     const canvasTarget = target('board.tldraw');
-    // The workspace of each call, resolved like Pi's env (`@boring/agent/workspaces`). A variant with one workspace: one provider over
-    // its environment, the one way to read a workspace file by revision and to write it conditionally (viewers, saves, uploads,
-    // `present`, and the documents the agent and the person share: notes.md and board.tldraw). The team variant: one per person,
-    // opened on first use and closed when idle, by a cache whose `env` (given to the harness) and `workspace` (given to the tools) agree.
-    let single, team;
+    // The workspace of each call comes with its env (`@boring/agent/workspaces`): the harness's `env` below is the one host function, and
+    // every tool (guard, `present`, canvas, working_git, self-evolution) uses the workspace attached to the env Pi hands its call. A variant
+    // with one workspace: one provider over its environment, the one way to read a workspace file by revision and to write it
+    // conditionally (viewers, saves, uploads, `present`, and the documents the agent and the person share: notes.md and board.tldraw),
+    // attached to that env. The team variant: one per person, opened on first use and closed when idle by a cache that attaches it.
+    let single, team, variant;
     if (infra.workspace) {
       team = createWorkspaceCache({
         key: async (callTarget, callContext) => (await callerOf(callTarget.conversationId, callContext))?.principal,
-        open: async (principal, openContext) => viewersOf({ ...await infra.workspace(principal, openContext), access: teamAgent(principal), person: teamPerson(principal) }, candidate => candidate === principal),
+        open: async (principal, openContext) => {
+          const ws = viewersOf({ ...await infra.workspace(principal, openContext), access: teamAgent(principal), person: teamPerson(principal) }, candidate => candidate === principal);
+          // The person's own `.agent/`: their extension, installed in the one registry and selected only by their conversations.
+          await evolve(agentOf(variant, principal), ws.env, openContext, `${descriptor.id}/${principal}`);
+          return ws;
+        },
         idleMs: infra.idleMs,
         // Pi does not report when a call stops using its env: a workspace stays open while the harness has live work.
         busy: async () => (await getHarness().inspect(context)).tasks.length > 0,
@@ -187,15 +204,16 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       });
     } else {
       const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: descriptor.id, incarnation: 'studio', viewId: 'published' }, fs: infra.env, journal });
-      single = viewersOf({ id: descriptor.id, files, root, env: infra.env, access: agentAccess, person: human }, candidate => candidate === human.principalId);
+      single = viewersOf({ id: descriptor.id, files, root, env: infra.env, access: agentAccess, person: human,
+        ...(infra.repository ? { repository: infra.repository } : {}), ...(infra.routes ? { routes: infra.routes } : {}) }, candidate => candidate === human.principalId);
+      withWorkspace(infra.env, single);
     }
-    const workspace = team ? team.workspace : constantWorkspace(single);
     const subagents = createSubagents({ harness: getHarness, context, childModel: { provider, modelId: configured.at(-1).modelId }, childExtensions: capabilities.has('workspace') ? [readFiles] : [] });
     const parts = [
       ...(capabilities.has('workspace') ? [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }] : []),
       ...(capabilities.has('shell') ? [{ capabilities: ['shell', ...(capabilities.has('python') ? ['python'] : [])], extensions: [shell] }] : []),
-      ...(infra.repository ? [{ capabilities: ['git'], extensions: [defineExtension({ name: 'studio.git', tools: [createGitTool(infra.repository)] })] }] : []),
-      { capabilities: ['canvas'], tools: createCanvasTools({ workspace, path: 'board.tldraw', namespace: `studio-${descriptor.id}-canvas-v1` }) },
+      ...(capabilities.has('git') && (infra.repository || team) ? [{ capabilities: ['git'], extensions: [defineExtension({ name: 'studio.git', tools: [createGitTool()] })] }] : []),
+      { capabilities: ['canvas'], tools: createCanvasTools({ path: 'board.tldraw', namespace: `studio-${descriptor.id}-canvas-v1` }) },
       { capabilities: ['subagents'], tools: subagents.tools, extensions: subagents.extensions },
       { capabilities: ['codemode'], tools: [runCodeTool] },
     ];
@@ -205,9 +223,9 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     for (const server of descriptor.mcp?.servers ?? []) mcp.push(await connectMcpTools({ ...server, ...(server.perPerson ? { credentials } : {}) }));
     if (mcp.length) parts.push({ capabilities: ['mcp'], tools: mcp.flatMap(connection => connection.tools) });
     const { agent, capabilities: all } = defineStandardAgent({ id: `standard-${descriptor.id}`, model: { provider, modelId: offered[0].modelId }, cwd: infra.cwd ?? root,
-      workspace, parts, ...(descriptor.selfEvolving ? { selfEvolving: descriptor.id } : {}) });
+      workspace: 'env', parts, ...(descriptor.selfEvolving ? { selfEvolving: true } : {}) });
     // What the agent has, plus what the environment itself offers beyond tools (for example a remote sandbox's status tab).
-    const variant = { id: descriptor.id, descriptor, infra, mcp, env: single?.env, files: single?.files, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], single, team, subagents, notes: target('notes.md'), canvas: canvasTarget };
+    variant = { id: descriptor.id, descriptor, infra, mcp, env: single?.env, files: single?.files, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], single, team, subagents, notes: target('notes.md'), canvas: canvasTarget };
     variants.set(descriptor.id, variant);
   }
   if (variants.size === 0) throw new Error('No variant is available');
@@ -241,7 +259,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   async function seed(variant, ws, scenario) {
     const written = [];
     for (const [path, content] of Object.entries(scenario.seed ?? {})) if (await createFile(ws, path, toBytes(content))) written.push(path);
-    if (written.length && scenario.seedCommit && variant.infra.commit) await variant.infra.commit(written, scenario.seedCommit);
+    if (written.length && scenario.seedCommit && ws.repository) { for (const path of written) await ws.repository.add(path); await ws.repository.commit(scenario.seedCommit); }
     return written;
   }
 
@@ -268,7 +286,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     conversations.set(String(conversation.id), conversation); variantOfConversation.set(String(conversation.id), variant); principalOfConversation.set(String(conversation.id), principal);
   };
   async function create(variant, principal = human.principalId) {
-    const conversation = await managed.create(ownerKey(variant, principal), { start: init => variant.agent.createConversation(harness, context, { init }) });
+    const conversation = await managed.create(ownerKey(variant, principal), { start: init => agentOf(variant, principal).createConversation(harness, context, { init }) });
     register(variant, conversation, principal);
     return conversation;
   }
@@ -309,7 +327,7 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     const principal = principalOf(request);
     if (principal === null || (!variant.team && principal !== human.principalId)) return null;
     return {
-      owner: ownerKey(variant, principal), start: init => variant.agent.createConversation(harness, context, { init }),
+      owner: ownerKey(variant, principal), start: init => agentOf(variant, principal).createConversation(harness, context, { init }),
       opened: conversation => register(variant, conversation, principal),
       deleted: async id => {
         conversations.delete(String(id)); variantOfConversation.delete(String(id)); principalOfConversation.delete(String(id));
@@ -318,10 +336,11 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     };
   } });
   // A self-evolving agent's `.agent/` lives in its workspace: the same scan as `reload` reinstalls it before any conversation resumes.
-  for (const variant of entries) {
-    if (!variant.agent.reload) continue;
-    const report = await variant.agent.reload(variant.env, context);
-    if (report.errors.length) console.error(`.agent/ of ${variant.id} on open:\n${report.text}`);
+  // A team person's is installed when their workspace opens; the workspaces of conversations with live work open before they resume.
+  for (const variant of singles) await evolve(agentOf(variant), variant.env, context, variant.id);
+  for (const task of (await harness.inspect(context)).tasks) {
+    const caller = await callerOf(task.record.conversationId).catch(() => undefined);
+    if (caller?.variant.team) (await caller.variant.team.acquire(caller.principal, context)).release();
   }
   // Metering: the ledger is a SQLite file of the host; runs a previous process left open are finished from Pi's durable state.
   const creditsDb = openNodeConnection(join(directory, 'credits.sqlite'), sqlite);
@@ -363,20 +382,21 @@ export async function startStudio({ directory, port = 0, provider = process.env.
   } });
   // The host owns the allow-list: a change outside the declared models and efforts is refused, not applied.
   const configure = (conversation, change) => configureOffered(conversation, change, context, model => offered.some(item => item.provider === model.provider && item.modelId === model.modelId));
-  const describeVariant = (descriptor, variant, principal = human.principalId) => ({
+  const describeVariant = (descriptor, variant, principal = human.principalId, agent = variant && agentOf(variant, principal)) => ({
     id: descriptor.id, title: descriptor.title, description: descriptor.description, available: variant !== undefined,
     ...(descriptor.available === true ? {} : { reason: descriptor.available.reason }), ...(descriptor.link ? { link: descriptor.link } : {}),
     ...(variant ? {
-      agent: variant.agent.id, model: `${variant.agent.agent.model.provider}/${variant.agent.agent.model.modelId}`, capabilities: variant.capabilities, skills: variant.agent.skills,
-      selfEvolving: Boolean(variant.agent.reload),
-      tools: variant.agent.extensions.flatMap(extension => (extension.tools ?? []).map(tool => tool.name)),
+      agent: agent.id, model: `${agent.agent.model.provider}/${agent.agent.model.modelId}`, capabilities: variant.capabilities, skills: agent.skills,
+      selfEvolving: Boolean(agent.reload),
+      tools: agent.extensions.flatMap(extension => (extension.tools ?? []).map(tool => tool.name)),
       chat: { models: offered.map(model => ({ provider: model.provider, modelId: model.modelId, label: model.label })), efforts: EFFORTS },
       notes: variant.notes, canvas: variant.canvas,
       conversations: [...variantOfConversation].filter(([id, owner]) => owner === variant && principalOfConversation.get(id) === principal).map(([id]) => Number(id)).sort((a, b) => a - b),
     } : {}),
   });
   /** What the browser lists. The team's other people see only the team variant, with their own conversations. */
-  const describe = (principal = human.principalId) => ({
+  // `identity`: who the token is, as the page's resource clients and chat name it (the studio's person, or a team person's own scope).
+  const describe = (principal = human.principalId) => ({ identity: { runtimeId: 'studio', ...teamPerson(principal) },
     variants: descriptors.filter(descriptor => principal === human.principalId || variants.get(descriptor.id)?.team).map(descriptor => describeVariant(descriptor, variants.get(descriptor.id), principal)),
     scenarios: scenarios.map(describeScenario) });
 
@@ -465,13 +485,15 @@ export async function startStudio({ directory, port = 0, provider = process.env.
       const found = await variant.subagents.describe(parent, variant.agent.id);
       return found ? Response.json(found) : Response.json({ reason: 'unknown-conversation' }, { status: 404 });
     }
-    // The person's `/reload`: the same function as the agent's `reload` tool, over the same workspace environment.
+    // The person's `/reload`: the same function as the agent's `reload` tool, over the person's own workspace environment.
     if (request.method === 'POST' && url.pathname === '/api/reload') {
-      if (!variant.agent.reload) return Response.json({ reason: 'not-self-evolving' }, { status: 404 });
-      const report = await variant.agent.reload(variant.env, context);
+      const agent = agentOf(variant, principal);
+      if (!agent.reload) return Response.json({ reason: 'not-self-evolving' }, { status: 404 });
+      const report = await agent.reload(ws.env, context);
       return Response.json({ text: report.text, report });
     }
-    if (variant.infra.routes && principal === human.principalId) { const response = await variant.infra.routes(request, url); if (response) return response; }
+    // The workspace's own extra endpoints (the Git and Sandbox tabs): the variant's, or the requesting person's team workspace's.
+    if (ws.routes) { const response = await ws.routes(request, url); if (response) return response; }
     return Response.json({ reason: 'not-found' }, { status: 404 });
   }
 

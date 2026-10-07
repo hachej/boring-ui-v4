@@ -76,7 +76,7 @@ export default host => ({
       env, root: ROOT, repository,
       /** Commits seeded files so a scenario starts from a clean tree. */
       async commit(paths, message) { for (const path of paths) await repository.add(path); await repository.commit(message); },
-      routes: gitRoutes({ repository, fs, root: ROOT, walk, env, context }),
+      routes: gitRoutes({ repository, env, root: ROOT, context }),
       persist,
       close: async () => { clearInterval(persisting); await persist(); await lease.release(context); workspace.dispose(); },
     };
