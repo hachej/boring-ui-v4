@@ -13,6 +13,7 @@ import type { WorkspacePanelApi } from '../pi-workspace/workspace';
 import { ViewerWindowProvider } from '../viewers/viewer-frame';
 import type { ViewerShare } from '../viewers/viewer-frame';
 import type { InteractiveHtml } from '../viewers/interactive-html';
+import { Button } from '../button/button';
 import { cn } from '../utils/utils';
 import { ArtifactPanel, useArtifactVersions, useTurn } from './artifact-panel';
 import type { CustomViewers, SavedRevision, ViewerOptions } from './artifact-panel';
@@ -188,14 +189,33 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, connecti
   const toggle = conversations && <SessionsToggle open={narrow ? drawer : !collapsed} drawer={narrow}
     onToggle={() => { if (narrow) setDrawer(value => !value); else setCollapsed(value => { writeFlag(`${storageKey}.sessions-hidden`, !value); return !value; }); }} />;
 
-  // ---- The chat in the center: docked PiChat, or the host's floating surface over the same controller.
+  // ---- The docked chat's header is replaced on every switch and connect (the `connecting` row, then a new `PiChat`). The toggle is not
+  // part of it: it stays mounted in the shell, over an invisible space of its size in whichever header is showing, and follows that
+  // header's height. A press that starts before the swap ends on the same button and still clicks (a button that leaves the document
+  // between press and release loses the click, even when moved rather than recreated).
+  const toggleRow = useRef<HTMLDivElement>(null);
+  const followHeader = useRef<ResizeObserver | undefined>(undefined);
+  const headerSlot = useCallback((space: HTMLElement | null) => {
+    followHeader.current?.disconnect(); followHeader.current = undefined;
+    const header = space?.parentElement;
+    if (!header || typeof ResizeObserver === 'undefined') return;
+    followHeader.current = new ResizeObserver(() => { if (toggleRow.current) toggleRow.current.style.height = `${header.clientHeight}px`; });
+    followHeader.current.observe(header);
+  }, []);
+  const toggleSpace = toggle && <Button ref={headerSlot} size="icon-sm" aria-hidden="true" tabIndex={-1} className="invisible -ml-1" />;
+
+  // ---- The chat in the center: docked PiChat, or the host's floating surface over the same controller (with the toggle in its header).
   const header = typeof controls === 'function' ? controls({ panelOpen }) : controls ?? chat.controls;
   const chatProps: PiChatProps | undefined = controller && { ...chat, controller, artifacts, ...(conversations ? { conversations, historyList: false } : {}),
     headerStart: <>{toggle}{chat.headerStart}</>, ...(header === undefined ? {} : { controls: header }) };
   const docked_chat = <div data-testid="workspace-center" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {chatTop}
-    {chatProps ? <PiChat key={conversationId} {...chatProps} className={cn('min-h-0 flex-1', chat.className)} />
-      : <>{toggle && <div className="flex shrink-0 items-center border-b border-border px-3 py-2">{toggle}</div>}{connecting}</>}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {chatProps ? <PiChat key={conversationId} {...chatProps} headerStart={<>{toggleSpace}{chat.headerStart}</>} className={cn('min-h-0 flex-1', chat.className)} />
+        // Same geometry as the PiChat header, so nothing moves when the chat arrives.
+        : <>{toggle && <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">{toggleSpace}</div>}{connecting}</>}
+      {toggle && <div ref={toggleRow} className="pointer-events-none absolute top-0 left-0 z-10 flex items-center px-3 sm:px-4 [&>*]:pointer-events-auto">{toggle}</div>}
+    </div>
   </div>;
 
   const kind = active ? 'artifact' : file ? 'file' : host?.kind;
