@@ -84,8 +84,10 @@ function FileBytes({ path, kind, locator, options, onClose, back }: Common) {
     return () => { cancelled = true; clearInterval(timer); };
   }, [load, kind]);
   const common = { subtitle: subtitleOf(locator), target: { file: path }, onClose, titleTestId: 'file-title', controls: back, ...(options.share ? { onShare: options.share } : {}) };
+  // Until the file is read the bar offers no Share: the image and PDF panes bring their own frame, so this one is replaced (remounted)
+  // when the bytes arrive, and a Share pressed just then would copy the link with its "Link copied" notice lost with the old frame.
   if (file.kind !== 'ready') {
-    return <ViewerFrame title={nameOf(path)} {...common}>
+    return <ViewerFrame title={nameOf(path)} subtitle={common.subtitle} onClose={onClose} titleTestId="file-title" controls={back}>
       <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{file.kind === 'loading' ? 'Loading…' : 'This file no longer exists.'}</p>
     </ViewerFrame>;
   }
