@@ -166,7 +166,9 @@ section per capability, so an agent without a shell is never told about bash.
 
 Team people: the default fixture token is the studio's person (every variant, including their own team workspace); `startStudio` also mints fixture tokens for
 `fictional-user-a` and `fictional-user-b` (`app.teamTokens`), who reach only the team variant, their own conversations and their own workspace. `npm run studio:journey:team`
-drives two of them over HTTP with the scripted model ([journey-team.mjs](journey-team.mjs)).
+drives two of them over HTTP with the scripted model ([journey-team.mjs](journey-team.mjs)). The scenarios also run through the UI on the team variant as the studio's
+person, for example `STUDIO_VARIANT=team STUDIO_ONLY=artifact-markdown,notes-document,mcp-harbour,team-letter-review,attach-text-failed-upload,mention-file npm run studio:journey:scripted`
+(the canvas scenarios read the variant's single provider directly, so they stay on `local`).
 
 Credits: a variant with `credits: true` (only `local`) meters every message with `@boring/agent/metering` ([agent README](../../packages/agent/README.md#metering)) against the person's
 fictional balance in `credits.sqlite` of the data directory (a starting grant of 50 credits, a hold of 0.02 per message, Pi's `calculateCost` with a 1.25 markup). The host maps its

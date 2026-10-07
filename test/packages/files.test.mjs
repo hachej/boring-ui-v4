@@ -402,7 +402,10 @@ test('SQLite backend: files, directories and renames as Pi\'s FileSystem sees th
   let connection = openNodeConnection(join(directory, 'workspace.sqlite'));
   let fs = openSqliteFileSystem({ connection, workspace: 'fictional', cwd: '/repo' });
   const incarnation = fs.incarnation;
-  assert.equal((await fs.writeFile('missing/notes.md', 'x', ctx)).error.code, 'not_found');
+  // Like Pi's NodeExecutionEnv (what Pi's write tool relies on), a write creates missing parent directories.
+  assert.equal((await fs.writeFile('missing/notes.md', 'x', ctx)).ok, true);
+  assert.equal((await fs.listDir('.', ctx)).value.find(entry => entry.name === 'missing')?.kind, 'directory');
+  assert.equal((await fs.remove('missing', { recursive: true }, ctx)).ok, true);
   assert.equal((await fs.createDir('docs/deep', { recursive: true }, ctx)).ok, true);
   assert.equal((await fs.writeFile('docs/deep/a.md', 'alpha', ctx)).ok, true);
   assert.equal((await fs.writeFile('docs/deep/a.md/b', 'x', ctx)).error.code, 'not_directory');

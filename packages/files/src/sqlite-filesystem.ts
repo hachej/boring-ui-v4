@@ -95,7 +95,8 @@ export function openSqliteFileSystem(options: SqliteFileSystemOptions): SqliteFi
     if (path === '/') throw failure('is_directory', 'EISDIR', path, 'illegal operation on a directory');
     const found = row(path);
     if (found?.kind === 'directory') throw failure('is_directory', 'EISDIR', path, 'illegal operation on a directory');
-    if (!found) parent(path);
+    // Like Pi's own environments (NodeExecutionEnv), a write creates the missing parent directories; a parent that is a file still fails.
+    if (!found) { if (!row(dirname(path))) makeDirectory(dirname(path), true); parent(path); }
     put(path, 'file', content);
   }
   function makeDirectory(path: string, recursive: boolean): void {

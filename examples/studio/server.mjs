@@ -90,8 +90,9 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     return Object.entries(teamTokens).find(([, value]) => header === `Bearer ${value}`)?.[0] ?? null;
   }
   /** A person of the team and their agent, as the workspace provider's principals (one scope per person). */
-  const teamPerson = principal => ({ scopeId: `team-${principal}`, principalId: principal, initiatorId: principal });
-  const teamAgent = principal => ({ scopeId: `team-${principal}`, principalId: 'fictional-agent', initiatorId: principal });
+  // The studio person keeps their own identity (the page carries it); the other people get a scope each.
+  const teamPerson = principal => principal === human.principalId ? human : { scopeId: `team-${principal}`, principalId: principal, initiatorId: principal };
+  const teamAgent = principal => ({ scopeId: teamPerson(principal).scopeId, principalId: 'fictional-agent', initiatorId: principal });
   /**
    * The host's fictional vault: each person's credential for each connected service of the team variant. Tools ask for it per call
    * (`credentials` below); it never enters a conversation, a tool result or a log.
