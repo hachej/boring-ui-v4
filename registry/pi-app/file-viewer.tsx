@@ -47,8 +47,9 @@ function FileDocument({ path, kind, locator, options, onClose, back }: Common) {
   const saved = useSaved({ client, target: locator, create });
   const [mode, setMode] = useState<string>(kind === 'markdown' ? 'rich' : 'preview');
   const common = { title: nameOf(path), subtitle: subtitleOf(locator), target: { file: path }, onClose, titleTestId: 'file-title', controls: back, ...(options.share ? { onShare: options.share } : {}) };
+  // Until the document is open the bar offers no Share, Copy or menu actions of its own: they would act on a document that is not shown.
   if (saved.kind !== 'open' || !saved.controller) {
-    return <ViewerFrame {...common}>
+    return <ViewerFrame title={common.title} subtitle={common.subtitle} onClose={onClose} controls={back}>
       <p role="status" className="m-0 p-4 text-sm text-muted-foreground">{saved.kind === 'loading' ? 'Loading…' : saved.kind === 'missing' ? 'This file no longer exists.' : 'This file cannot be shown as text.'}</p>
     </ViewerFrame>;
   }
