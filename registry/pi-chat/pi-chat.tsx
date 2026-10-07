@@ -142,7 +142,7 @@ function PiChatSession({ controller, title = 'Conversation', mode = 'expert', cl
           <ChatNotices state={state} error={error} onReconcile={() => act(controller.reconcile)} onRetry={() => act(controller.retrySameRequest)} />
         </div>
         <div>
-          <MessageQueue items={queued} withdraw={actions?.withdraw} actions={queueActions} />
+          <MessageQueue items={queued} sending={state.outbox} withdraw={actions?.withdraw} actions={queueActions} />
           <Composer {...composer} barStart={barStart} barNote={barNote} />
         </div>
       </div>

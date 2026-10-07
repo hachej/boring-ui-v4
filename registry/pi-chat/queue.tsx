@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { InboxItem } from '@earendil-works/pi-durable';
-import { CornerDownRightIcon, EllipsisIcon, ListEndIcon, PencilIcon, RouteIcon, Trash2Icon } from 'lucide-react';
+import type { ChatDraft } from '@boring/ui/native-chat';
+import { CornerDownRightIcon, EllipsisIcon, ListEndIcon, LoaderIcon, PencilIcon, RouteIcon, Trash2Icon } from 'lucide-react';
 import { isFileBlock } from './rows';
 
 export type QueuedMessage = Extract<InboxItem, { readonly mode: 'steer' | 'followUp' }>;
@@ -52,16 +53,18 @@ function MoreMenu({ disabled, onEdit }: { readonly disabled: boolean; readonly o
 /**
  * Messages sent while the agent was working, waiting for Pi to place them, drawn as a slim tab tucked behind the top edge of the composer
  * (render it directly above `Composer`; the composer overlaps its bottom). One row per message: icon, text, Steer, remove and a "…" menu
- * (Edit). The choice is made here, per message, never in the composer. Rows leave on their own once Pi starts them.
+ * (Edit). The choice is made here, per message, never in the composer. Rows leave on their own once Pi starts them. `sending` are messages
+ * sent from the composer that wait for the previous send to be confirmed (the controller's `outbox`): shown last, without actions.
  */
-export function MessageQueue({ items, withdraw, actions }: {
+export function MessageQueue({ items, sending = [], withdraw, actions }: {
   readonly items: readonly QueuedMessage[];
+  readonly sending?: readonly ChatDraft[] | undefined;
   readonly withdraw?: ((id: QueuedMessage['id']) => Promise<unknown>) | undefined;
   readonly actions?: QueueActions | undefined;
 }) {
   const [failed, setFailed] = useState<string | undefined>();
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
-  if (!items.length) return null;
+  if (!items.length && !sending.length) return null;
   async function run(item: QueuedMessage, work: () => Promise<unknown>) {
     const id = String(item.id);
     setFailed(undefined); setBusy(current => new Set(current).add(id));
@@ -89,6 +92,11 @@ export function MessageQueue({ items, withdraw, actions }: {
           {actions?.edit && <MoreMenu disabled={working} onEdit={() => { void run(item, () => actions.edit!(item)); }} />}
         </li>;
       })}
+      {sending.map((draft, index) => <li key={`sending-${index}`} data-testid="queue-sending" className={`flex min-h-10 items-center gap-1.5 pr-1.5 pl-3 ${items.length + index > 0 ? 'border-t border-border/70' : ''}`}>
+        <LoaderIcon className="size-4 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" aria-label="Sending" />
+        <span data-testid="queue-text" className="min-w-0 flex-1 truncate px-1 text-sm">{draft.text}{draft.attachments.length ? `${draft.text ? '\n' : ''}[${draft.attachments.length} image${draft.attachments.length === 1 ? '' : 's'}]` : ''}</span>
+        <span className="shrink-0 px-1 text-xs text-muted-foreground">Sending</span>
+      </li>)}
     </ul>
     {failed && <p role="alert" data-testid="queue-error" className="m-0 border-t border-border/70 px-3 py-2 text-xs text-destructive">{failed}</p>}
   </section>;

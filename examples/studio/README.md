@@ -69,6 +69,11 @@ OPENAI_API_KEY=... STUDIO_HEARTBEAT_MS=2000 npm run studio &
 PROXY_TARGET=http://127.0.0.1:4180 PROXY_IDLE_MS=5000 PROXY_PORT=4280 node examples/shared/idle-proxy.mjs
 ```
 
+A slow network between Enter and the host's confirmation is simulated by `STUDIO_SUBMIT_DELAY_MS` (or `startStudio({ submitDelayMs })`): the
+answer to every chat submit is held that long after the host handled it. Journeys change it at run time through `app.submitFaults`
+(`{ delayMs, refuse }`; `refuse: n` answers the next n submits with 402 `submission-refused` without reaching the conversation). Scenario
+`chat-send-race` uses it with 1500 ms and 300 ms: two messages typed and sent inside the window stay two messages, and a refused one comes back.
+
 With `STUDIO_HEARTBEAT_MS=0` (no heartbeat) the journey fails: the proxy closes the idle stream. On AWS keep the ALB idle timeout at least
 twice the heartbeat (the 60 s default with the 15 s heartbeat), over HTTP/1.1 or HTTP/2 to the target.
 
