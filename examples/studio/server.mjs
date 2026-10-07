@@ -224,8 +224,9 @@ export async function startStudio({ directory, port = 0, provider = process.env.
     if (mcp.length) parts.push({ capabilities: ['mcp'], tools: mcp.flatMap(connection => connection.tools) });
     const { agent, capabilities: all } = defineStandardAgent({ id: `standard-${descriptor.id}`, model: { provider, modelId: offered[0].modelId }, cwd: infra.cwd ?? root,
       workspace: 'env', parts, ...(descriptor.selfEvolving ? { selfEvolving: true } : {}) });
-    // What the agent has, plus what the environment itself offers beyond tools (for example a remote sandbox's status tab).
-    variant = { id: descriptor.id, descriptor, infra, mcp, env: single?.env, files: single?.files, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities])], single, team, subagents, notes: target('notes.md'), canvas: canvasTarget };
+    // What the agent has, plus what the environment itself offers beyond tools (for example a remote sandbox's status tab), and the
+    // conversation list's manage routes (rename, archive, fork, delete: `createConversationsHandler` below, every variant).
+    variant = { id: descriptor.id, descriptor, infra, mcp, env: single?.env, files: single?.files, root, agent, capabilities: [...new Set([...all, ...descriptor.capabilities, 'conversation-management'])], single, team, subagents, notes: target('notes.md'), canvas: canvasTarget };
     variants.set(descriptor.id, variant);
   }
   if (variants.size === 0) throw new Error('No variant is available');

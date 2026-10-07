@@ -191,7 +191,7 @@ export default [
     },
   },
   {
-    id: 'chat-manage', group: 'Chat basics', title: 'Manage conversations', description: 'Rename, search by the last message, archive, fork from a reply and delete: the list is kept by the server in Pi.',
+    id: 'chat-manage', group: 'Chat basics', title: 'Manage conversations', requires: ['conversation-management'], description: 'Rename, search by the last message, archive, fork from a reply and delete: the list is kept by the server in Pi.',
     steps: [{ prompt: 'Reply with exactly: LANTERN-FIRST' }, { prompt: 'Reply with exactly: QUARTZFOUNTAIN' }],
     async verify(t) {
       const { browser, logText, q, qa, idle, say, history, pause } = t;

@@ -367,7 +367,7 @@ Resources:
                 Action: ecr:GetAuthorizationToken
                 Resource: '*'
 
-  # AgentCore Runtime: one microVM per runtimeSessionId (one per user's conversation key), JWT inbound auth, EFS mounted at /mnt/efs.
+  # AgentCore Runtime: one host session (every client sends server.mjs RUNTIME_SESSION_ID: one process writes Pi's file), JWT inbound auth, EFS mounted at /mnt/efs.
   Runtime:
     Type: AWS::BedrockAgentCore::Runtime
     Condition: IsAgentCore

@@ -11,6 +11,7 @@ import { Harness, createRegistry } from '@earendil-works/pi-durable';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
+import { withWorkspace } from '@boring/agent/workspaces';
 import { defineStandardAgent } from '../../shared/standard-agent.mjs';
 import { EFFORTS, configureOffered, firstMessageTitle } from '../../shared/conversation-host.mjs';
 import { createChatTransportHandler, routeSubmissions } from '@boring/agent/chat-transport';
@@ -54,14 +55,16 @@ export class Assistant extends DurableObject {
   shell = createVirtualWorkspace({ providerId: 'cloudflare', fs: this.workspace.fs });
   #env;
   // The standard agent with what Workers can give it: Pi's read, write and edit behind the file guard, `present` and the shared notes,
-  // bash, ask_user and skills.
+  // bash, ask_user and skills. No tool names a workspace: each uses the one attached to its call's env (`withWorkspace` below), the
+  // same interface as a host with a workspace per person; this object has one.
   standard = defineStandardAgent({
-    id: 'standard-cloudflare', model: { provider: CLOUDFLARE_PROVIDER_ID, modelId: MODELS[0].modelId }, cwd: ROOT, root: ROOT, files: this.files,
-    access: AGENT_ACCESS, parts: [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }, { capabilities: ['shell'], extensions: [shell] }],
-    // Self-evolution: `.agent/` lives in this object's SQLite workspace and agent-written tools run in just-bash over it, like bash.
-    selfEvolving: 'workspace',
+    id: 'standard-cloudflare', model: { provider: CLOUDFLARE_PROVIDER_ID, modelId: MODELS[0].modelId }, cwd: ROOT, workspace: 'env',
+    parts: [{ capabilities: ['workspace'], extensions: [readFiles, writeFiles] }, { capabilities: ['shell'], extensions: [shell] }],
+    // Self-evolution: `.agent/` lives in this object's SQLite workspace (read through the call's env) and agent-written tools run in
+    // just-bash over it, like bash. The agent of this object's one workspace selects its extension `self-evolving:workspace`.
+    selfEvolving: true,
   });
-  agent = this.standard.agent;
+  agent = this.standard.agent.inWorkspace('workspace');
   harness = new PiHarness({
     harness: async ({ storage, context: opening }) => {
       this.agent.install(this.registry);
@@ -83,9 +86,13 @@ export class Assistant extends DurableObject {
   #conversations = new Map();
   #opening;
 
-  /** Pi's native environment over the workspace: its file methods and just-bash's `exec` see the same SQLite files. */
+  /**
+   * Pi's native environment over the workspace: its file methods and just-bash's `exec` see the same SQLite files. The workspace comes
+   * with it (`withWorkspace`): the provider, root and the agent's access every tool of a call uses.
+   */
   #workspaceEnv() {
-    this.#env ??= this.shell.acquire({ operationId: 'cloudflare-workspace', input: { cwd: ROOT } }, context).then(lease => lease.environment);
+    this.#env ??= this.shell.acquire({ operationId: 'cloudflare-workspace', input: { cwd: ROOT } }, context)
+      .then(lease => withWorkspace(lease.environment, { id: 'workspace', files: this.files, root: ROOT, access: AGENT_ACCESS }));
     return this.#env;
   }
 
