@@ -3,6 +3,7 @@ import type { ExecutionEnv } from '@earendil-works/pi-durable/env';
 import type { Context } from '@earendil-works/chord';
 import type { ResourceAccess } from '@boring/files';
 import type { WorkspaceResourceProvider } from '@boring/files/workspace';
+import type { GitRepository } from '@boring/files/git';
 
 /*
  * The workspace of a call, resolved like Pi's environment. Pi builds a conversation's `ExecutionEnv` at each use from
@@ -14,6 +15,10 @@ import type { WorkspaceResourceProvider } from '@boring/files/workspace';
  * keeps both in one entry per workspace key, so `cache.env` (given to Pi) and `cache.workspace` (given to the tools) agree, and a
  * binding names its env so that a tool refuses a call whose env is another instance (the entry was closed and reopened between
  * the two lookups). A host with one workspace passes `constantWorkspace({ files, root })`.
+ *
+ * One host function: a host that opens its workspaces with `createWorkspaceCache` (or attaches a binding to an env with
+ * `withWorkspace`) gives the harness `env` and nothing else. A tool created without a `workspace` option resolves the binding of
+ * the env Pi handed its call (`api.env`), so the workspace of a call is, by construction, the one its env belongs to.
  */
 
 /** One workspace as the tools of a call see it. */
@@ -28,6 +33,8 @@ export interface WorkspaceBinding {
   readonly env?: ExecutionEnv;
   /** The agent's principal in this workspace, chosen by the host when it opened it; tools use it unless they are given `resolveAccess`. */
   readonly access?: ResourceAccess;
+  /** The workspace's working Git repository (`@boring/files/git`) over the same files, when it has one; `working_git` uses it. */
+  readonly repository?: GitRepository;
 }
 
 /** Same shape as `HarnessOptions.env`: the workspace of one call, or `undefined` when the conversation has none. */
@@ -48,9 +55,24 @@ export function constantWorkspace(binding: WorkspaceBinding): WorkspaceResolver 
   return () => frozen;
 }
 
-/** A resolver as given, or a binding wrapped as a constant resolver. */
-export const asWorkspaceResolver = (workspace: WorkspaceResolver | WorkspaceBinding): WorkspaceResolver =>
-  typeof workspace === 'function' ? workspace : constantWorkspace(workspace);
+/** A resolver as given, or a binding wrapped as a constant resolver; nothing: the workspace of the call's env (`withWorkspace`). */
+export function asWorkspaceResolver(workspace?: WorkspaceResolver | WorkspaceBinding): WorkspaceResolver | undefined {
+  return workspace === undefined || typeof workspace === 'function' ? workspace : constantWorkspace(workspace);
+}
+
+const attached = new WeakMap<ExecutionEnv, WorkspaceBinding>();
+/**
+ * Attach `binding` to `env`: the workspace that comes with that env. The host's `HarnessOptions.env(target, context)` returns such an
+ * env, and every tool without its own `workspace` option uses its binding, so one host function resolves both. Returns `env`.
+ */
+export function withWorkspace<E extends ExecutionEnv>(env: E, binding: WorkspaceBinding): E {
+  checked(binding);
+  if (binding.env !== undefined && binding.env !== env) throw new TypeError('A workspace binding names another env');
+  attached.set(env, Object.freeze({ ...binding, env }));
+  return env;
+}
+/** The workspace attached to `env` (`withWorkspace`, or the env of a `createWorkspaceCache` entry), if any. */
+export const workspaceOfEnv = (env: ExecutionEnv | undefined): WorkspaceBinding | undefined => env === undefined ? undefined : attached.get(env);
 
 function checked(binding: WorkspaceBinding): WorkspaceBinding {
   if (!binding || typeof binding !== 'object' || !binding.files || typeof binding.files.providerId !== 'string') throw new TypeError('A workspace binding needs its provider');
@@ -64,9 +86,12 @@ export async function callTarget(api: ToolExecutionApi, context: Context): Promi
   return { conversationId: api.conversationId, ...(cwd === undefined ? {} : { cwd }), read: api };
 }
 
-/** Resolve the workspace of a tool call, or the reason it has none. */
-export async function workspaceFor(resolver: WorkspaceResolver, api: ToolExecutionApi, context: Context): Promise<{ readonly binding: WorkspaceBinding } | { readonly refused: string }> {
-  const binding = await resolver(await callTarget(api, context), context);
+/**
+ * Resolve the workspace of a tool call, or the reason it has none: through `resolver` (or one binding), or without either from the env
+ * Pi handed the call (`withWorkspace`).
+ */
+export async function workspaceFor(resolver: WorkspaceResolver | WorkspaceBinding | undefined, api: ToolExecutionApi, context: Context): Promise<{ readonly binding: WorkspaceBinding } | { readonly refused: string }> {
+  const binding = resolver === undefined ? workspaceOfEnv(api.env) : typeof resolver === 'function' ? await resolver(await callTarget(api, context), context) : resolver;
   if (binding === undefined) return { refused: 'This conversation has no workspace.' };
   checked(binding);
   if (binding.env !== undefined && binding.env !== api.env) return { refused: 'The workspace of this conversation was reopened during the call. Try again.' };
@@ -168,7 +193,12 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
     if (closed) throw new Error('The workspace cache is closed');
     let entry = entries.get(key);
     if (entry === undefined) {
-      const opening = Promise.resolve().then(() => options.open(key, context)).then(workspace => { checked(workspace); if (!workspace.env) throw new TypeError(`Workspace ${key} has no env`); return workspace; });
+      const opening = Promise.resolve().then(() => options.open(key, context)).then(workspace => {
+        checked(workspace);
+        if (!workspace.env) throw new TypeError(`Workspace ${key} has no env`);
+        withWorkspace(workspace.env, workspace);
+        return workspace;
+      });
       entry = { opening, leases: 0, lastUsed: Date.now() };
       entries.set(key, entry);
       const created = entry;

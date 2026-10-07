@@ -1,6 +1,7 @@
 import type { GitRepository } from '@boring/files/git';
 import { defineTool } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
+import { workspaceFor } from './workspaces.js';
 
 type DiffVersion = { readonly oid: string; readonly mode: number; readonly bytes: Uint8Array } | null;
 /** Model-facing form of a diff side: decoded text, or a binary marker without the bytes. */
@@ -11,8 +12,12 @@ function readable(version: DiffVersion) {
   catch { return { oid, mode, binary: true, size: bytes.length }; }
 }
 
-/** The host passes the same authorized working repository used by other callers. Git mutations have no replay receipts. */
-export function createGitTool(repository: GitRepository) {
+/**
+ * The host passes the same authorized working repository used by other callers, or nothing: then each call uses the repository of
+ * its own workspace, the binding attached to the env Pi handed the call (`withWorkspace` in `@boring/agent/workspaces`), so one
+ * harness serves a repository per person. Git mutations have no replay receipts.
+ */
+export function createGitTool(repository?: GitRepository) {
   const view = Type.Union([
     Type.Object({ kind: Type.Literal('tree'), ref: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
     Type.Object({ kind: Type.Union([Type.Literal('index'), Type.Literal('worktree')]) }, { additionalProperties: false }),
@@ -28,20 +33,23 @@ export function createGitTool(repository: GitRepository) {
       Type.Object({ operation: Type.Union([Type.Literal('branch'), Type.Literal('checkout')]), ref: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
       Type.Object({ operation: Type.Literal('diff'), before: view, after: view }, { additionalProperties: false }),
     ]),
-    execute: async (args, _api, context) => {
+    execute: async (args, api, context) => {
+      const resolved = repository === undefined ? await workspaceFor(undefined, api, context) : undefined;
+      const selected = repository ?? (resolved && 'binding' in resolved ? resolved.binding.repository : undefined);
+      if (selected === undefined) return { content: [{ type: 'text', text: 'This conversation has no working repository.' }], isError: true };
       const signal = context.abortSignal;
       let value: unknown;
       switch (args.operation) {
-        case 'init': value = await repository.init(signal); break;
-        case 'status': value = await repository.status(signal); break;
-        case 'log': value = await repository.log(signal); break;
-        case 'branches': value = await repository.branches(signal); break;
-        case 'add': value = await repository.add(args.path, signal); break;
-        case 'remove': value = await repository.remove(args.path, signal); break;
-        case 'commit': value = await repository.commit(args.message, signal); break;
-        case 'branch': value = await repository.branch(args.ref, signal); break;
-        case 'checkout': value = await repository.checkout(args.ref, signal); break;
-        case 'diff': value = (await repository.diff(args.before, args.after, signal)).map(change => ({ path: change.path, before: readable(change.before), after: readable(change.after) })); break;
+        case 'init': value = await selected.init(signal); break;
+        case 'status': value = await selected.status(signal); break;
+        case 'log': value = await selected.log(signal); break;
+        case 'branches': value = await selected.branches(signal); break;
+        case 'add': value = await selected.add(args.path, signal); break;
+        case 'remove': value = await selected.remove(args.path, signal); break;
+        case 'commit': value = await selected.commit(args.message, signal); break;
+        case 'branch': value = await selected.branch(args.ref, signal); break;
+        case 'checkout': value = await selected.checkout(args.ref, signal); break;
+        case 'diff': value = (await selected.diff(args.before, args.after, signal)).map(change => ({ path: change.path, before: readable(change.before), after: readable(change.after) })); break;
       }
       return { content: [{ type: 'text', text: JSON.stringify({ operation: args.operation, value: value ?? null }) }] };
     },
