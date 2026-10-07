@@ -83,6 +83,8 @@ try {
     assert.equal(await browser.evaluate(`${q('[data-testid=conversation-row][data-active=true]')}.dataset.conversationId`), first);
     await browser.click(row('picnic plan'));
     await browser.until('back to the second chat with its artifact', `${ACTIVE} === ${JSON.stringify(second)} && !!${q('[data-testid=artifact-panel]')}`, 20000);
+    // The chat reconnects after a switch: its header (with the sessions toggle) is replaced once it is live.
+    await live();
   });
 
   await step('the sessions pane collapses and comes back', async () => {
