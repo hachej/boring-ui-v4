@@ -2,7 +2,7 @@
 // supplies only where tools execute, how it is reached, and whether it can run at all. Every *.mjs in this folder (except this
 // file and files starting with `_`) is discovered; no shared file needs editing.
 //
-// A variant file default-exports `host => descriptor`, where host is { provider, context, directory, models } and
+// A variant file default-exports `host => descriptor`, where host is { provider, context, directory, models, sqlite } and
 //   descriptor = {
 //     id, title, description, order?,
 //     available: true | { reason },          // { reason } lists the variant as unavailable in the selector, with the reason

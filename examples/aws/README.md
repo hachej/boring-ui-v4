@@ -69,7 +69,7 @@ curl -sN -X POST "https://bedrock-agentcore.<region>.amazonaws.com/runtimes/<url
 # 5. Delete: aws cloudformation delete-stack --stack-name boring-agent (the EFS file system is retained; delete it separately)
 ```
 
-Things the live run must settle (open in HOST-RECIPE-AWS.md): the real `getTask` output shape (cumulative or incremental, `failed` statuses), whether the `Authorization` header reaches the container through `RequestHeaderAllowlist`, NDJSON streaming of `watch` through `InvokeAgentRuntime`, whether `/ping` `HealthyBusy` holds a session past the idle timeout, whether StartCodeInterpreterSession needs any EFS permission on the caller, SQLite (WAL or rollback journal) latency on EFS, and the cold start of a per-user interpreter session.
+Things the live run must settle (open in HOST-RECIPE-AWS.md): the real `getTask` output shape (cumulative or incremental, `failed` statuses), whether the `Authorization` header reaches the container through `RequestHeaderAllowlist`, NDJSON streaming of `watch` through `InvokeAgentRuntime`, whether `/ping` `HealthyBusy` holds a session past the idle timeout, whether StartCodeInterpreterSession needs any EFS permission on the caller, SQLite latency on EFS with the network file system preset (every SQLite file here, Pi's harness files included, is opened with `sqliteSettings.networkFilesystem`: rollback journal, exclusive lock held by its one owner; decision 3 of HOST-RECIPE-AWS.md), and the cold start of a per-user interpreter session.
 
 ## Limits
 

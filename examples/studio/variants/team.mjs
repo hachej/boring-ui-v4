@@ -26,7 +26,7 @@ export default host => ({
   // Every person's calls reach the harbour with that person's credential (the studio's fictional vault, `credentials` in server.mjs).
   mcp: { servers: [{ id: 'harbour', allow: ['tide_times', 'book_mooring'], readOnly: ['tide_times'], perPerson: true, transport: credential => fictionalHarbourServer({ credential }).transport }] },
   async open() {
-    const connection = openNodeConnection(join(host.directory, 'team-workspaces.sqlite'));
+    const connection = openNodeConnection(join(host.directory, 'team-workspaces.sqlite'), host.sqlite);
     const journal = createWorkspaceJournal(connection);
     return {
       root: ROOT,

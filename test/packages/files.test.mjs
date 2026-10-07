@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openNodeConnection } from '@boring/files/sqlite';
+import { SqliteLockedError, openNodeConnection, sqlitePragmas, sqliteSettings } from '@boring/files/sqlite';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { Harness, createRegistry } from '@earendil-works/pi-durable';
+import { createModels } from '@earendil-works/pi-ai/models';
+import { openPiStorage } from '../../examples/shared/pi-storage.mjs';
 import { openSqliteWorkspaces } from '../../examples/shared/sqlite-workspaces.mjs';
 import { openSqliteFileSystem } from '@boring/files/sqlite-filesystem';
 import { applyTextEdits, parseTextEdits } from '@boring/files/text';
@@ -236,6 +241,116 @@ for (const action of ['read', 'lookup']) {
     assert.deepEqual(await provider.reconciliation.lookup('wal-seed', access), saved);
   });
 }
+
+// ---- SQLite settings: one place for journal and locking modes (packages/files/src/sqlite-settings.ts) ------------------------------
+
+const modesOf = connection => ({
+  journal: connection.get('PRAGMA journal_mode').journal_mode, locking: connection.get('PRAGMA locking_mode').locking_mode,
+  synchronous: connection.get('PRAGMA synchronous').synchronous, busy: connection.get('PRAGMA busy_timeout').timeout, temp: connection.get('PRAGMA temp_store').temp_store,
+});
+
+/** Opens `filename` from another Node process with `settings` and reads it: what a second host (or a second task) would do. */
+function openFromAnotherProcess(filename, settings) {
+  const script = `import { openNodeConnection } from '@boring/files/sqlite';
+const started = Date.now();
+try { const c = openNodeConnection(${JSON.stringify(filename)}, ${JSON.stringify(settings)}); const rows = c.get('SELECT count(*) AS n FROM fictional_notes').n; c.close(); console.log(JSON.stringify({ opened: true, rows })); }
+catch (error) { console.log(JSON.stringify({ opened: false, name: error.name, code: error.code, message: error.message, cause: String(error.cause?.message), waitedMs: Date.now() - started })); }`;
+  const child = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', script], { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8', timeout: 30000 });
+  assert.equal(child.status, 0, child.stderr);
+  return JSON.parse(child.stdout.trim());
+}
+
+test('SQLite settings: the default stays WAL on local disk; the network file system preset is a rollback journal held exclusively', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'boring-sqlite-settings-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const local = openNodeConnection(join(directory, 'local.sqlite'));
+  assert.deepEqual(modesOf(local), { journal: 'wal', locking: 'normal', synchronous: 2, busy: 5000, temp: 0 });
+  local.close();
+  assert.deepEqual(sqliteSettings.localDisk, { journalMode: 'wal', lockingMode: 'normal', busyTimeoutMs: 5000, synchronous: 'full', tempStore: 'default' });
+  assert.deepEqual(sqliteSettings.networkFilesystem, { journalMode: 'delete', lockingMode: 'exclusive', busyTimeoutMs: 10000, synchronous: 'full', tempStore: 'memory' });
+  assert.ok(Object.isFrozen(sqliteSettings.networkFilesystem));
+  assert.deepEqual(sqlitePragmas(sqliteSettings.networkFilesystem), ['busy_timeout = 10000', 'locking_mode = EXCLUSIVE', 'journal_mode = DELETE', 'synchronous = FULL', 'temp_store = MEMORY'].map(setting => `PRAGMA ${setting}`));
+  // A file that was WAL before moves to the rollback journal when the host switches to the preset.
+  const efs = openNodeConnection(join(directory, 'local.sqlite'), sqliteSettings.networkFilesystem);
+  assert.deepEqual(modesOf(efs), { journal: 'delete', locking: 'exclusive', synchronous: 2, busy: 10000, temp: 2 });
+  efs.close();
+  // Partial settings fill the rest from local disk.
+  const partial = openNodeConnection(join(directory, 'partial.sqlite'), { journalMode: 'truncate', busyTimeoutMs: 250 });
+  assert.deepEqual(modesOf(partial), { journal: 'truncate', locking: 'normal', synchronous: 2, busy: 250, temp: 0 });
+  partial.close();
+});
+
+test('SQLite settings: a second process opening a file held under the preset gets SqliteLockedError after its busy timeout, and the file stays intact', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'boring-sqlite-locked-'));
+  const filename = join(directory, 'journal.sqlite');
+  let owner = openNodeConnection(filename, sqliteSettings.networkFilesystem);
+  t.after(() => { owner?.close(); rmSync(directory, { recursive: true, force: true }); });
+  // The owner holds the file from the moment it opens, before its first write.
+  assert.equal(openFromAnotherProcess(filename, { ...sqliteSettings.networkFilesystem, busyTimeoutMs: 100 }).name, 'SqliteLockedError');
+  owner.transaction('write', () => {
+    owner.exec('CREATE TABLE fictional_notes (text TEXT NOT NULL)');
+    owner.run('INSERT INTO fictional_notes (text) VALUES (?)', 'Committed fictional note');
+  });
+  for (const settings of [{ ...sqliteSettings.networkFilesystem, busyTimeoutMs: 400 }, { busyTimeoutMs: 400 }]) {
+    const second = openFromAnotherProcess(filename, settings);
+    assert.equal(second.opened, false, `a second opener with ${JSON.stringify(settings)} must not open a held file`);
+    assert.equal(second.name, 'SqliteLockedError');
+    assert.equal(second.code, 'sqlite-locked');
+    assert.match(second.message, /journal\.sqlite is locked by another connection/);
+    assert.match(second.cause, /database is locked/);
+    assert.ok(second.waitedMs >= 350, `waited ${second.waitedMs} ms, less than the busy timeout`);
+  }
+  // The owner keeps working; once it closes, another process opens the same rows.
+  owner.run('INSERT INTO fictional_notes (text) VALUES (?)', 'Second fictional note');
+  assert.equal(owner.get('PRAGMA integrity_check').integrity_check, 'ok');
+  owner.close(); owner = undefined;
+  assert.deepEqual(openFromAnotherProcess(filename, sqliteSettings.networkFilesystem), { opened: true, rows: 2 });
+  assert.equal(existsSync(`${filename}-wal`), false);
+  assert.equal(existsSync(`${filename}-journal`), false);
+});
+
+test('SQLite settings: unknown names and values outside the allow-list are refused before the file is opened', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'boring-sqlite-invalid-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'never.sqlite');
+  for (const [settings, message] of [
+    [{ journalMode: 'wal; DROP TABLE boring_operations' }, /journalMode must be one of wal, delete, truncate, persist/],
+    [{ journalMode: 'WAL' }, /journalMode must be one of/],
+    [{ journalMode: 'off' }, /journalMode must be one of/],
+    [{ lockingMode: 'shared' }, /lockingMode must be one of normal, exclusive/],
+    [{ synchronous: 2 }, /synchronous must be one of off, normal, full, extra/],
+    [{ tempStore: 'disk' }, /tempStore must be one of default, file, memory/],
+    [{ busyTimeoutMs: -1 }, /busyTimeoutMs must be an integer from 0 to 600000/],
+    [{ busyTimeoutMs: 1.5 }, /busyTimeoutMs/],
+    [{ busyTimeoutMs: '5000' }, /busyTimeoutMs/],
+    [{ cache_size: -2000 }, /Unknown SQLite setting "cache_size"/],
+    [{ pragmas: { journal_mode: 'wal' } }, /Unknown SQLite setting "pragmas"/],
+  ]) {
+    assert.throws(() => openNodeConnection(filename, settings), error => error instanceof TypeError && message.test(error.message), JSON.stringify(settings));
+    assert.throws(() => sqlitePragmas(settings), TypeError);
+  }
+  assert.throws(() => openNodeConnection(filename, null), TypeError);
+  assert.equal(existsSync(filename), false);
+});
+
+test('SQLite settings: Pi\'s durable storage opened through its public adapter takes the same preset (examples/shared/pi-storage.mjs)', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'boring-sqlite-pi-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const filename = join(directory, 'state', 'main.pi.sqlite');
+  const storage = await openPiStorage(filename, { ...sqliteSettings.networkFilesystem, busyTimeoutMs: 200 });
+  const harness = await Harness.open(storage, { registry: createRegistry(), models: createModels() }, BACKGROUND_CONTEXT);
+  try {
+    // Pi's harness holds the file: another connection cannot open it, under either locking mode.
+    assert.throws(() => openNodeConnection(filename, { busyTimeoutMs: 100 }), SqliteLockedError);
+    assert.equal(openFromAnotherProcess(filename, { busyTimeoutMs: 100 }).code, 'sqlite-locked');
+  } finally { await harness.close(BACKGROUND_CONTEXT); }
+  assert.equal(existsSync(`${filename}-wal`), false);
+  const reopened = openNodeConnection(filename, sqliteSettings.networkFilesystem);
+  t.after(() => reopened.close());
+  assert.equal(reopened.get('PRAGMA journal_mode').journal_mode, 'delete');
+  assert.ok(reopened.get("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'").n > 0, 'Pi created its tables in the file');
+  assert.equal(reopened.get('PRAGMA integrity_check').integrity_check, 'ok');
+});
 
 // ---- Workspace provider over a real virtual workspace --------------------------------------------------------------------------
 

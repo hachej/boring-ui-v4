@@ -10,6 +10,9 @@
 //     the interpreter cannot reach. One writer per SQLite file: one AgentCore session per conversation key (decision 1 of
 //     docs/architecture/HOST-RECIPE-AWS.md), or a single ECS task. The harnesses are a per-owner pool (`@boring/agent/harness-pool`,
 //     owner `<user>/<key>`): opened on the first request, closed after `harnessIdleMs` without requests or live work.
+//     Every SQLite file on EFS is opened with
+//     `sqliteSettings.networkFilesystem` (rollback journal, lock held from open to close, full sync; never WAL on NFS), Pi's
+//     harness files included (`openPiStorage`); a second opener of a held file gets `SqliteLockedError`, not a shared write.
 //
 // `POST /invocations` carries one chat transport operation in its JSON body, because AgentCore routes only that path:
 //   { op: 'watch' | 'entries' | 'submission', conversation?: 'main', params?: { ... } }          read operations
@@ -21,17 +24,17 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Harness, createRegistry } from '@earendil-works/pi-durable';
-import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { answerUserQuestion } from '@boring/agent/ask-user';
 import { createChatTransportHandler } from '@boring/agent/chat-transport';
 import { createHarnessPool } from '@boring/agent/harness-pool';
-import { openNodeConnection } from '@boring/files/sqlite';
+import { openNodeConnection, sqliteSettings } from '@boring/files/sqlite';
 import { createWorkspaceJournal } from '@boring/files/journal';
 import { createWorkspaceProvider, isTemporary } from '@boring/files/workspace';
 import { createCodeInterpreterEnv, efsUserLayout } from '@boring/execution/aws-code-interpreter';
 import { defineStandardAgent } from '../shared/standard-agent.mjs';
+import { openPiStorage } from '../shared/pi-storage.mjs';
 import { readFiles, shell, writeFiles } from '../shared/workspace-tools.mjs';
 import { configureOffered } from '../shared/conversation-host.mjs';
 import { sendWebResponse, webRequest } from '@boring/files/node-http';
@@ -51,7 +54,7 @@ export const runtimeSessionId = (userId, key) => `boring-${createHash('sha256').
  * @param {{ client: object, identifier: string, sessionTimeoutSeconds?: number, pollIntervalMs?: number }} options.codeInterpreter
  */
 export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot = '/mnt/efs', interpreterMountPath = '/mnt/workspace', users, verifyToken,
-  codeInterpreter, models, model, offered = [model], requireSessionHeader = false, harnessIdleMs = 10 * 60_000 }) {
+  codeInterpreter, models, model, offered = [model], requireSessionHeader = false, sqlite = sqliteSettings.networkFilesystem, harnessIdleMs = 10 * 60_000 }) {
   const perUser = new Map();
   const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 
@@ -68,7 +71,7 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
         filesystemConfigurations: [layout.filesystemConfiguration({ accessPointArn: entry.accessPointArn, fileSystemArn: entry.fileSystemArn })] } },
       mount: { path: layout.interpreter.mountPath, root: layout.runtime.root },
       ...(codeInterpreter.pollIntervalMs ? { pollIntervalMs: codeInterpreter.pollIntervalMs } : {}) });
-    const database = openNodeConnection(layout.runtime.journal);
+    const database = openNodeConnection(layout.runtime.journal, sqlite);
     const files = createWorkspaceProvider({ identity: { providerId: 'workspace', instanceId: layout.namespaceId, incarnation: 'aws', viewId: 'published' }, fs: interpreter.env, journal: createWorkspaceJournal(database) });
     const access = { scopeId: entry.userId, principalId: 'agent', initiatorId: entry.userId };
     const { agent, capabilities } = defineStandardAgent({ id: 'standard-aws', model, cwd: layout.interpreter.cwd, root: layout.interpreter.mountPath, files, access,
@@ -89,7 +92,7 @@ export async function startAwsHost({ port = 8080, hostname = '0.0.0.0', efsRoot 
       // The key has no '/' (KEY), a user id may.
       const at = owner.lastIndexOf('/');
       const user = perUser.get(owner.slice(0, at)), key = owner.slice(at + 1);
-      const harness = await Harness.open(await openNodeSqliteStorage(user.layout.harnessFile(key)), { registry: user.registry, models, env: () => user.interpreter.env }, context);
+      const harness = await Harness.open(await openPiStorage(user.layout.harnessFile(key), sqlite), { registry: user.registry, models, env: () => user.interpreter.env }, context);
       const conversation = await harness.root(context, { agent: user.agent.agent });
       harness.resume();
       return { harness, conversation };
