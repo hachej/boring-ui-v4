@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'boring-remote-shell-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -20,7 +20,8 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  for (const name of ['execution']) {
+  // The selected subpath reads request bodies through @boring/files/request-guard (their one owner), so a real consumer installs files too.
+  for (const name of ['files', 'execution']) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -54,9 +55,9 @@ try {
   for (const name of Object.keys(dependencies)) include(name);
   packages[''] = { name: manifest.name, version: manifest.version, dependencies };
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
-  for (const name of ['@boring/files', '@boring/ui', '@boring/agent', 'just-bash', 'isomorphic-git']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
+  for (const name of ['@boring/ui', '@boring/agent', 'just-bash', 'isomorphic-git']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createRemoteShellHandler, createRemoteShellLease } from '@boring/execution/remote-shell';
 import type { RemoteShellAccess } from '@boring/execution/remote-shell';
 import type { Shell } from '@earendil-works/pi-durable/env';
@@ -72,5 +73,5 @@ await lease.release(access.context);
   for (const path of ['test/packages', 'test/fixtures']) mkdirSync(join(directory, path), { recursive: true });
   for (const path of ['test/packages/execution-remote-shell.test.mjs', 'test/fixtures/native-document.mjs']) copyFileSync(join(root, path), join(directory, path));
   run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/execution-remote-shell.test.mjs'], isolated);
-  console.log('PASS: packed native remote Shell, pinned registry dependencies, strict public declarations and actual native execution; no Boring files/UI/agent or virtual/Git peers installed');
+  console.log('PASS: packed native remote Shell, pinned registry dependencies, strict public declarations and actual native execution; with Boring files (request guard); no Boring UI/agent or virtual/Git peers installed');
 } finally { rmSync(directory, { recursive: true, force: true }); }
