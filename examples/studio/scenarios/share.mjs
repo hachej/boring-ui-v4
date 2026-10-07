@@ -79,8 +79,19 @@ export default [
       const k = viewerKit(t);
       const { VIEWER, openFile, watchCopies, editorText } = k;
       const conversation = await browser.evaluate(`${q('[data-testid=studio-main]')}.dataset.conversation`);
-      await openFile('media/moon-badge.png', 'image');
       const scope = VIEWER('media/moon-badge.png');
+      // Share pressed while the viewer is still reading the file: the loading frame is replaced by the image pane's own when the bytes
+      // arrive, so a Share there copied the link but its "Link copied" went with the old frame (the person got no feedback). The read is
+      // held to show that frame for as long as the check takes: it offers no Share, and the frame that does stays.
+      await k.toList();
+      await browser.evaluate(`(() => { if (!window.__holdReads) { const real = window.fetch; window.__holdReads = { on: true, held: [] };
+        window.fetch = (...args) => window.__holdReads.on && String(args[0]?.url ?? args[0]).includes('/api/resources') ? new Promise(resolve => window.__holdReads.held.push(() => resolve(real(...args)))) : real(...args); }
+        window.__holdReads.on = true; return true; })()`);
+      await browser.click(`[...document.querySelectorAll('.studio-panel li button')].find(b => b.textContent === 'media/moon-badge.png')`);
+      await browser.until('the image viewer, still reading the file', `window.__holdReads.held.length > 0 && !!${q(`${scope} [data-testid=file-title]`)}`, 15000);
+      assert.equal(await browser.evaluate(`!!${q(`${scope} [data-testid=viewer-share]`)}`), false, 'a viewer still reading its file offers no Share');
+      await browser.evaluate(`(() => { window.__holdReads.on = false; window.__holdReads.held.splice(0).forEach(release => release()); return true; })()`);
+      await browser.until('the image shown', `${q(`${scope} [data-testid=viewer-image]`)}?.naturalWidth > 0`, 15000);
       await watchCopies();
       // The notice disappears after a few seconds; record it when it appears instead of hoping to see it later on a loaded machine.
       await browser.evaluate(`(() => { window.__notices = []; new MutationObserver(() => { for (const node of document.querySelectorAll('[data-testid=viewer-notice]')) if (!window.__notices.includes(node.textContent)) window.__notices.push(node.textContent); }).observe(document.body, { subtree: true, childList: true, characterData: true }); })()`);

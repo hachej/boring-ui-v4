@@ -160,8 +160,11 @@ function Version({ artifact, pinned, menu, options, onSelect, onClose }: {
   const filename = `${artifact.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'artifact'}.${extension}`;
   const body = (children: ReactNode) => <div data-testid="artifact-body" data-state={saved.kind} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">{children}</div>;
   if (custom) return body(custom({ target: artifact.target, title: artifact.title, ...(pinned ? { revision: artifact.revision } : {}), frame: { testId: 'artifact', titleTestId: 'artifact-panel-title', controls: versions, onClose, target } }));
+  // Until the version is open the bar offers no Share: the pane that shows it brings its own frame, so this one is replaced (remounted)
+  // when it opens, and a Share pressed just then would copy the link with its "Link copied" notice lost with the old frame.
   if (saved.kind !== 'open') {
-    return body(<ViewerFrame {...frame}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">{saved.kind === 'loading' ? labels.loading : saved.kind === 'invalid' ? labels.artifactNotText : labels.versionUnavailable}</p></ViewerFrame>);
+    const { onShare: _, ...waiting } = frame;
+    return body(<ViewerFrame {...waiting}><p className="m-0 p-4 text-sm text-muted-foreground" role="status">{saved.kind === 'loading' ? labels.loading : saved.kind === 'invalid' ? labels.artifactNotText : labels.versionUnavailable}</p></ViewerFrame>);
   }
   const document = (children: ReactNode) => <div data-testid="document" data-revision={saved.snapshot.ref.revision} className="h-full min-h-0">{children}</div>;
   if (type === 'markdown' && controller) return body(document(<MarkdownPane controller={controller as MarkdownController} initialMode="rich" {...frame} />));
