@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { assertConsumerTypeFiles, prepareConsumerIsolation } from './consumer-isolation.mjs';
+import { assertConsumerTypeFiles, prepareConsumerIsolation, npmInstallFlags } from './consumer-isolation.mjs';
 import { consumerDependencies, localRegistryItem, packBoringDependencies, writeLockedManifest } from './consumer-install.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -21,7 +21,7 @@ const visit = name => { if (closure.has(name)) return; const item = read(name); 
 visit('pi-app');
 const directory = mkdtempSync(join(tmpdir(), 'boring-app-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 300000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -39,8 +39,8 @@ try {
   const archiveByName = packBoringDependencies(root, union, join(directory, 'packs'), run);
   const dependencies = consumerDependencies(root, union, ['typescript', '@types/react', '@types/react-dom', 'esbuild', 'shadcn', 'tailwindcss']);
   writeLockedManifest(root, directory, 'isolated-app-consumer', dependencies);
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archiveByName.values()]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archiveByName.values()]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
 
   // The local registry: every item of the closure with its pins pointed at the checked archives, served over HTTP by a child process.
   mkdirSync(join(directory, 'registry/r'), { recursive: true });

@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 assert.equal(process.argv.length, 2, 'Expected no options');
 const directory = mkdtempSync(join(tmpdir(), 'boring-experience-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -55,8 +55,8 @@ try {
   for (const name of Object.keys(dependencies)) include(name);
   packages[''] = { name: manifest.name, version: manifest.version, dependencies };
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
   for (const name of ['@boring/files', '@earendil-works/pi-durable', '@earendil-works/chord', '@boring/agent', 'tldraw', '@tldraw/editor', '@tiptap/core', 'marked', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { Experience, type RenderedExperienceCell } from '@boring/ui/experience';
 import { composeExperience, validateExperience, type ExperienceDescriptor, type ExperienceCompositionOptions, type ExperienceCompositionSnapshot } from '@boring/ui/experience/compose';
@@ -97,7 +97,7 @@ void regionSnapshots; void snapshots;
     if (name === 'compose') assert.ok(inputs.every(path => !/node_modules\/react(?:-dom)?\/|@json-render\/react\/dist\/index/.test(path)), 'Validation entry must not load the React runtime');
   }
   assert.ok(filesArchive);
-  run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, filesArchive]);
+  run('npm', ['install', ...npmInstallFlags(cache), filesArchive]);
   writeFileSync(join(directory, 'consumer.ts'), `import { createExperienceDocumentController, type ExperienceDocumentOptions, type ExperienceDocumentController } from '@boring/ui/experience/document';
 import { ExperienceDocument } from '@boring/ui/experience/document-viewer';
 import { createElement } from 'react';

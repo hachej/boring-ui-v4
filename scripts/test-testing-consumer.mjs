@@ -7,12 +7,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { assertConsumerTypeFiles, prepareConsumerIsolation } from './consumer-isolation.mjs';
+import { assertConsumerTypeFiles, prepareConsumerIsolation, npmInstallFlags } from './consumer-isolation.mjs';
 import { writeLockedManifest } from './consumer-install.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 assert.ok(process.env.CHROMIUM, 'Set CHROMIUM to a Chromium or chrome-headless-shell binary');
 const temporary = mkdtempSync(join(tmpdir(), 'boring-testing-consumer-'));
 // The pinned native SDK probes ten ancestor node_modules paths even when local types exist.
@@ -39,8 +39,8 @@ try {
   // Native SDK declarations optionally import these names; keep resolution inside the installed fixture.
   for (const name of ['buffer', 'undici', 'undici-types']) dependencies[name] = sourceLock.packages['node_modules/' + name].version;
   writeLockedManifest(root, directory, 'isolated-testing-consumer', dependencies);
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
   for (const name of ['@boring/ui', '@boring/files', '@boring/execution', 'react']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createScriptedModel, createFakeChatModel, launch, q, startIdleProxy, withSubmitFaults, type Turn, type Browser } from '@boring/testing';
 import { defineAgent } from '@boring/agent/agents';

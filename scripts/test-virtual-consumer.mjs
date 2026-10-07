@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
-import { prepareConsumerIsolation, assertConsumerTypeFiles } from './consumer-isolation.mjs';
+import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'boring-virtual-consumer-'));
 const cache = process.env.npm_config_cache;
-assert.ok(cache, 'Set npm_config_cache to a writable cache containing the pinned registry archives');
+assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
   const result = runCaptured(command, args, { cwd: directory, timeout: 120000, ...(env ? { env } : {}) });
   process.stdout.write(result.stdout); process.stderr.write(result.stderr);
@@ -52,8 +52,8 @@ try {
   for (const name of Object.keys(dependencies)) include(name);
   packages[''] = { name: manifest.name, version: manifest.version, dependencies };
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
-  run('npm', ['install', '--package-lock-only', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, ...archives]);
-  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache]);
+  run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
+  run('npm', ['ci', ...npmInstallFlags(cache)]);
   for (const name of ['@boring/ui', '@boring/agent']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createVirtualWorkspace } from '@boring/execution/virtual';
 import { createVirtualGitFs, installVirtualGitCommand } from '@boring/execution/virtual-git';
@@ -77,7 +77,7 @@ await repository.diff({ kind: 'index' }, { kind: 'worktree' });
   run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/execution.test.mjs', 'test/packages/files-git.test.mjs', 'test/packages/virtual-paths.test.mjs'], isolated);
   console.log('PASS: packed files and execution, pinned registry dependencies, strict public declarations, native ToolTasks and shared virtual Bash/Git; no Boring UI/agent installed');
   const agent = JSON.parse(run('npm', ['pack', join(root, 'packages/agent'), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
-  run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--cache', cache, join(directory, 'packs', agent.filename)]);
+  run('npm', ['install', ...npmInstallFlags(cache), join(directory, 'packs', agent.filename)]);
   writeFileSync(join(directory, 'consumer.ts'), readFileSync(join(directory, 'consumer.ts'), 'utf8') + `
 import { createGitTool } from '@boring/agent/git';
 createGitTool(repository);
