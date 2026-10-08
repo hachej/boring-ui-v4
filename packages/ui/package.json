@@ -87,6 +87,10 @@
     "./canvas-document": {
       "types": "./dist/canvas-document.d.ts",
       "import": "./dist/canvas-document.js"
+    },
+    "./text-buffer": {
+      "types": "./dist/public-text-buffer.d.ts",
+      "import": "./dist/public-text-buffer.js"
     }
   },
   "peerDependencies": {
