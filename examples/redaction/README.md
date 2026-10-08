@@ -21,4 +21,8 @@ Current policy gates reservation creation, native admission, execution, publicat
 
 `test/compatibility/redaction.test.mjs` covers real provider/native admission, duplicate and concurrent identities, out-of-order completion, human edits, mutable callers and revocation. `test/contracts/redaction-crash.test.mjs` kills real child processes after reservation, native admission and output commits. The installed files/agent consumer repeats these cases.
 
-This is string generation and conditional Markdown publication. Stable per-item corrections/adoption, typed tool evidence, bounded native repair, record-plus-letter delivery, UI/flush journeys, live-model quality and expert acceptance remain required by [REDACTION.md](../../docs/stress-tests/REDACTION.md). This fixture does not establish those guarantees or migrate a consumer.
+## Typed proposals, corrections and adoption
+
+`node examples/redaction-adoption.mjs` drives the extended fixture. Native generation calls real source and calculator tools through a scripted model. Bounded repair and a separate final validation task enforce the required evidence. Host-issued item IDs remain stable across reordered proposals. Human corrections live separately; explicit adoption chooses proposed or corrected text and conditionally publishes the record and letter in one SQLite transaction.
+
+`test/compatibility/redaction-proposals.test.mjs`, `redaction-adoption.test.mjs` and `test/contracts/redaction-adoption-crash.test.mjs` exercise these paths, including process death after the two-output commit and before acknowledgement. See the [feature map](../../docs/implementation/FEATURES.md#fictional-redaction-corrections-and-adoption) for their scope. Live-model quality, clinical expert acceptance and consumer migration remain unqualified.

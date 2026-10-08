@@ -59,6 +59,8 @@ The example prepares email, calendar and todo documents through native tasks. It
 
 ## Read
 
+For the fictional consultation workflow, run `npm run redaction:browser` after building. The [example guide](examples/redaction-browser/README.md) covers exact notes saves, source-mode dictation, human corrections and explicit record/letter adoption. `npm run redaction:journey` drives its Chromium controls; `npm run test:redaction-browser-consumer` exercises an isolated package installation.
+
 | Document | Purpose |
 | --- | --- |
 | [Project invariants](INVARIANTS.md) | Native authority, owned lifecycles, optional features, independent surfaces and coherent workspace views. |

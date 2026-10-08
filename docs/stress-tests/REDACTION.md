@@ -1,6 +1,6 @@
 # Stress test: current redaction application
 
-Verdict: **the v4 direction fits, but a runtime swap alone does not.** Compatibility/durability certification is blocked until the publication, validation and model-admission seams have executable proofs. No v4 runtime has been implemented.
+Historical verdict: **the v4 direction fits, but a runtime swap alone does not.** At this review's baseline, no v4 runtime had been implemented. The findings below retain that baseline; the [current feature map](../implementation/FEATURES.md#fictional-redaction-corrections-and-adoption) records subsequent fictional runtime evidence. Full consumer compatibility remains unqualified.
 
 Scope: source review by three independent backend/UI/adversarial reviewers, full current-app gate, and a read-only validator probe. [BASELINE.md](BASELINE.md) records versions, executed commands and limits. Paths below are relative to `boring-clinic-redaction` unless explicitly marked Pi. Citations refer to the audited working tree; the app contains two pre-existing dirty files and was not modified.
 

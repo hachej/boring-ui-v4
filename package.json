@@ -75,7 +75,10 @@
     "task-list:journey": "node scripts/test-task-list-browser.mjs",
     "morning": "node examples/morning/server.mjs",
     "morning:journey": "node scripts/test-morning-browser.mjs",
-    "test:morning-consumer": "node scripts/test-experience-consumer.mjs --morning"
+    "test:morning-consumer": "node scripts/test-experience-consumer.mjs --morning",
+    "redaction:browser": "node examples/redaction-browser/server.mjs",
+    "redaction:journey": "node scripts/test-redaction-browser.mjs",
+    "test:redaction-browser-consumer": "node scripts/test-editor-consumer.mjs --redaction"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1146.0",
