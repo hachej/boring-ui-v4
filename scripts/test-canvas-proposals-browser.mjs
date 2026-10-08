@@ -33,6 +33,12 @@ const step = async (name, action) => {
 };
 const ready = () => browser.until('native canvas and proposal controller', 'window.canvasProposals?.fixture.editor && Array.isArray(window.canvasProposals.state().proposals)');
 const run = body => browser.evaluate(`(async () => { const j = window.canvasProposals; ${body} })()`);
+const reload = async () => {
+  const previous = await run('return j.fixture.controller.actions.selection().target.instanceId;');
+  await browser.reload();
+  await browser.until('reloaded canvas has a new mounted controller', `window.canvasProposals?.fixture.editor && window.canvasProposals.fixture.controller.actions.selection().target.instanceId !== ${JSON.stringify(previous)}`);
+  await ready();
+};
 const button = label => `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
 const propose = async (kind, summary) => {
   const previous = (await saved()).ref.revision, count = publications;
@@ -101,7 +107,7 @@ try {
       assert.deepEqual(await run('return j.state().document;'), before);
       await propose('create', 'Create reviewed rectangle'); await accept();
       assert.equal((await document()).store['shape:reviewed'].x, 40);
-      await browser.reload(); await ready();
+      await reload();
       assert.equal(await run('return j.fixture.store.get(j.shapeId).x;'), 40);
     });
     await step(`${device}: dirty human edit is included only after explicit acceptance`, async () => {
@@ -112,7 +118,7 @@ try {
       await accept();
       assert.equal((await document()).store['shape:reviewed'].x, 90);
       assert.equal((await document()).store['shape:reviewed'].y, 150);
-      await browser.reload(); await ready();
+      await reload();
     });
     await step(`${device}: intervening local edit makes the proposal stale`, async () => {
       await propose('update', 'Stale proposal');
@@ -122,7 +128,7 @@ try {
       assert.equal(publications, count);
       assert.equal(await run('return j.fixture.store.get(j.shapeId).x;'), 120);
       await browser.click(button('Dismiss'));
-      await browser.reload(); await ready();
+      await reload();
     });
     await step(`${device}: native read-only prevents proposal acceptance`, async () => {
       await propose('update', 'Read-only proposal');
@@ -139,13 +145,13 @@ try {
       assert.ok((await document()).store['shape:reviewed']);
       await accept();
       assert.equal((await document()).store['shape:reviewed'], undefined);
-      await browser.reload(); await ready();
+      await reload();
       assert.equal(await run('return !!j.fixture.store.get(j.shapeId);'), false);
     });
   }
   await step('review includes implicit child removal before adoption', async () => {
     await propose('create', 'Create child for cascade'); await accept();
-    await browser.reload(); await ready();
+    await reload();
     await run('j.addChild();');
     const before = await run('return j.state().document;'), count = publications;
     assert.equal((await run('return j.proposeParentRemoval();')).kind, 'proposed');
@@ -157,7 +163,7 @@ try {
     await accept();
     const after = await document();
     assert.equal(after.store['shape:parent'], undefined); assert.equal(after.store['shape:reviewed'], undefined);
-    await browser.reload(); await ready();
+    await reload();
   });
   await step('late save acknowledgment preserves a newer human edit', async () => {
     await propose('create', 'Delayed creation'); delayed = true;
