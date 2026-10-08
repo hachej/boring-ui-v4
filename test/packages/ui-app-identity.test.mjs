@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Window } from 'happy-dom';
-import { act, createElement } from 'react';
+import { act, createElement, Suspense, startTransition } from 'react';
 import { createMarkdownController } from '@boring/ui/markdown';
 import { useSaved } from '../../registry/pi-app/use-saved.ts';
 import { useRemoteChat } from '../../registry/pi-app/use-remote-chat.ts';
@@ -129,4 +129,46 @@ test('app hooks isolate mounted state by owner and resource (DOM, not browser qu
       assert.equal(probe.state.text, 'B');
     } finally { await probe.close(); }
   });
+  for (const kind of ['saved', 'chat']) await t.test(`${kind} ignores callbacks from a suspended render`, async () => {
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container), pending = Promise.withResolvers(), never = new Promise(() => {}), calls = [], streams = new Set();
+    const client = { read: () => pending.promise };
+    let current, suspended = false;
+    function Probe({ owner }) {
+      const create = initial => {
+        calls.push([owner, initial.ref.resource.providerId]);
+        return createMarkdownController({ identity: { scopeId: owner, principalId: owner, initiatorId: owner }, client, source: { kind: 'saved', snapshot: initial }, instanceId: owner, epoch: 'page' });
+      };
+      const fetch = async request => {
+        const op = new URL(request.url).searchParams.get('op'); calls.push([owner, op]);
+        if (op !== 'watch') return Response.json({ kind: 'configured' });
+        return new Response(new ReadableStream({ start(controller) {
+          streams.add(controller);
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({ kind: 'view', view: { conversation: { id: 1 }, entries: [], docs: {} } }) + '\n'));
+          request.signal.addEventListener('abort', () => { if (streams.delete(controller)) controller.close(); }, { once: true });
+        } }));
+      };
+      const state = kind === 'saved'
+        ? useSaved({ client, target: target(owner), create })
+        : useRemoteChat({ conversationId: '1', identity: identity('A'), endpoint: () => 'https://fictional.invalid/chat', fetch });
+      if (owner === 'B') { suspended = true; throw never; }
+      current = state;
+      return null;
+    }
+    const element = owner => createElement(Suspense, { fallback: null }, createElement(Probe, { owner }));
+    try {
+      await act(async () => root.render(element('A')));
+      const committed = current;
+      await act(async () => startTransition(() => root.render(element('B'))));
+      assert.equal(suspended, true, 'the alternative render ran without committing');
+      if (kind === 'saved') {
+        await act(async () => pending.resolve({ kind: 'available', snapshot: snapshot(target('A'), 'A') }));
+        assert.deepEqual(calls, [['A', 'A']], 'only the committed factory may receive the current snapshot');
+      } else {
+        await committed.configure({ thinkingLevel: 'low' });
+        assert.deepEqual(calls, [['A', 'watch'], ['A', 'configure']], 'uncommitted credentials must not service the current controller');
+      }
+    } finally { await act(async () => root.unmount()); container.remove(); for (const stream of streams) stream.close(); }
+  });
+
 });
