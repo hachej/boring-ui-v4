@@ -1,9 +1,10 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkManifest, checkSource, hasDeclaredTests } from './pi-policy.mjs';
 import { isContractOnly } from './is-contract-only.mjs';
 import { implementationEvidence } from './implementation-evidence.mjs';
+import { gitIgnored, walkProject } from './project-files.mjs';
 import ts from 'typescript';
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
@@ -92,18 +93,13 @@ export function scanNativeReload(file, source) {
 export function checkHostExecution(root) {
   const errors = [];
   let files = 0;
-  const walk = (directory) => {
-    if (!existsSync(directory)) return;
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (['node_modules', 'dist', '.cache', 'out', 'public'].includes(entry.name) || entry.isSymbolicLink()) continue;
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) { walk(path); continue; }
-      if (!/\.(?:[cm]?[jt]sx?)$/.test(entry.name) || entry.name.endsWith('.d.ts')) continue;
-      files++;
-      errors.push(...scanHostExecution(relative(root, path).replaceAll('\\', '/'), readFileSync(path, 'utf8')));
-    }
-  };
-  for (const top of ['packages', 'examples']) walk(resolve(root, top));
+  const ignored = gitIgnored(root);
+  for (const top of ['packages', 'examples']) if (existsSync(resolve(root, top))) walkProject(root, top, (entry, file) => {
+    if (entry.isSymbolicLink()) return false;
+    if (entry.isDirectory() || !/\.(?:[cm]?[jt]sx?)$/.test(entry.name) || entry.name.endsWith('.d.ts')) return;
+    files++;
+    errors.push(...scanHostExecution(file, readFileSync(resolve(root, file), 'utf8')));
+  }, ignored);
   const reload = resolve(root, SELF_EVOLUTION_SOURCE);
   if (existsSync(reload)) errors.push(...scanNativeReload(SELF_EVOLUTION_SOURCE, readFileSync(reload, 'utf8')));
   return { errors, files };
@@ -164,49 +160,33 @@ export function loadBoundary(root) {
   };
   for (const name of Object.keys(policy.packages)) visitGraph(name);
   errors.push(...checkManifest(readJson(resolve(root, 'package.json')), undefined, policy));
-  function walk(directory) {
-    if (!existsSync(directory)) return;
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = resolve(directory, entry.name);
-      const file = relative(root, path).replaceAll('\\', '/');
-      if (entry.isSymbolicLink()) { errors.push(`source symlink is not auditable: ${file}`); continue; }
-      // Only these package-root generated/dependency directories are excluded.
-      // A directory called src/dist still contains authored, inspected source.
-      if (entry.isDirectory() && /^packages\/[^/]+\/(?:dist|node_modules)$/.test(file)) continue;
-      if (entry.isDirectory()) { walk(path); continue; }
-      if (entry.name.endsWith('.md') && !owners.has(file)) for (const match of readFileSync(path, 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${file}`);
-      if (entry.name === 'package.json') errors.push(...checkManifest(readJson(path), /^packages\/([^/]+)/.exec(file)?.[1], policy));
-      if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
-        sources++;
-        const name = /^packages\/([^/]+)\//.exec(file)?.[1];
-        const text = readFileSync(path, 'utf8');
-        if (isContractOnly(file, text)) contracts++;
-        else if (name) packages.add(name);
-        errors.push(...checkSource(file, text, policy));
-      }
-    }
-  }
-  for (const path of policy.sourceRoots) walk(resolve(root, path));
-  const checkDocOwners = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) checkDocOwners(path);
-      else if (entry.isFile() && entry.name.endsWith('.md')) for (const match of readFileSync(path, 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${relative(root, path)}`);
+  // Only what git ignores is skipped (package-root `dist`, dependencies, tool output); a directory called src/dist is authored source.
+  const ignored = gitIgnored(root);
+  const inspect = (entry, file) => {
+    const path = resolve(root, file);
+    if (entry.isSymbolicLink()) { errors.push(`source symlink is not auditable: ${file}`); return; }
+    if (entry.isDirectory()) return;
+    if (entry.name.endsWith('.md') && !owners.has(file)) for (const match of readFileSync(path, 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${file}`);
+    if (entry.name === 'package.json') errors.push(...checkManifest(readJson(path), /^packages\/([^/]+)/.exec(file)?.[1], policy));
+    if (/\.[cm]?[jt]sx?$/.test(entry.name)) {
+      sources++;
+      const name = /^packages\/([^/]+)\//.exec(file)?.[1];
+      const text = readFileSync(path, 'utf8');
+      if (isContractOnly(file, text)) contracts++;
+      else if (name) packages.add(name);
+      errors.push(...checkSource(file, text, policy));
     }
   };
-  checkDocOwners(resolve(root, 'docs'));
-  for (const path of ['patches', 'vendor']) {
-    const visit = (directory) => {
-      if (!existsSync(directory)) return;
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const file = resolve(directory, entry.name);
-        if (entry.isSymbolicLink()) { errors.push(`unreviewable vendor/patch symlink: ${file}`); continue; }
-        if (entry.isDirectory()) { if (/pi-durable|pi-ai|earendil/.test(entry.name)) errors.push(`BORING-PI-4 vendored upstream directory: ${file}`); visit(file); }
-        else if (/pi-durable|pi-ai|@earendil-works\/(?:pi|chord)/.test(`${entry.name}\n${readFileSync(file, 'utf8')}`)) errors.push(`BORING-PI-4 vendored/patched upstream file: ${file}`);
-      }
-    };
-    visit(resolve(root, path));
-  }
+  for (const path of policy.sourceRoots) if (existsSync(resolve(root, path))) walkProject(root, path, inspect, ignored);
+  walkProject(root, 'docs', (entry, file) => {
+    if (entry.isFile() && entry.name.endsWith('.md')) for (const match of readFileSync(resolve(root, file), 'utf8').matchAll(lawHeading)) errors.push(`project law defined twice: ${match[1]} in ${file}`);
+  }, ignored);
+  for (const path of ['patches', 'vendor']) if (existsSync(resolve(root, path))) walkProject(root, path, (entry, relativePath) => {
+    const file = resolve(root, relativePath);
+    if (entry.isSymbolicLink()) { errors.push(`unreviewable vendor/patch symlink: ${file}`); return false; }
+    if (entry.isDirectory()) { if (/pi-durable|pi-ai|earendil/.test(entry.name)) errors.push(`BORING-PI-4 vendored upstream directory: ${file}`); return; }
+    if (/pi-durable|pi-ai|@earendil-works\/(?:pi|chord)/.test(`${entry.name}\n${readFileSync(file, 'utf8')}`)) errors.push(`BORING-PI-4 vendored/patched upstream file: ${file}`);
+  }, ignored);
   const pending = [];
   for (const [id, rule] of Object.entries(registry.invariants)) for (const verifier of rule.verifiers) if (verifier.kind === 'pending') {
     pending.push({ id, ...verifier });

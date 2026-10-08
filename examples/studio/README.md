@@ -101,7 +101,8 @@ it well is what the smoke layer and the manual real-model run are for.
 
 **Smoke layer.** Scenarios marked `smoke: true` run against the real model, with retries, and report `smoke pass rate: n/5`: `chat-hello`, `artifact-markdown`,
 `ask-picnic`, `workspace-shell`, `subagent-foreground`. A failure is printed and recorded in `smoke.json` under the evidence directory; it never fails
-the build. The manual workflow needs the repository secret **`OPENAI_API_KEY`** (added by the owner in the repository settings).
+the build. A failure where the model did not do what the scenario answers (no `ask_user` call, too few options, no free-text field) is
+reported as `model miss: ...`, distinct from a UI failure. The manual workflow needs the repository secret **`OPENAI_API_KEY`** (added by the owner in the repository settings).
 
 ### Writing a scenario script
 

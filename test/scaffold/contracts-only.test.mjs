@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, cpSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +28,9 @@ test('only whole-statement erased type declarations qualify', () => {
 test('type scaffold does not discharge pending proofs; executable and ambient stubs still block', () => {
   const dir = mkdtempSync(join(tmpdir(), 'boring-interface-gate-'));
   try {
-    for (const file of ['ARCHITECTURE.json', 'INVARIANTS.md', 'package.json']) cpSync(join(root, file), join(dir, file));
+    for (const file of ['ARCHITECTURE.json', 'INVARIANTS.md', 'package.json', '.gitignore']) cpSync(join(root, file), join(dir, file));
+    // A git checkout with the repository's .gitignore: checks skip exactly what git ignores (package-root dist, not src/dist).
+    execFileSync('git', ['init', '-q'], { cwd: dir });
     // Fixture controls its deferrals; legitimate future implementation may
     // promote the real repository's slots with actual runtime evidence.
     const registry = JSON.parse(readFileSync(join(root, 'VERIFY.json'), 'utf8'));

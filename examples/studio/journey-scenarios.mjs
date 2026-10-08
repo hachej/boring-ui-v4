@@ -36,11 +36,17 @@ async function waitSettled(t, answers, { timeout = 300000 } = {}) {
         await browser.until('the approval was sent', `${pending} < ${before}`, 30000);
         continue;
       }
+      // A pending card is the finished call (a card the model is still writing is `writing`). What it offers is the model's choice:
+      // too few options or no free-text field is a model miss, reported as such rather than as a UI failure.
+      const card = q('[data-testid=question-card][data-state=pending]');
       if (/^option:\d+$/.test(answer)) {
-        const option = `${qa('[data-testid=question-card][data-state=pending] [data-testid=question-option]')}[${Number(answer.slice(7))}]`;
-        t.answered.push(await browser.evaluate(`${option}.dataset.option`));
-        await browser.click(option);
+        const index = Number(answer.slice(7));
+        const offered = await browser.evaluate(`[...${card}.querySelectorAll('[data-testid=question-option]')].map(e => e.dataset.option)`);
+        assert.ok(index < offered.length, `model miss: ask_user offered ${offered.length} option(s) ${JSON.stringify(offered)}; the scenario answers option ${index}`);
+        t.answered.push(offered[index]);
+        await browser.click(`${card}.querySelectorAll('[data-testid=question-option]')[${index}]`);
       } else {
+        assert.ok(await browser.evaluate(`!!${card}.querySelector('[data-testid=question-input]')`), `model miss: ask_user did not allow a free-text answer (question: ${await browser.evaluate(`${card}.querySelector('[data-testid=question-text]')?.textContent`)})`);
         t.answered.push(answer);
         await browser.type(q('[data-testid=question-card][data-state=pending] [data-testid=question-input]'), answer);
         await browser.click(q('[data-testid=question-card][data-state=pending] [data-testid=question-submit]'));
@@ -200,7 +206,13 @@ export async function expectations(t, expectation, scenario) {
     }
     case 'userMessages': assert.equal(await t.browser.evaluate(`${t.userMessages}.length`), value, label); break;
     case 'panelOpen': assert.equal(await t.browser.evaluate(`!!${t.WORKSPACE}`), value, label); break;
-    case 'question': assert.equal(await t.browser.evaluate(`${qa('[data-testid=question-card][data-state=answered]')}.length`), value.answered, `${label} (ask_user calls: ${(await t.toolNames()).filter(name => name === 'ask_user').length}; answered by the person: ${JSON.stringify(t.answered)}; reply: ${(await t.assistantText()).slice(0, 300)})`); break;
+    case 'question': {
+      // Fewer ask_user calls than the scenario answers is the model not asking (a model miss), not the page losing a card.
+      const asked = (await t.toolNames()).filter(name => name === 'ask_user').length;
+      if (asked < value.answered) assert.fail(`model miss: ${label}: the model called ask_user ${asked} time(s), the scenario answers ${value.answered} (reply: ${(await t.assistantText()).slice(0, 300)})`);
+      assert.equal(await t.browser.evaluate(`${qa('[data-testid=question-card][data-state=answered]')}.length`), value.answered, `${label} (ask_user calls: ${asked}; answered by the person: ${JSON.stringify(t.answered)}; reply: ${(await t.assistantText()).slice(0, 300)})`);
+      break;
+    }
     case 'artifact': await artifactExpectation(t, value, label); break;
     case 'fileExists': {
       const files = (await (await t.api('/api/files')).json()).files;

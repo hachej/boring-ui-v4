@@ -54,7 +54,8 @@ abortable delays, priced usage, failures and turns a test drives by hand.
   model (the source answering most of the conversation's user messages is chosen; the earliest, then longest, match in the last user
   message picks the entry).
 - The turns answer that message in order: a user message starts turn 0 and every tool result starts the next one. A turn is `'text'`;
-  `{ text, reasoning, tools: [{ name, args, id? }], delay, hold, usage: { input, output }, error }`; `{ text: { chunks, ms } }` (streamed in
+  `{ text, reasoning, tools: [{ name, args, id?, ms? }], delay, hold, usage: { input, output }, error }` (a tool's `ms` streams its arguments' JSON in
+  small chunks that far apart, so the live call holds partial arguments as with a real provider); `{ text: { chunks, ms } }` (streamed in
   those chunks, `ms` apart, abortable; `chunks` may be an async iterable); or `ctx => turn`, where `ctx` has `user`, `input`, `results`,
   `last` (each `{ name, args, text, json, isError, details }`), `history`, `messages`, `tools`, `system`, `context` and `signal`.
 - `generic` rules answer prompts no script answers (default `GENERIC_RULES`: "Reply with exactly: X" and the streamed number essay;

@@ -430,6 +430,7 @@
         "@earendil-works/pi-ai/models",
         "@earendil-works/pi-ai/providers/faux",
         "@earendil-works/pi-ai/utils/event-stream",
+        "@earendil-works/pi-ai/utils/json-parse",
         "@earendil-works/pi-ai/utils/transcript",
         "node:child_process",
         "node:fs",

@@ -4,9 +4,10 @@
 // Tailscale or LAN address), and they all exist on localhost, so a developer never sees the break. The one owner for those
 // capabilities is packages/files/src/platform.ts (`@boring/files/platform`); each registry item keeps one self-contained helper.
 // Everything else goes through them. The browser journeys run on an insecure origin as the dynamic half of this guard.
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitIgnored, walkProject } from './project-files.mjs';
 import ts from 'typescript';
 
 // Browser-reachable source. Server-only files (packages/agent except its gateway provider, each example server.mjs, files/src/sqlite.ts, the remote handlers) are not listed.
@@ -92,14 +93,8 @@ export function scanSource(file, source) {
 
 function listFiles(root) {
   const out = [];
-  const walk = (directory) => {
-    for (const entry of readdirSync(resolve(root, directory), { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.cache') continue;
-      const path = posix.join(directory, entry.name);
-      if (entry.isDirectory()) walk(path); else out.push(path);
-    }
-  };
-  for (const top of ['packages', 'registry', 'examples']) if (existsSync(resolve(root, top))) walk(top);
+  const ignored = gitIgnored(root);
+  for (const top of ['packages', 'registry', 'examples']) if (existsSync(resolve(root, top))) walkProject(root, top, (entry, path) => { if (!entry.isDirectory()) out.push(path); }, ignored);
   return out;
 }
 

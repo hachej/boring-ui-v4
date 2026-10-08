@@ -16,6 +16,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitIgnored, walkProject } from './project-files.mjs';
 
 const source = /\.(?:tsx?|jsx?|mjs)$/;
 /** registryDependencies use the namespace the consumer maps in components.json (`"registries": { "@boring-ui": "<served public/r>/{name}.json" }`). */
@@ -26,14 +27,8 @@ const importPattern = /\b(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g;
 /** Cycles among the source files under `folders`, following relative imports (`./x`, `./x.js` for `x.ts`, `./x` for `x.tsx`). */
 export function importCycles(root, folders) {
   const files = [];
-  const walk = (folder) => {
-    for (const entry of readdirSync(resolve(root, folder), { withFileTypes: true })) {
-      const path = posix.join(folder, entry.name);
-      if (entry.isDirectory()) { if (entry.name !== 'node_modules') walk(path); }
-      else if (source.test(entry.name) && !entry.name.endsWith('.d.ts')) files.push(path);
-    }
-  };
-  for (const folder of folders) if (existsSync(resolve(root, folder))) walk(folder);
+  const ignored = gitIgnored(root);
+  for (const folder of folders) if (existsSync(resolve(root, folder))) walkProject(root, folder, (entry, path) => { if (!entry.isDirectory() && source.test(entry.name) && !entry.name.endsWith('.d.ts')) files.push(path); }, ignored);
   const known = new Set(files);
   const target = (from, specifier) => {
     const base = posix.normalize(posix.join(posix.dirname(from), specifier)), stem = base.replace(/\.(?:m?js|jsx)$/, '');

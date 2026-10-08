@@ -7,7 +7,7 @@
 // Script: `{ 'text in the user message': turns }`, or named `sources` of entries. The turns answer that message in order: a user
 // message starts turn 0 and every tool result starts the next one. A turn is
 //   'text'                                   a final answer
-//   { text, reasoning, tools, delay, hold }  text and/or reasoning, then tool calls [{ name, args, id? }]; `delay` waits first,
+//   { text, reasoning, tools, delay, hold }  text and/or reasoning, then tool calls [{ name, args, id?, ms? }] (`ms` streams the arguments); `delay` waits first,
 //                                            `hold` keeps the turn open after the calls (ms)
 //   { ..., usage: { input, output } }        the token counts it reports (default: about four characters per token), priced at the model's `cost`
 //   { text: { chunks: [...], ms } }          streamed in those chunks, `ms` apart (abortable); `chunks` may be an async iterable
@@ -19,6 +19,7 @@ import type { AssistantMessage, AssistantMessageEvent, Message, Model, SimpleStr
 import { createModels, createProvider, type MutableModels } from '@earendil-works/pi-ai/models';
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall, type FauxModelDefinition } from '@earendil-works/pi-ai/providers/faux';
 import { createAssistantMessageEventStream, type AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
+import { parseStreamingJson } from '@earendil-works/pi-ai/utils/json-parse';
 import { getCurrentSystemPrompt, getCurrentTools } from '@earendil-works/pi-ai/utils/transcript';
 
 /** One tool result of the transcript, as a script reads it. */
@@ -57,6 +58,9 @@ export interface ScriptedToolCall {
   readonly args?: unknown;
   /** A fixed call id (default: a fresh one). */
   readonly id?: string;
+  /** Stream the arguments' JSON in small chunks this many ms apart (abortable), as a provider does: until the call ends, the
+   * live message holds partial arguments (an options list still growing, a string cut short). Default: the call arrives whole. */
+  readonly ms?: number;
 }
 
 export interface TurnObject {
@@ -126,6 +130,8 @@ export interface ScriptedModel {
 type Content = TextContent | ThinkingContent | ToolCall;
 const textOf = (message: Message): string => typeof message.content === 'string' ? message.content
   : (message.content as readonly { type: string; text?: string }[]).filter(part => part.type === 'text' && !part.text!.startsWith('<file path="')).map(part => part.text).join('');
+/** Characters of a streamed tool call's JSON per `toolcall_delta`. */
+const TOOL_CHUNK = 8;
 const sleep = (ms: number, signal: AbortSignal | undefined) => new Promise<void>(resolve => {
   const timer = setTimeout(resolve, ms);
   signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
@@ -231,8 +237,23 @@ export function createScriptedModel(options: ScriptedModelOptions = {}): Scripte
       for (const tool of step.tools ?? []) {
         const args = typeof tool.args === 'function' ? tool.args(ctx) : tool.args ?? {};
         const call = fauxToolCall(tool.name, args, { id: tool.id ?? `call_${++calls}` });
-        const at = content.push(call) - 1;
+        if (!tool.ms) {
+          const at = content.push(call) - 1;
+          push({ type: 'toolcall_start', contentIndex: at, partial: message });
+          push({ type: 'toolcall_end', contentIndex: at, toolCall: call, partial: message });
+          continue;
+        }
+        const json = JSON.stringify(args), streamed: ToolCall = { ...call, arguments: {} };
+        const at = content.push(streamed) - 1;
         push({ type: 'toolcall_start', contentIndex: at, partial: message });
+        for (let sent = 0; sent < json.length;) {
+          const delta = json.slice(sent, sent + TOOL_CHUNK); sent += delta.length;
+          streamed.arguments = parseStreamingJson(json.slice(0, sent));
+          push({ type: 'toolcall_delta', contentIndex: at, delta, partial: message });
+          await sleep(tool.ms, signal);
+          if (signal?.aborted || finished) return abort();
+        }
+        content[at] = call;
         push({ type: 'toolcall_end', contentIndex: at, toolCall: call, partial: message });
       }
       if (step.hold) await sleep(step.hold, signal); // the call is on screen, running, before the turn ends
