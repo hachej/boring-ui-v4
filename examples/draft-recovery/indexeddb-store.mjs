@@ -26,7 +26,6 @@ function validateDraft(draft, maxBytes) {
   if (bytes.byteLength > maxBytes || new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) !== draft.text) throw new TypeError('Invalid draft text');
 }
 
-/** Fictional host policy: IndexedDB is explicitly injected, never a library default. */
 export async function openDraftDatabase({ indexedDB, name = 'fictional-boring-drafts-v1', now = Date.now, maxBytes = 8 * 1024 * 1024, beforeMutation } = {}) {
   if (!indexedDB || !Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new TypeError('IndexedDB and finite draft bounds are required');
   const opening = indexedDB.open(name, 1);
@@ -96,7 +95,7 @@ export async function openDraftDatabase({ indexedDB, name = 'fictional-boring-dr
           if (previous?.draft.ref.sequence === ref.sequence && canonical(previous.draft.ref) !== canonical(ref)) return { kind: 'denied', reason: 'Draft removal differs from the stored reference' };
           await request(floors.put(Math.max(floor, ref.sequence), key));
           if (!previous) return { kind: 'missing' };
-          if (previous.draft.ref.sequence !== ref.sequence) return { kind: 'superseded' };
+          if (previous.draft.ref.sequence > ref.sequence) return { kind: 'superseded' };
           await request(rows.delete(key)); return { kind: 'removed' };
         });
       } catch { return unavailable(); }

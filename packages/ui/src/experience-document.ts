@@ -9,11 +9,14 @@ import type { ExperienceRegionTrigger } from './experience-regions.js';
 import { experienceRegion, assertRegionReplacement } from './experience-region-tree.js';
 import { replaceRegionText } from './experience-region-text.js';
 import { randomUUID } from '@boring/files/platform';
+import type { TextDraftActions, TextDraftOptions } from './text-draft-types.js';
 
 export type ExperienceDocumentSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
   | { readonly kind: 'new'; readonly target: ResourceLocator; readonly descriptor?: unknown };
 export interface ExperienceDocumentOptions extends Pick<TextBufferOptions, 'identity' | 'instanceId' | 'epoch' | 'client' | 'readOnly' | 'onListenerError'>, ExperienceAccess {
   readonly source: ExperienceDocumentSource;
+  readonly drafts?: TextDraftOptions;
+  readonly validateDocument?: (descriptor: Readonly<ExperienceDescriptor>) => void;
 }
 interface Proposal {
   readonly id: string;
@@ -34,7 +37,7 @@ export interface ExperienceDocumentState extends TextBufferState {
   readonly pin: { readonly region: string; readonly selection: SaveSelection } | null;
 }
 type Subject = SaveSelection['target']['subject'];
-export interface ExperienceDocumentActions {
+export interface ExperienceDocumentActions extends TextDraftActions {
   readonly selection: () => SaveSelection;
   readonly propose: (base: SaveSelection, descriptor: unknown) => PresentationResult<void, Subject>;
   readonly beginRegion: (base: SaveSelection, region: string, trigger: ExperienceRegionTrigger) => PresentationResult<ExperienceRegionRequest, Subject>;
@@ -52,6 +55,7 @@ export function createExperienceDocumentController(options: ExperienceDocumentOp
   const parse = (text: string): ExperienceDescriptor => {
     const descriptor = validateExperience(JSON.parse(text), options);
     if (descriptor.source !== 'fixed') throw new TypeError('Saved experience must be fixed');
+    options.validateDocument?.(freeze(descriptor));
     return descriptor;
   };
   const fixedText = (descriptor: ExperienceDescriptor): string => JSON.stringify({ ...descriptor, source: 'fixed' }) + '\n';
@@ -59,7 +63,9 @@ export function createExperienceDocumentController(options: ExperienceDocumentOp
     kind: 'new' as const, target: options.source.target,
     text: options.source.descriptor === undefined ? '' : fixedText(validateExperience(options.source.descriptor, options)),
   };
-  const buffer = createTextBuffer({ ...options, source, mediaType: 'application/json', readText: snapshot => {
+  const { drafts, ...bufferOptions } = options;
+  const buffer = createTextBuffer({ ...bufferOptions, ...(drafts ? { drafts: { ...drafts, format: 'experience/v1', validateText: (text: string): void => { parse(text); } } } : {}), source, mediaType: 'application/json',
+    readText: snapshot => {
     if (snapshot.mediaType !== 'application/json') throw new TypeError('Expected an experience JSON document');
     const text = new TextDecoder('utf-8', { fatal: true }).decode(snapshot.bytes);
     parse(text); return text;
@@ -196,6 +202,19 @@ export function createExperienceDocumentController(options: ExperienceDocumentOp
     subscribe: listener => { if (state.lifecycle === 'disposed') return () => {}; listeners.add(listener); return () => { listeners.delete(listener); }; },
     actions: {
       selection: buffer.selection, propose, adopt, beginRegion, proposeRegion, pin,
+      checkDrafts: buffer.checkDrafts, checkpointDraft: buffer.checkpointDraft, discardDraft: buffer.discardDraft,
+      restoreDraft: async choice => {
+        const proposal = state.proposal, origin = pinOrigin, sequence = requestSequence;
+        const priorRequests = new Map(requests);
+        const result = await buffer.restoreDraft(choice);
+        if (result.kind === 'restored') {
+          if (pinOrigin === origin) pinOrigin = null;
+          for (const [id, request] of priorRequests) if (requests.get(id) === request) requests.delete(id);
+          if (requestSequence === sequence) requestSequence++;
+          update({ ...state, proposal: state.proposal === proposal ? null : state.proposal, pin: pinOrigin ? state.pin : null });
+        }
+        return result;
+      },
       reject: id => { if (state.lifecycle !== 'disposed' && state.proposal?.id === id) update({ ...state, proposal: null }); },
       refresh: () => refresh(false), discardToRemote: () => refresh(true), reconcile: buffer.reconcile,
     },

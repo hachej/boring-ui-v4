@@ -1,5 +1,22 @@
 # Implemented behavior and evidence
 
+## Document draft recovery
+
+The four document controllers expose optional checkpoint, discover, restore and
+discard actions. The [UI guide](../../packages/ui/README.md#opt-in-document-draft-recovery)
+owns their usage. Tests exercise real SQLite drafts and publication receipts,
+SIGKILL, session revocation, expiry, independent writers, dirty-buffer protection,
+late acknowledgements and native canvas validation. Experience restore drops old
+proposal and Pin authority. Chat recovery remains separate work.
+
+Run `node --experimental-test-isolation=none --test test/packages/ui-text-drafts.test.mjs test/packages/ui-viewer-draft-recovery.test.mjs`
+and `npm run test:document-consumer`. The installed consumer executes the core
+suite from actual files/UI archives without Pi, agent or React. Browser and final
+gate results remain in `.cache/evidence/draft-recovery/`; source or bundle checks
+alone do not establish browser persistence. No global release proof is promoted.
+
+## Existing feature evidence
+
 This map records the current partial implementation. It does not replace the product or acceptance owners. Candidate revisions and qualification limits are recorded in [PARTIAL.md](PARTIAL.md).
 
 | Behavior | Public entry and driven action | Executed evidence | Remaining limits |

@@ -1,25 +1,14 @@
-import type { PublicationReceipt, PublicationRequest, PublicationResult, ReadResult, ResourceAccess, ResourceClient, ResourceExpectation, ResourceLocator, ResourceRef, ResourceSnapshot } from '@boring/files';
+import type { PublicationReceipt, PublicationRequest, PublicationResult, ReadResult, ResourceClient, ResourceExpectation, ResourceLocator, ResourceRef, ResourceSnapshot } from '@boring/files';
 import { PublicationNotDispatchedError, parsePublicationResult, publicationDigest } from '@boring/files/publication';
 import type { SaveResult, SaveSelection } from './resources.js';
 import { createTextDrafts } from './text-drafts.js';
-import type { TextDraftBinding, TextDraftRecoveryState, TextDraftRef } from './text-draft-types.js';
+import type { TextDraftBinding, TextDraftRef } from './text-draft-types.js';
 import { randomUUID } from '@boring/files/platform';
+import type { TextBufferState } from './text-buffer-state.js';
+export type { TextBufferState } from './text-buffer-state.js';
 
 export type TextBufferSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
   | { readonly kind: 'new'; readonly target: ResourceLocator; readonly text?: string };
-export interface TextBufferState {
-  readonly identity: Pick<ResourceAccess, 'scopeId' | 'principalId' | 'initiatorId'>;
-  readonly text: string;
-  readonly base: ResourceExpectation;
-  readonly readOnly: boolean;
-  readonly bufferVersion: number;
-  readonly dirty: boolean;
-  readonly lifecycle: 'active' | 'disposed';
-  readonly save: { readonly kind: 'idle' } | { readonly kind: 'pending'; readonly operationId: string }
-    | { readonly kind: 'settled'; readonly result: SaveResult };
-  readonly remote: ResourceExpectation | null;
-  readonly recovery: TextDraftRecoveryState;
-}
 export interface TextBufferOptions {
   readonly identity: TextBufferState['identity'];
   readonly instanceId: string;
@@ -267,7 +256,7 @@ export function createTextBuffer(options: TextBufferOptions) {
     if (force || text !== state.text) update({ ...state, text, bufferVersion: state.bufferVersion + 1, dirty: state.base.kind === 'absent' || text !== savedText });
   }
   drafts = createTextDrafts({
-    binding: options.drafts, snapshot: () => state, selection, selected, sameBase, sameLocator,
+    binding: options.drafts, emptyText: options.emptyText ?? '', snapshot: () => state, selection, selected, sameBase, sameLocator,
     pending: () => attempt !== undefined, read: () => client.read({ target: state.base.target, revision: { kind: 'latest' } }),
     sync: () => options.sync?.(),
     changed: recovery => { state = freeze({ ...state, recovery }); notify(); },

@@ -9,11 +9,13 @@ import type { PresentationCommand, PresentationResult } from './contracts.js';
 import { randomUUID } from '@boring/files/platform';
 import type { SaveResult, SaveSelection } from './resources.js';
 import { createTextBuffer, freeze, sameBase, type TextBufferState } from './text-buffer.js';
+import type { TextDraftOptions } from './text-draft-types.js';
 
 export { canvasMediaType } from './canvas-document.js';
 export type CanvasSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
   | { readonly kind: 'new'; readonly target: ResourceLocator };
 export interface CanvasOptions {
+  readonly drafts?: TextDraftOptions;
   /** Borrow one editor's store; the host owns its lifetime and native schema. */
   readonly store: TLStore;
   readonly source: CanvasSource;
@@ -83,10 +85,11 @@ export function createCanvasController(options: CanvasOptions) {
     const input: unknown = JSON.parse(text);
     const document = documentFrom(input, store);
     loading = true;
-    try { loadSnapshot(store, { document }); captured = documentText(store.getStoreSnapshot('document')); problem = null; }
+    try { loadSnapshot(store, { document }); captured = documentText(document); problem = null; }
     finally { loading = false; }
   };
-  const buffer = createTextBuffer({ ...options, source: options.source.kind === 'new' ? { ...options.source, text: initialText } : options.source,
+  const { drafts, ...bufferOptions } = options;
+  const buffer = createTextBuffer({ ...bufferOptions, ...(drafts ? { drafts: { ...drafts, format: 'canvas/v1', validateText: (text: string): void => { documentFrom(parseCanvasDocument(JSON.parse(text), store.schema), store); } } } : {}), source: options.source.kind === 'new' ? { ...options.source, text: initialText } : options.source,
     mediaType: canvasMediaType, emptyText, readText, replaceText, sync: () => capture() });
   replaceText(initialText);
   function snapshot(): CanvasState {
@@ -218,6 +221,7 @@ export function createCanvasController(options: CanvasOptions) {
       refresh: () => { capture(); return buffer.refresh(false); },
       discardToRemote: () => { capture(); return buffer.refresh(true); },
       reconcile: buffer.reconcile, abandon: buffer.abandon,
+      checkDrafts: buffer.checkDrafts, checkpointDraft: buffer.checkpointDraft, restoreDraft: buffer.restoreDraft, discardDraft: buffer.discardDraft,
       propose: (base: SaveSelection, edits: readonly CanvasEdit[], summary?: string) => propose(base, edits, summary), accept,
       reject: (proposalId: string): void => { if (!disposed) { proposals = proposals.filter(value => value.id !== proposalId); notify(); } },
     },

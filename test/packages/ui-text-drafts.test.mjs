@@ -14,6 +14,46 @@ const target = { resource: { providerId: 'documents', path: 'note.txt' }, view: 
 const encode = text => new TextEncoder().encode(text);
 const decode = snapshot => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(snapshot.bytes);
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+
+test('editing during a held recovery read settles discovery instead of leaving controls checking', async t => {
+  const f = await fixture(t), entered = deferred(), release = deferred();
+  const buffer = f.buffer({ client: { ...f.client, read: async request => {
+    const result = await f.client.read(request);
+    entered.resolve(); await release.promise; return result;
+  } } });
+  const pending = buffer.checkDrafts();
+  await entered.promise;
+  assert.equal(buffer.getSnapshot().recovery.discovery.kind, 'checking');
+  buffer.edit('Newer local content');
+  release.resolve();
+  assert.equal((await pending).kind, 'unavailable');
+  assert.equal(buffer.getSnapshot().recovery.discovery.kind, 'unavailable');
+  assert.equal(buffer.getSnapshot().text, 'Newer local content');
+});
+
+test('late storage acknowledgement cannot report an expired checkpoint as stored', async t => {
+  const f = await fixture(t);
+  const entered = deferred(), release = deferred();
+  let record;
+  const store = { ...f.first.store, write: async draft => {
+    record = draft;
+    const result = await f.first.store.write(draft);
+    entered.resolve();
+    await release.promise;
+    return result;
+  } };
+  const buffer = f.buffer({ drafts: f.binding(store, { retentionMs: 30 }) });
+  buffer.edit('Fictional expiring checkpoint');
+  const pending = buffer.checkpointDraft();
+  await entered.promise;
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, record.expiresAt - Date.now()) + 20));
+  release.resolve();
+  assert.equal((await pending).kind, 'expired');
+  assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'failed');
+  assert.equal(buffer.getSnapshot().recovery.checkpoint.result.kind, 'expired');
+  assert.equal((await f.first.store.list(record.ref.key, 20)).drafts.length, 0);
+  assert.equal(buffer.getSnapshot().text, 'Fictional expiring checkpoint');
+});
 async function fixture(t, initial = 'Saved fictional note') {
   const directory = await mkdtemp(join(tmpdir(), 'boring-text-drafts-'));
   const provider = openSqliteWorkspaces({ filename: join(directory, 'resources.db'), providerId: 'documents' });

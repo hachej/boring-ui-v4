@@ -1,4 +1,3 @@
-/** Runs against actual IndexedDB in Chromium; callers supply their assertion function. */
 export async function checkIndexedDbStore(openDraftDatabase, indexedDB, assert) {
   let time = Date.now(), release, held = false;
   const host = await openDraftDatabase({ indexedDB, name: `fictional-conformance-${time}`, now: () => time, maxBytes: 128, beforeMutation: async operation => { if (operation === 'write' && held) await new Promise(resolve => { release = resolve; }); } });
@@ -15,6 +14,10 @@ export async function checkIndexedDbStore(openDraftDatabase, indexedDB, assert) 
     assert((await store.write(first)).kind === 'superseded', 'Deleted draft cannot resurrect');
     const future = draft(3); assert((await store.remove(future.ref)).kind === 'missing', 'Remove before delayed write raises floor');
     assert((await store.write(future)).kind === 'superseded', 'Delayed write blocked by floor');
+    await store.write(draft(1, 'ack-before-write'));
+    assert((await store.remove(draft(2, 'ack-before-write').ref)).kind === 'removed', 'Later acknowledged version removes the older retained payload');
+    assert(!(await store.list(key, 20)).drafts.some(item => item.ref.writerId === 'ack-before-write'), 'Acknowledged writer has no stale recovery offer');
+    assert((await store.write(draft(2, 'ack-before-write'))).kind === 'superseded', 'Acknowledged delayed write cannot recreate payload');
     const newer = draft(5, 'one', 'r2'); await store.write(newer); await store.remove(draft(4).ref);
     assert((await store.list(key, 20)).drafts[0].ref.sequence === 5, 'Old base remove preserves newer base');
     assert((await store.write(draft(4))).kind === 'superseded', 'Floor spans base changes');

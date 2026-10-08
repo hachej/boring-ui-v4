@@ -54,6 +54,8 @@ jobs:
         run: npm run redaction:journey
       - name: Fictional preparation experience
         run: npm run redaction:preparation:journey
+      - name: Document draft recovery with IndexedDB
+        run: npm run draft-recovery:journey
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model
@@ -127,5 +129,13 @@ jobs:
         with:
           name: redaction-preparation-evidence
           path: .cache/evidence/redaction-preparation-journey
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Draft recovery evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: draft-recovery-evidence
+          path: .cache/evidence/draft-recovery-browser
           retention-days: 7
           if-no-files-found: ignore

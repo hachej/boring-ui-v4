@@ -234,3 +234,38 @@ Run `node examples/generated-region.mjs` after building for a fictional native c
 Validate initial and remote content through `readText`, and validate edits before calling `edit`. `observe` is intended for trusted external-store synchronization and bypasses read-only edit checks. `sync` and `replaceText` are synchronous hooks. Refresh checks the buffer again after `replaceText`, so a callback edit or disposal cannot be overwritten by the pending refresh.
 
 The [task-list recipe](../../registry/README.md#task-list-viewer) implements a concrete consumer feature, domain operations and renderer. Its native tools share the domain transform and conditional publication provider. They edit saved resources; a mounted human draft keeps its own exact revision and conflict handling.
+
+## Opt-in document draft recovery
+
+Markdown, HTML, canvas and experience controllers accept `drafts: TextDraftOptions`.
+Import that type and `TextDraftStore` from `@boring/ui/text-buffer`. The host supplies
+the store, stable `providerInstanceId`, session `signal` and `expiresAt`, and draft
+`retentionMs`. Defaults bound each record to 8 MiB and each listing to 20 records.
+The store must implement the [session and version contract](../../docs/architecture/WEBSITE-INTEGRATION.md#change-review-and-draft-recovery).
+Omitting `drafts` leaves persistence disabled.
+
+Edits request a checkpoint. Await `actions.checkpointDraft()` when you need its
+storage result. `state.recovery` distinguishes pending, stored and failed
+checkpoints. `actions.checkDrafts()` reads the current document and returns scoped
+choices. Pass a choice's `selection` to `actions.restoreDraft` or
+`actions.discardDraft`. Both recheck the resource revision, viewer selection and
+stored record. Restore refuses newer local edits or an unsettled save.
+
+Restore changes local content. Normal `flush(actions.selection())` still owns
+publication and receipt validation. A matching acknowledgement removes only its
+checkpoint, preserving newer typing and other writers. Store failures remain
+visible without changing publication results. A restored source record can remain
+available if you edit it before saving. Draft recovery does not persist or replay
+an interrupted publication request.
+
+Canvas recovery validates native document records and schema. It excludes camera
+and session records. Experience recovery validates fixed descriptor text and clears
+old proposals and Pin authority. Supply `validateDocument` to enforce additional
+host rules when reading or restoring an experience. Custom text controllers can
+supply `drafts.validateText` for their own format.
+
+Logout must revoke the host storage session transactionally and purge its payloads,
+then abort its signal. Aborting a signal alone cannot fence another tab's delayed
+write. Ordinary viewer disposal leaves the borrowed store available to other
+viewers. Encryption, retention enforcement and authenticated storage policy remain
+host responsibilities. This option does not implement durable chat drafts.

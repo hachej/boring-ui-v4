@@ -5,6 +5,7 @@ import type { MarkdownController, MarkdownOptions } from '@boring/ui/markdown';
 import { createResourceClient, createResourceHandler } from '@boring/files/remote';
 import type { ResourceClientOptions, ResourceHandlerOptions, ResourceIdentity } from '@boring/files/remote';
 import type { ResourceClient, ResourceProvider } from '@boring/files';
+import type { TextDraftChoiceSelection, TextDraftOptions, TextDraftCheckpointResult } from '@boring/ui/text-buffer';
 
 declare const remoteOptions: ResourceClientOptions;
 declare const handlerOptions: ResourceHandlerOptions;
@@ -35,3 +36,11 @@ concrete.actions.propose(editor.actions.selection(), [{ replacement: 'wrong' }])
 const notDispatched = new PublicationNotDispatchedError('fictional-operation');
 const operationId: string = notDispatched.operationId;
 void operationId;
+
+declare const drafts: TextDraftOptions;
+declare const choice: TextDraftChoiceSelection;
+const recoverable = createMarkdownController({ ...options, drafts });
+const checkpoint: Promise<TextDraftCheckpointResult> = recoverable.actions.checkpointDraft();
+void recoverable.actions.restoreDraft(choice);
+void concrete.actions.discardDraft(choice);
+void checkpoint;

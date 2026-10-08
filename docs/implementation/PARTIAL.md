@@ -1,5 +1,21 @@
 # Partial implementation checkpoint
 
+## Document draft recovery
+
+Branch `feat/draft-recovery-20261008` builds on npm preparation PR52. Four concrete
+document controllers now accept optional host-owned draft storage. The
+[UI guide](../../packages/ui/README.md#opt-in-document-draft-recovery) describes
+the actions and limits. Public-output tests cover SQLite reopen, SIGKILL,
+revocation, exact text, overlapping writers and late acknowledgements. The
+isolated document consumer also executes the core recovery suite without Pi,
+agent or React installed. Browser execution and final integration gates remain
+pending until their actual results are recorded under `.cache/evidence/draft-recovery/`.
+
+This is a partial implementation of the website recovery requirement. Durable
+chat drafts, production storage policy and encryption remain separate work.
+W00 remains reconciled, W01-W08/W10-W13 partial, and W09 a public-seam probe.
+P01-P14, A01-A48, H01-H10 and all eleven global deferrals remain in scope.
+
 ## npm release preparation
 
 The [npm release procedure](NPM-RELEASE.md) defines artifact checks and the remaining

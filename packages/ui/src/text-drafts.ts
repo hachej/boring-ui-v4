@@ -2,11 +2,12 @@ import { identifier, locator, reference } from '@boring/files/publication';
 import { randomUUID } from '@boring/files/platform';
 import type { ReadResult, ResourceExpectation, ResourceLocator } from '@boring/files';
 import type { SaveSelection } from './resources.js';
-import type { TextBufferState } from './text-buffer.js';
+import type { TextBufferState } from './text-buffer-state.js';
 import type { TextDraft, TextDraftActions, TextDraftBinding, TextDraftCheckpointResult, TextDraftChoiceFailure, TextDraftChoiceSelection, TextDraftDiscovery, TextDraftFailure, TextDraftKey, TextDraftRecoveryState, TextDraftRef } from './text-draft-types.js';
 
 interface Owner {
   readonly binding: TextDraftBinding | undefined;
+  readonly emptyText: string;
   readonly snapshot: () => TextBufferState;
   readonly selection: () => SaveSelection;
   readonly selected: (selection: SaveSelection) => boolean;
@@ -137,6 +138,7 @@ export function createTextDrafts(owner: Owner) {
       result = value.kind === 'stored' ? { kind: 'stored', ref: draft.ref } : value.kind === 'superseded' ? { kind: 'superseded' } : failure(value);
     } catch { result = { kind: 'unknown', reason: 'Draft storage acknowledgement was lost' }; }
     const revoked = access(); if (revoked) return revoked;
+    if (result.kind === 'stored' && draft.expiresAt <= Date.now()) result = { kind: 'expired', reason: 'The recovery checkpoint expired before acknowledgement' };
     if (result.kind === 'stored' && current && sameRef(current.draft.ref, draft.ref) && recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'stored', ref: draft.ref } });
     else if (result.kind === 'superseded' && current && sameRef(current.draft.ref, draft.ref) && recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'idle' } });
     else if ('reason' in result) checkpointFailure(draft.ref, 'write', result);
@@ -194,7 +196,7 @@ export function createTextDrafts(owner: Owner) {
     if (!offer || offer.expiresAt <= Date.now() || !guarded(selected.viewer)) return conflict();
     const serial = checkSequence;
     const guard = () => serial === checkSequence && offer.expiresAt > Date.now() && guarded(selected.viewer);
-    if (restore && owner.snapshot().dirty && !(owner.snapshot().base.kind === 'absent' && owner.snapshot().text === '' && owner.snapshot().bufferVersion === 0)) return conflict();
+    if (restore && owner.snapshot().dirty && !(owner.snapshot().base.kind === 'absent' && owner.snapshot().text === owner.emptyText && owner.snapshot().bufferVersion === 0)) return conflict();
     const remote = await latest();
     if (!guard()) return access() ?? conflict();
     if (remote.kind !== 'revision' && remote.kind !== 'absent') return remote;
@@ -228,10 +230,16 @@ export function createTextDrafts(owner: Owner) {
       if (!guarded(selection)) return unavailable('A save must be settled before checking recovery drafts');
       discovery({ kind: 'checking' });
       const remote = await latest();
-      if (serial !== checkSequence || !guarded(selection)) return access() ?? unavailable('The viewer changed during recovery discovery');
+      if (serial !== checkSequence || !guarded(selection)) {
+        const result = access() ?? unavailable('The viewer changed during recovery discovery');
+        return serial === checkSequence ? discovery(result) : result;
+      }
       if (remote.kind !== 'revision' && remote.kind !== 'absent') return discovery(remote);
       const records = await list();
-      if (serial !== checkSequence || !guarded(selection)) return access() ?? unavailable('The viewer changed during recovery discovery');
+      if (serial !== checkSequence || !guarded(selection)) {
+        const result = access() ?? unavailable('The viewer changed during recovery discovery');
+        return serial === checkSequence ? discovery(result) : result;
+      }
       if (records.kind !== 'available') return discovery(records);
       const offerId = randomUUID();
       return discovery(records.drafts.length ? { kind: 'offered', truncated: records.truncated, choices: records.drafts.map(draft => ({ selection: { offerId, draft: draft.ref, viewer: selection, observedCurrent: remote }, text: draft.text, createdAt: draft.createdAt, expiresAt: draft.expiresAt, compatibility: owner.sameBase(draft.ref.base, remote) ? 'exact' : 'conflict' })) } : { kind: 'empty' });

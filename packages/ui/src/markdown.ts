@@ -4,6 +4,7 @@ import type { PresentationCommand, PresentationResult } from './contracts.js';
 import { createTextBuffer, freeze, sameBase } from './text-buffer.js';
 import type { EditableViewerController, SaveResult, SaveSelection } from './resources.js';
 import { randomUUID } from '@boring/files/platform';
+import type { TextDraftActions, TextDraftOptions, TextDraftRecoveryState } from './text-draft-types.js';
 
 export type MarkdownSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
   | { readonly kind: 'new'; readonly target: ResourceLocator; readonly text?: string };
@@ -30,6 +31,7 @@ export interface MarkdownTools {
 }
 
 export interface MarkdownState {
+  readonly recovery: TextDraftRecoveryState;
   readonly identity: Pick<ResourceAccess, 'scopeId' | 'principalId' | 'initiatorId'>;
   readonly text: string;
   readonly base: ResourceExpectation;
@@ -43,7 +45,7 @@ export interface MarkdownState {
   readonly remote: ResourceExpectation | null;
 }
 
-export interface MarkdownActions {
+export interface MarkdownActions extends TextDraftActions {
   readonly propose: (base: SaveSelection, edits: readonly TextEdit[], summary?: string) => PresentationResult<void, MarkdownSubject>;
   readonly accept: (proposalId: string) => Promise<SaveResult>;
   readonly reject: (proposalId: string) => void;
@@ -57,6 +59,7 @@ export interface MarkdownActions {
 }
 
 export interface MarkdownOptions {
+  readonly drafts?: TextDraftOptions;
   /** Expected authenticated identity is comparison metadata, never a grant. */
   readonly identity: Pick<ResourceAccess, 'scopeId' | 'principalId' | 'initiatorId'>;
   readonly instanceId: string;
@@ -70,7 +73,8 @@ export interface MarkdownOptions {
 export type MarkdownController = EditableViewerController<MarkdownState, MarkdownActions, MarkdownTools>;
 
 export function createMarkdownController(options: MarkdownOptions): MarkdownController {
-  const buffer = createTextBuffer({ ...options, mediaType: 'text/markdown', readText: snapshot => {
+  const { drafts, ...bufferOptions } = options;
+  const buffer = createTextBuffer({ ...bufferOptions, ...(drafts ? { drafts: { ...drafts, format: 'markdown/v1' } } : {}), mediaType: 'text/markdown', readText: snapshot => {
     if (snapshot.mediaType !== 'text/markdown' && snapshot.mediaType !== 'text/plain') throw new TypeError('Expected Markdown or plain text');
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(snapshot.bytes);
   } });
@@ -157,6 +161,7 @@ export function createMarkdownController(options: MarkdownOptions): MarkdownCont
     actions: {
       edit: text => buffer.edit(text),
       propose, accept, reject: proposalId => { if (state.lifecycle !== 'disposed') update({ ...state, proposals: state.proposals.filter(value => value.id !== proposalId) }); },
+      checkDrafts: buffer.checkDrafts, checkpointDraft: buffer.checkpointDraft, restoreDraft: buffer.restoreDraft, discardDraft: buffer.discardDraft,
       selection, refresh: () => buffer.refresh(false), discardToRemote: () => buffer.refresh(true), reconcile: buffer.reconcile, abandon: buffer.abandon,
     },
     tools: Object.freeze(tools), flush: buffer.flush,

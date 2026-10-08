@@ -81,6 +81,7 @@
     "redaction:preparation:journey": "node scripts/test-redaction-preparation.mjs",
     "test:redaction-browser-consumer": "node scripts/test-editor-consumer.mjs --redaction",
     "check:pack": "node scripts/check-npm-packages.mjs",
+    "draft-recovery:journey": "node examples/draft-recovery/journey.mjs",
     "release:preflight": "npm run verify:release && node scripts/check-npm-packages.mjs --release"
   },
   "devDependencies": {
