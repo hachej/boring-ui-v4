@@ -472,4 +472,10 @@ Focused public-output/native SQLite tests and the installed canvas consumer are 
 
 The [proposal API](../../packages/ui/README.md#canvas-proposals) and [feature evidence](FEATURES.md#canvas-proposal-adoption) now cover detached native candidates, human field review and exact acceptance over the shared publication buffer. Mounted commands add native page/mount and read-only restrictions. Reentrant edits and late acknowledgements retain newer drafts. The browser journey uses fictional authenticated resources, actual SQLite and native Editor calls, with review actions through browser controls.
 
-Exact candidate gates, independent review and raw results are retained under ignored `.cache/evidence/canvas-adoption/`. Local loopback policy can block the browser server; only an actual CI browser run qualifies that journey. Production canvas requirements and saved-tool crash recovery remain open. W/P/A/H coverage and global release deferrals remain unchanged.
+Exact candidate gates, independent review and raw results are retained under ignored `.cache/evidence/canvas-adoption/`. Local loopback policy can block the browser server; only an actual CI browser run qualifies that journey. Saved-tool recovery is tracked below. Production canvas requirements, W/P/A/H coverage and global release deferrals remain unchanged.
+
+## Saved-canvas tool recovery (2026-10-08)
+
+The saved tools now retain exact publication intent in native task memos and reconcile a potentially committed operation without another write. Focused execution passes 59 tests, including 26 real SIGKILL cases. Later human edits and newer conversation reads survive recovery. See [feature evidence](FEATURES.md#saved-canvas-tool-publication-recovery) and [host requirements and limits](../architecture/CANVAS.md#saved-tool-publication-recovery).
+
+Exact candidate gates, baseline comparisons and independent review remain under ignored `.cache/evidence/canvas-recovery/`. Local network/process restrictions remain visible in full-gate results; no failing gate is relabelled as a pass. Production canvas requirements and all global release deferrals remain open. This checkpoint remains PARTIAL across W/P/A/H.

@@ -156,4 +156,12 @@ The concrete canvas controller retains exact immutable edit candidates; the rend
 
 Evidence entries: `test/packages/ui-canvas-proposals.test.mjs`, `test/packages/ui-canvas-editor.test.mjs`, `test/compatibility/canvas-mounted-native.test.mjs`, `npm run test:canvas-editor-consumer` and the blocking CI command `npm run canvas:journey:proposals`. Tests cover reentrant adoption, dirty/stale buffers, no-op versions, unknown saves, native ToolTask proposals, exact field review and delayed acknowledgements. The browser fixture uses authenticated fictional HTTP resources and real SQLite; document edits use native Editor calls, while review actions use browser clicks. Raw results stay under `.cache/evidence/canvas-adoption/` and `.cache/evidence/canvas-proposals-browser/`; the presence of a test command is not a pass claim.
 
-This is partial P05/P11/A42 work. Saved-tool lost-ack/crash recovery, remote agent-to-browser delivery, assets, migrations, custom shapes, licensing and production CSS/egress still require qualification. No W/P/A/H obligation or global proof is promoted to complete.
+This is partial P05/P11/A42 work. Saved-tool recovery is tracked below. Remote agent-to-browser delivery, assets, migrations, custom shapes, licensing and production CSS/egress still require qualification. No W/P/A/H obligation or global proof is promoted to complete.
+
+## Saved-canvas tool publication recovery
+
+The example saved tools use native task memos and authenticated receipt lookup for lost acknowledgements and restart. [Canvas recovery semantics](../architecture/CANVAS.md#saved-tool-publication-recovery) owns the contract and host requirements.
+
+`test/compatibility/canvas-publication.test.mjs` covers immediate lost acknowledgements, malformed receipt evidence and concurrent conversation reads. `test/contracts/canvas-publication-crash.test.mjs` uses real native Harness/SQLite child processes and SIGKILL to cover create, replacement and removal, missing receipts, changed bindings, revoked access, failed lookup and intervening human edits. The combined focused run passes 59 tests, including 26 crash cases. Recovery publishes zero additional writes in every attempted-operation case.
+
+Raw reproduction, review, gate results and exact candidate remain under ignored `.cache/evidence/canvas-recovery/`. This is a partial P05/P11/A42 increment. Explicit native abort, old unsafe calls, host reattachment and production canvas qualifications retain the limits in the owner document. No W/P/A/H obligation or global proof is promoted to complete.
