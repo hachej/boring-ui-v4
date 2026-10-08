@@ -21,14 +21,15 @@ test('task-list installed renderer edits, saves, reconciles and borrows its cont
   const provider = openSqliteWorkspaces({ filename: ':memory:', providerId: 'fictional-task-registry', authorize: action => action !== 'read' || !readDenied });
   const identity = { scopeId: 'fictional', principalId: 'editor', initiatorId: 'alice' };
   const target = { resource: { providerId: provider.providerId, path: 'tasks.json' }, view: { kind: 'published' } };
-  let writes = 0, loseReply = false, denied = false, readDenied = false, readUnavailable = false, releaseRead, holdRead = false;
+  let writes = 0, loseReply = false, denied = false, readDenied = false, readUnavailable = false, releaseRead, holdRead = false, loseBeforeEffect = false;
   const extraControllers = [];
   const client = { read: async request => {
     if (holdRead) { holdRead = false; await new Promise(resolve => { releaseRead = resolve; }); return { kind: 'denied', reason: 'Old controller late refusal' }; }
     if (readUnavailable) return { kind: 'unavailable', reason: 'Provider temporarily unavailable' };
     return provider.read(request, identity);
   }, lookup: id => provider.reconciliation.lookup(id, identity), publish: async request => {
-    writes++; if (denied) return { kind: 'denied', reason: 'Fictional current policy' };
+    writes++; if (loseBeforeEffect) { loseBeforeEffect = false; throw new Error('Lost dispatch with no publication effect'); }
+    if (denied) return { kind: 'denied', reason: 'Fictional current policy' };
     const result = await provider.publication.publish(request, identity); if (loseReply) { loseReply = false; throw new Error('Lost reply'); } return result;
   } };
   const initial = { kind: 'fictional.task-list', version: 1, items: [{ id: 'one', title: 'Fictional task', completed: false }] };
@@ -67,6 +68,14 @@ test('task-list installed renderer edits, saves, reconciles and borrows its cont
   assert.equal(controller.getSnapshot().document.items.length, 2); assert.equal(controller.getSnapshot().document.items[1].title, 'Added by human');
   await click('Save'); await settle(); assert.equal(controller.getSnapshot().save.result.kind, 'saved'); assert.equal((await read()).items.length, 2);
   const waitFor = async predicate => { for (let i = 0; i < 100 && !predicate(); i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); assert.ok(predicate()); };
+  await check(); const abandonedDraft = controller.getSnapshot().text, savedBeforeUnknown = await read();
+  loseBeforeEffect = true; await click('Save'); await settle(); assert.equal(controller.getSnapshot().save.result.kind, 'unknown');
+  const unknownId = controller.getSnapshot().save.result.operationId, attemptedWrites = writes;
+  assert.equal((await client.lookup(unknownId)).kind, 'not-found'); await click('Reconcile'); await settle(); assert.equal(controller.getSnapshot().save.result.kind, 'unknown'); assert.equal(writes, attemptedWrites);
+  await click('Abandon save'); await waitFor(() => controller.getSnapshot().save.kind === 'idle');
+  assert.equal(controller.getSnapshot().text, abandonedDraft); assert.equal(controller.getSnapshot().dirty, true); assert.equal(writes, attemptedWrites); assert.deepEqual(await read(), savedBeforeUnknown);
+  await click('Save'); await settle(); assert.equal(controller.getSnapshot().save.result.kind, 'saved'); assert.equal(writes, attemptedWrites + 1); assert.notEqual(controller.getSnapshot().save.result.receipt.operationId, unknownId); assert.equal(controller.getSnapshot().dirty, false);
+
   readDenied = true; await click('Refresh'); await waitFor(() => container.querySelector('[role=alert]')?.textContent.includes('Read is not authorized'));
   assert.match(container.querySelector('[role=alert]').textContent, /denied/); assert.equal(controller.getSnapshot().dirty, false);
   readDenied = false; readUnavailable = true; await click('Refresh'); await waitFor(() => container.querySelector('[role=alert]')?.textContent.includes('Provider temporarily unavailable'));

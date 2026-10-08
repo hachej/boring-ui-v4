@@ -63,6 +63,7 @@ export function TaskListViewer({ controller, title = 'Tasks', className }: TaskL
       <button type="button" disabled={state.lifecycle === 'disposed'} onClick={() => void run(controller.actions.refresh)}>Refresh</button>
       <button type="button" disabled={disabled || (!state.dirty && !state.remote)} onClick={() => void run(controller.actions.discardToRemote)}>Discard</button>
       <button type="button" disabled={state.lifecycle === 'disposed' || save?.kind !== 'unknown'} onClick={() => void run(controller.actions.reconcile)}>Reconcile</button>
+      <button type="button" disabled={state.lifecycle === 'disposed' || save?.kind !== 'unknown'} onClick={() => void run(controller.actions.abandon)}>Abandon save</button>
     </div>
     {notice && <p role="alert">{notice}</p>}
   </section>;
