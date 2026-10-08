@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ResourceClient, ResourceLocator, ResourceSnapshot } from '@boring/files';
 
 const POLL_MS = 1500;
@@ -25,41 +25,44 @@ export function useSaved<C extends SavedController = SavedController>({ client, 
   readonly revision?: string | undefined;
   readonly create?: ((snapshot: ResourceSnapshot) => C) | undefined;
 }): SavedState<C> {
-  const [state, setState] = useState<SavedState<C>>({ kind: 'loading' });
-  const held = useRef(state);
-  held.current = state;
+  const key = JSON.stringify([target.resource.providerId, target.resource.path, target.view.kind, target.view.kind === 'working' ? target.view.viewId : null, revision]);
+  const binding = useMemo(() => ({ client, key }), [client, key]);
+  const factory = useRef(create); factory.current = create;
+  const [stored, setStored] = useState<{ readonly binding: typeof binding; readonly state: SavedState<C> }>();
   useEffect(() => {
     let cancelled = false, reading = false;
+    let state: SavedState<C> = { kind: 'loading' };
+    const update = (next: SavedState<C>) => { state = next; setStored({ binding, state }); };
+    update(state);
     const follow = async () => {
       if (cancelled || reading) return;
-      const now = held.current;
+      const now = state;
       const before = now.kind === 'open' ? now.controller?.getSnapshot() : undefined;
       if (before && (before.dirty || before.save?.kind === 'pending')) return;
       reading = true;
       let read;
       try { read = await client.read({ target, revision: revision ? { kind: 'exact', value: revision } : { kind: 'latest' } }).catch(() => undefined); }
       finally { reading = false; }
-      if (cancelled || !read || held.current !== now) return;
+      if (cancelled || !read || state !== now) return;
       const local = now.kind === 'open' ? now.controller?.getSnapshot() : undefined;
       if (local !== before) return;
-      if (read.kind !== 'available') { if (now.kind !== 'open') setState({ kind: read.kind }); return; }
+      if (read.kind !== 'available') { if (now.kind !== 'open') update({ kind: read.kind }); return; }
       if (now.kind === 'open') {
         if (now.snapshot.ref.revision === read.snapshot.ref.revision) return;
         if (local?.base?.kind === 'revision' && (local.base.target as { readonly revision?: string } | undefined)?.revision === read.snapshot.ref.revision) return;
         now.controller?.dispose();
       }
       const text = readText(read.snapshot.bytes);
-      if (text === undefined) { setState({ kind: 'invalid' }); return; }
+      if (text === undefined) { update({ kind: 'invalid' }); return; }
       let controller: C | undefined;
-      try { controller = create?.(read.snapshot); } catch { setState({ kind: 'invalid' }); return; }
-      held.current = { kind: 'open', snapshot: read.snapshot, text, controller };
-      setState(held.current);
+      try { controller = factory.current?.(read.snapshot); } catch { update({ kind: 'invalid' }); return; }
+      update({ kind: 'open', snapshot: read.snapshot, text, controller });
     };
     void follow();
     const timer = revision ? undefined : setInterval(() => { void follow(); }, POLL_MS);
-    return () => { cancelled = true; clearInterval(timer); held.current.controller?.dispose(); };
-  }, [client, target.resource.path, revision]); // eslint-disable-line react-hooks/exhaustive-deps
-  return state;
+    return () => { cancelled = true; clearInterval(timer); state.controller?.dispose(); };
+  }, [binding]); // eslint-disable-line react-hooks/exhaustive-deps
+  return stored?.binding === binding ? stored.state : { kind: 'loading' };
 }
 
 /** A save time for a person: the clock time (with seconds, so two quick saves differ) today, the date as well on another day. */

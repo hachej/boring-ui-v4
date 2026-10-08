@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createNativeChatController } from '@boring/ui/native-chat';
 import type { ChatIdentity, NativeChatController } from '@boring/ui/native-chat';
 import { createRemoteChat } from '@boring/ui/remote-chat';
@@ -22,16 +22,20 @@ export function useRemoteChat({ conversationId, endpoint, fetch, identity }: {
   readonly fetch: (request: Request) => Promise<Response>;
   readonly identity: ChatIdentity | undefined;
 }): RemoteChatState {
-  const [chat, setChat] = useState<RemoteChatState>({ status: 'connecting', conversationId });
-  const ready = identity !== undefined;
+  const url = conversationId === undefined ? undefined : String(endpoint(conversationId));
+  const key = JSON.stringify([conversationId, url, identity?.runtimeId, identity?.scopeId, identity?.principalId]);
+  const binding = useMemo(() => ({ key, fetch }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  binding.fetch = fetch;
+  const [stored, setStored] = useState<{ readonly binding: typeof binding; readonly chat: RemoteChatState }>();
   useEffect(() => {
-    if (conversationId === undefined || !identity) return;
+    if (conversationId === undefined || !identity || url === undefined) return;
+    const setChat = (chat: RemoteChatState) => setStored({ binding, chat });
     let disposed = false, controller: NativeChatController | undefined, remote: RemoteChat | undefined;
     setChat({ status: 'connecting', conversationId });
     void (async () => {
-      for (;;) {
+      while (!disposed) {
         try {
-          remote = await createRemoteChat({ endpoint: endpoint(conversationId), fetch });
+          remote = await createRemoteChat({ endpoint: url, fetch: request => binding.fetch(request) });
           if (disposed) return void remote.close();
           controller = createNativeChatController({ identity, ...remote });
           await controller.connect();
@@ -51,6 +55,6 @@ export function useRemoteChat({ conversationId, endpoint, fetch, identity }: {
       }
     })();
     return () => { disposed = true; controller?.dispose(); void remote?.close(); };
-  }, [conversationId, ready]); // eslint-disable-line react-hooks/exhaustive-deps
-  return chat.conversationId === conversationId ? chat : { status: 'connecting', conversationId };
+  }, [binding]); // eslint-disable-line react-hooks/exhaustive-deps
+  return identity && stored?.binding === binding ? stored.chat : { status: 'connecting', conversationId };
 }

@@ -32,9 +32,8 @@ test('app hooks isolate mounted state by owner and resource (DOM, not browser qu
       close: async () => { await act(async () => root.unmount()); container.remove(); } };
   }
   await t.test('remote chat changes owner and endpoint, withholds old state, and clears on logout', async () => {
-    const opened = [], requests = [], streams = new Set();
+    const opened = [], streams = new Set();
     const fetch = async request => {
-      requests.push(request.url);
       if (new URL(request.url).searchParams.get('op') !== 'watch') return Response.json({ kind: 'configured' });
       opened.push(request.url);
       let stream;
@@ -46,13 +45,16 @@ test('app hooks isolate mounted state by owner and resource (DOM, not browser qu
       return new Response(body);
     };
     const probe = await mount(useRemoteChat);
-    const props = owner => ({ conversationId: '1', identity: identity(owner), endpoint: () => `https://fictional.invalid/${owner}`, fetch: request => fetch(request) });
+    const props = owner => ({ conversationId: '1', identity: identity(owner), endpoint: () => 'https://fictional.invalid/chat', fetch: request => fetch(request) });
     try {
       await probe.render(props('A'));
       assert.equal(probe.state.status, 'ready');
       const first = probe.state.controller;
-      await probe.render(props('A'));
+      let refreshedFetchCalls = 0;
+      await probe.render({ ...props('A'), fetch: request => { refreshedFetchCalls++; return fetch(request); } });
       assert.equal(probe.state.controller, first, 'inline callback replacement must not reconnect');
+      await probe.state.configure({ thinkingLevel: 'low' });
+      assert.equal(refreshedFetchCalls, 1, 'requests use the current authenticated fetch');
       const start = probe.renders.length;
       await probe.render(props('B'));
       assert.equal(probe.renders[start].status, 'connecting', 'old owner is withheld during the first render');
@@ -67,6 +69,28 @@ test('app hooks isolate mounted state by owner and resource (DOM, not browser qu
       await probe.render({ ...props('B'), identity: undefined });
       assert.equal(probe.state.status, 'connecting');
       assert.equal(latest.getSnapshot().disposed, true);
+    } finally { await probe.close(); for (const stream of streams) stream.close(); }
+  });
+  await t.test('a late remote acquisition is closed after the owner changes', async () => {
+    const delayed = Promise.withResolvers(), streams = new Set();
+    let oldClosed = false;
+    const response = request => new Response(new ReadableStream({ start(controller) {
+      streams.add(controller);
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ kind: 'view', view: { conversation: { id: 1 }, entries: [], docs: {} } }) + '\n'));
+      request.signal.addEventListener('abort', () => { if (streams.delete(controller)) controller.close(); if (request.url.includes('/A?')) oldClosed = true; }, { once: true });
+    } }));
+    const probe = await mount(useRemoteChat);
+    let oldRequest;
+    const fetch = request => { if (request.url.includes('/A?')) { oldRequest = request; return delayed.promise; } return Promise.resolve(response(request)); };
+    const props = owner => ({ conversationId: '1', identity: identity(owner), endpoint: () => `https://fictional.invalid/${owner}`, fetch });
+    try {
+      await probe.render(props('A'));
+      await probe.render(props('B'));
+      const current = probe.state.controller;
+      assert.equal(current.getSnapshot().identity.principalId, 'B');
+      await act(async () => { delayed.resolve(response(oldRequest)); });
+      assert.equal(probe.state.controller, current);
+      assert.equal(oldClosed, true);
     } finally { await probe.close(); for (const stream of streams) stream.close(); }
   });
   for (const dirty of [false, true]) for (const change of ['provider', 'view', 'client']) await t.test(`saved viewer changes ${change} with dirty=${dirty}`, async () => {
