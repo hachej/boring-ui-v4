@@ -83,3 +83,23 @@ test('idle sweep rechecks use after an asynchronous busy check', async t => {
   assert.equal(closed, 0);
   assert.deepEqual(cache.keys(), ['one']);
 });
+
+test('workspace close joins pending cwd acquisition and refuses its late delivery', async t => {
+  const base = workspace(t);
+  const started = Promise.withResolvers(), proceed = Promise.withResolvers();
+  let closed = false, createdAfterClose;
+  const cache = createWorkspaceCache({ idleMs: Infinity, key: () => 'one', open: () => ({ ...base, close: () => { closed = true; } }),
+    atCwd: async (_workspace, cwd) => {
+      started.resolve(); await proceed.promise;
+      createdAfterClose = closed;
+      return new NodeExecutionEnv({ cwd });
+    } });
+  const pending = cache.env({ conversationId: 1, cwd: join(base.root, 'nested'), read: {} }, context);
+  await started.promise;
+  const rejected = assert.rejects(pending, /closed|released/i);
+  const closing = cache.close();
+  proceed.resolve();
+  await Promise.all([rejected, closing]);
+  assert.equal(createdAfterClose, false);
+  assert.equal(closed, true);
+});
