@@ -1,7 +1,9 @@
 'use client';
 
 import { randomUUID } from '@boring/files/platform';
-import React, { useId, useState, useSyncExternalStore } from 'react';
+import React, { useId, useRef, useState, useSyncExternalStore } from 'react';
+import type { ReadResult } from '@boring/files';
+import type { SaveResult } from '@boring/ui/resources';
 import type { TaskListController } from './task-list-controller';
 import type { TaskListOperation } from './task-list-document';
 
@@ -13,8 +15,18 @@ export interface TaskListViewerProps {
 
 export function TaskListViewer({ controller, title = 'Tasks', className }: TaskListViewerProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
-  const [draftTitle, setDraftTitle] = useState('');
-  const [notice, setNotice] = useState('');
+  const current = useRef({ controller });
+  if (current.current.controller !== controller) current.current = { controller };
+  const owner = current.current;
+  const [form, setForm] = useState({ owner, draftTitle: '', notice: '' });
+  const draftTitle = form.owner === owner ? form.draftTitle : '';
+  const notice = form.owner === owner ? form.notice : '';
+  const updateForm = (patch: Partial<{ draftTitle: string; notice: string }>) => {
+    if (current.current !== owner) return;
+    setForm(previous => ({ ...(previous.owner === owner ? previous : { owner, draftTitle: '', notice: '' }), ...patch }));
+  };
+  const setDraftTitle = (value: string) => updateForm({ draftTitle: value });
+  const setNotice = (value: string) => updateForm({ notice: value });
   const inputId = useId();
   const disabled = state.readOnly || state.lifecycle === 'disposed';
   const edit = (operations: readonly TaskListOperation[]) => {
@@ -22,8 +34,13 @@ export function TaskListViewer({ controller, title = 'Tasks', className }: TaskL
     setNotice(result.kind === 'applied' ? '' : `${result.kind}: ${result.reason}`);
     return result;
   };
-  const run = async (action: () => Promise<unknown>) => {
-    try { await action(); setNotice(''); }
+  const run = async (action: () => Promise<ReadResult | SaveResult>) => {
+    try {
+      const result = await action();
+      setNotice(result.kind === 'available' || result.kind === 'saved' ? ''
+        : result.kind === 'missing' ? 'missing: Resource is missing'
+        : `${result.kind}${'reason' in result ? `: ${result.reason}` : ''}`);
+    }
     catch (error) { setNotice(String(error)); }
   };
   const save = state.save.kind === 'settled' ? state.save.result : undefined;

@@ -18,11 +18,16 @@ test('task-list installed renderer edits, saves, reconciles and borrows its cont
   t.after(async () => { await cleanup(); await window.happyDOM.close(); for (const [name, descriptor] of globals) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name]; } });
   const { createElement, act } = await import('react'), { createRoot } = await import('react-dom/client');
   const { TaskListViewer, createTaskListController, serializeTaskList, taskListMediaType } = await import(modulePath);
-  const provider = openSqliteWorkspaces({ filename: ':memory:', providerId: 'fictional-task-registry' });
+  const provider = openSqliteWorkspaces({ filename: ':memory:', providerId: 'fictional-task-registry', authorize: action => action !== 'read' || !readDenied });
   const identity = { scopeId: 'fictional', principalId: 'editor', initiatorId: 'alice' };
   const target = { resource: { providerId: provider.providerId, path: 'tasks.json' }, view: { kind: 'published' } };
-  let writes = 0, loseReply = false, denied = false;
-  const client = { read: request => provider.read(request, identity), lookup: id => provider.reconciliation.lookup(id, identity), publish: async request => {
+  let writes = 0, loseReply = false, denied = false, readDenied = false, readUnavailable = false, releaseRead, holdRead = false;
+  const extraControllers = [];
+  const client = { read: async request => {
+    if (holdRead) { holdRead = false; await new Promise(resolve => { releaseRead = resolve; }); return { kind: 'denied', reason: 'Old controller late refusal' }; }
+    if (readUnavailable) return { kind: 'unavailable', reason: 'Provider temporarily unavailable' };
+    return provider.read(request, identity);
+  }, lookup: id => provider.reconciliation.lookup(id, identity), publish: async request => {
     writes++; if (denied) return { kind: 'denied', reason: 'Fictional current policy' };
     const result = await provider.publication.publish(request, identity); if (loseReply) { loseReply = false; throw new Error('Lost reply'); } return result;
   } };
@@ -31,7 +36,7 @@ test('task-list installed renderer edits, saves, reconciles and borrows its cont
   const snapshot = (await client.read({ target, revision: { kind: 'latest' } })).snapshot;
   const controller = createTaskListController({ identity, source: { kind: 'saved', snapshot }, client, instanceId: 'registry', epoch: 'page' });
   const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
-  cleanup = async () => { await act(async () => root.unmount()); await controller.dispose(); provider.close(); };
+  cleanup = async () => { await act(async () => root.unmount()); await controller.dispose(); for (const extra of extraControllers) await extra.dispose(); provider.close(); };
   await act(async () => root.render(createElement(TaskListViewer, { controller, title: 'Installed fictional tasks', className: 'host-task-list' })));
   const button = label => { const found = [...container.querySelectorAll('button')].find(node => node.textContent === label); assert.ok(found, label); return found; };
   const click = async label => act(async () => button(label).click());
@@ -61,6 +66,29 @@ test('task-list installed renderer edits, saves, reconciles and borrows its cont
   await act(async () => container.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
   assert.equal(controller.getSnapshot().document.items.length, 2); assert.equal(controller.getSnapshot().document.items[1].title, 'Added by human');
   await click('Save'); await settle(); assert.equal(controller.getSnapshot().save.result.kind, 'saved'); assert.equal((await read()).items.length, 2);
+  const waitFor = async predicate => { for (let i = 0; i < 100 && !predicate(); i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); }); assert.ok(predicate()); };
+  readDenied = true; await click('Refresh'); await waitFor(() => container.querySelector('[role=alert]')?.textContent.includes('Read is not authorized'));
+  assert.match(container.querySelector('[role=alert]').textContent, /denied/); assert.equal(controller.getSnapshot().dirty, false);
+  readDenied = false; readUnavailable = true; await click('Refresh'); await waitFor(() => container.querySelector('[role=alert]')?.textContent.includes('Provider temporarily unavailable'));
+  assert.match(container.querySelector('[role=alert]').textContent, /unavailable/); readUnavailable = false;
+  await act(async () => {
+    const input = container.querySelector('input:not([type=checkbox])');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'Private draft from A');
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  const replacement = createTaskListController({ identity, source: { kind: 'saved', snapshot: (await client.read({ target, revision: { kind: 'latest' } })).snapshot }, client, instanceId: 'replacement', epoch: 'page' });
+  extraControllers.push(replacement);
+  holdRead = true; await click('Refresh'); await waitFor(() => typeof releaseRead === 'function');
+  await act(async () => root.render(createElement(TaskListViewer, { controller: replacement })));
+  assert.equal(container.querySelector('input:not([type=checkbox])').value, ''); assert.equal(container.querySelector('[role=alert]'), null); assert.equal(button('Add task').disabled, true);
+  const replacementBefore = replacement.getSnapshot().text;
+  await act(async () => container.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  assert.equal(replacement.getSnapshot().text, replacementBefore); assert.doesNotMatch(container.textContent, /Private draft from A/);
+  await act(async () => { releaseRead(); await new Promise(resolve => setTimeout(resolve, 10)); });
+  assert.doesNotMatch(container.textContent, /Old controller late refusal/); assert.equal(replacement.getSnapshot().text, replacementBefore);
+  // Returning to the original controller starts another form incarnation.
+  await act(async () => root.render(createElement(TaskListViewer, { controller })));
+  assert.equal(container.querySelector('input:not([type=checkbox])').value, ''); assert.equal(container.querySelector('[role=alert]'), null);
   const readonly = createTaskListController({ identity, source: { kind: 'saved', snapshot: (await client.read({ target, revision: { kind: 'latest' } })).snapshot }, client, instanceId: 'readonly', epoch: 'page', readOnly: true });
   await act(async () => root.render(createElement(TaskListViewer, { controller: readonly })));
   assert.equal(container.querySelector('input[type=checkbox]').disabled, true); assert.equal(button('Save').disabled, true);
