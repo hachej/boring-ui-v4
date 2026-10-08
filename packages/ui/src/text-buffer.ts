@@ -1,6 +1,8 @@
 import type { PublicationReceipt, PublicationRequest, PublicationResult, ReadResult, ResourceAccess, ResourceClient, ResourceExpectation, ResourceLocator, ResourceRef, ResourceSnapshot } from '@boring/files';
 import { PublicationNotDispatchedError, parsePublicationResult, publicationDigest } from '@boring/files/publication';
 import type { SaveResult, SaveSelection } from './resources.js';
+import { createTextDrafts } from './text-drafts.js';
+import type { TextDraftBinding, TextDraftRecoveryState, TextDraftRef } from './text-draft-types.js';
 import { randomUUID } from '@boring/files/platform';
 
 export type TextBufferSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
@@ -16,6 +18,7 @@ export interface TextBufferState {
   readonly save: { readonly kind: 'idle' } | { readonly kind: 'pending'; readonly operationId: string }
     | { readonly kind: 'settled'; readonly result: SaveResult };
   readonly remote: ResourceExpectation | null;
+  readonly recovery: TextDraftRecoveryState;
 }
 export interface TextBufferOptions {
   readonly identity: TextBufferState['identity'];
@@ -27,6 +30,7 @@ export interface TextBufferOptions {
   readonly onListenerError?: (error: unknown) => void;
   readonly mediaType: string;
   readonly emptyText?: string;
+  readonly drafts?: TextDraftBinding;
   readonly replaceText?: (text: string) => void;
   readonly sync?: () => void;
   readonly readText: (snapshot: ResourceSnapshot) => string;
@@ -37,6 +41,7 @@ interface SaveAttempt {
   readonly text: string;
   readonly request: PublicationRequest;
   readonly digest: Promise<string>;
+  readonly draft: TextDraftRef | undefined;
   promise: Promise<SaveResult>;
 }
 
@@ -69,15 +74,21 @@ export function createTextBuffer(options: TextBufferOptions) {
     ? { kind: 'revision', target: structuredClone(initial.snapshot.ref) }
     : { kind: 'absent', target: structuredClone(initial.target) };
   let savedText = initial.kind === 'saved' ? options.readText(initial.snapshot) : '';
-  let state: TextBufferState = freeze({ identity, text: initial.kind === 'saved' ? savedText : initial.text ?? '', base, bufferVersion: 0, readOnly: options.readOnly === true, dirty: initial.kind === 'new', lifecycle: 'active', save: { kind: 'idle' }, remote: null });
+  let state: TextBufferState = freeze({ identity, text: initial.kind === 'saved' ? savedText : initial.text ?? '', base, bufferVersion: 0, readOnly: options.readOnly === true, dirty: initial.kind === 'new', lifecycle: 'active', save: { kind: 'idle' }, remote: null, recovery: { kind: 'disabled' } });
   const listeners = new Set<() => void>();
   let attempt: SaveAttempt | undefined;
   /** A save whose lookup found no receipt. Refresh, Discard and Abandon may release it and keep the local text as a draft. */
   let unreceipted: SaveAttempt | undefined;
   let refreshSequence = 0;
+  let drafts: ReturnType<typeof createTextDrafts> | undefined;
 
   function update(next: TextBufferState): void {
     state = freeze(next);
+    drafts?.capture();
+    notify();
+  }
+
+  function notify(): void {
     for (const listener of [...listeners]) {
       try { listener(); }
       catch (error) {
@@ -127,6 +138,7 @@ export function createTextBuffer(options: TextBufferOptions) {
         ? { kind: 'saved', selection: current.selection, ref: structuredClone(ref), receipt: structuredClone(outcome.receipt) }
         : unknown(current, 'Publication acknowledgement does not match the selected buffer');
     } else result = outcome;
+    if (result.kind === 'saved') drafts?.acknowledge(current.draft, current.text);
     if (state.lifecycle !== 'disposed') options.sync?.();
     if (attempt !== current) return result;
     if (result.kind !== 'unknown') attempt = undefined;
@@ -163,7 +175,7 @@ export function createTextBuffer(options: TextBufferOptions) {
         : { kind: 'replace', target: selectedBase.target, bytes, mediaType: options.mediaType }],
     };
     const current: SaveAttempt = {
-      selection: freeze(captured), text: state.text, request, digest: publicationDigest(request),
+      selection: freeze(captured), text: state.text, request, digest: publicationDigest(request), draft: drafts?.capture(),
       promise: Promise.resolve().then(async () => {
         try { await current.digest; }
         catch { return settle(current, { kind: 'unavailable', reason: 'Publication request could not be prepared' }); }
@@ -233,8 +245,10 @@ export function createTextBuffer(options: TextBufferOptions) {
       if (disposed() || sequence !== refreshSequence || attempt || !sameBase(previousBase, state.base) || state.bufferVersion !== previousVersion) return read;
     }
     catch { return { kind: 'unavailable', reason: 'Remote document could not be decoded or validated' }; }
+    const discardedDraft = discard ? drafts?.currentRef() : undefined;
     savedText = decoded;
     update({ ...state, text: savedText, base: remote, bufferVersion: state.bufferVersion + 1, dirty: remote.kind === 'absent', remote: null, save: { kind: 'idle' } });
+    if (discardedDraft) drafts?.remove(discardedDraft);
     return read;
   }
 
@@ -252,7 +266,22 @@ export function createTextBuffer(options: TextBufferOptions) {
     if (typeof text !== 'string') throw new TypeError('Document text must be a string');
     if (force || text !== state.text) update({ ...state, text, bufferVersion: state.bufferVersion + 1, dirty: state.base.kind === 'absent' || text !== savedText });
   }
+  drafts = createTextDrafts({
+    binding: options.drafts, snapshot: () => state, selection, selected, sameBase, sameLocator,
+    pending: () => attempt !== undefined, read: () => client.read({ target: state.base.target, revision: { kind: 'latest' } }),
+    sync: () => options.sync?.(),
+    changed: recovery => { state = freeze({ ...state, recovery }); notify(); },
+    restore: (text, guard) => {
+      options.replaceText?.(text);
+      if (!guard()) return false;
+      update({ ...state, text, bufferVersion: state.bufferVersion + 1, dirty: true, save: { kind: 'idle' }, remote: null });
+      return true;
+    },
+  });
+  state = freeze({ ...state, recovery: drafts.state() });
+  if (state.dirty && state.text) drafts.capture();
   return {
+    ...drafts.actions,
     getSnapshot: () => state,
     subscribe: (listener: () => void): (() => void) => { if (disposed()) return () => {}; listeners.add(listener); return () => { listeners.delete(listener); }; },
     edit: (text: string, force = false): void => {
@@ -261,6 +290,6 @@ export function createTextBuffer(options: TextBufferOptions) {
       observe(text, force);
     },
     observe, selection, refresh, abandon, reconcile, flush,
-    dispose: (): void => { if (!disposed()) { update({ ...state, lifecycle: 'disposed' }); listeners.clear(); } },
+    dispose: (): void => { if (!disposed()) { drafts?.dispose(); update({ ...state, lifecycle: 'disposed' }); listeners.clear(); } },
   };
 }
