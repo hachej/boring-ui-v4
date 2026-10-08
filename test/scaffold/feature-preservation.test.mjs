@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { runCaptured as spawnSync } from '../../scripts/run-captured.mjs';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { npmInstallFlags } from '../../scripts/consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const compiler = createRequire(import.meta.url).resolve('typescript/bin/tsc');
@@ -23,7 +24,9 @@ test('registered editors retain flush/custom methods in a real packed consumer; 
       const [info] = JSON.parse(run('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', dir], join(root, 'packages', name)));
       return join(dir, info.filename);
     });
-    run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', ...archives], consumer);
+    run('npm', ['install', ...npmInstallFlags(process.env.npm_config_cache ?? join(dir, 'npm-cache')), '--package-lock=false', ...archives], consumer);
+    assert.deepEqual(readdirSync(join(consumer, 'node_modules')).filter(name => name !== '.package-lock.json'), ['@boring']);
+    assert.deepEqual(readdirSync(join(consumer, 'node_modules/@boring')).sort(), ['files', 'ui']);
     writeFileSync(join(consumer, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, noEmit: true, types: [], skipLibCheck: false }, include: ['consumer.ts'] }));
     writeFileSync(join(consumer, 'consumer.ts'), `import type { ViewerDescriptor, ViewerFeature, ViewerRenderer } from '@boring/ui';
 import type { EditableViewerController, SaveSelection } from '@boring/ui/resources';

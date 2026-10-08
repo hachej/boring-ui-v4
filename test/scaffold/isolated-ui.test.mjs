@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { runCaptured as spawnSync } from '../../scripts/run-captured.mjs';
 import test from 'node:test';
+import { npmInstallFlags } from '../../scripts/consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc');
@@ -25,9 +26,9 @@ for (const withResources of [false, true]) test(`actual packed UI installs/typec
     const consumer = join(dir, 'consumer'); mkdirSync(consumer);
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'isolated-consumer', version: '1.0.0', private: true, type: 'module' }));
     const archives = [pack('ui', dir)]; if (withResources) archives.push(pack('files', dir));
-    // Local tarballs only. A new accidental runtime dependency cannot be masked
-    // by this monorepo's node_modules or fetched invisibly during this test.
-    run('npm', ['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', ...archives], consumer);
+    run('npm', ['install', ...npmInstallFlags(process.env.npm_config_cache ?? join(dir, 'npm-cache')), '--package-lock=false', ...archives], consumer);
+    assert.deepEqual(readdirSync(join(consumer, 'node_modules')).filter(name => name !== '.package-lock.json'), ['@boring']);
+    assert.deepEqual(readdirSync(join(consumer, 'node_modules/@boring')).sort(), withResources ? ['files', 'ui'] : ['ui']);
     assert.equal(existsSync(join(consumer, 'node_modules/@earendil-works/pi-durable')), false);
     assert.equal(existsSync(join(consumer, 'node_modules/@boring/agent')), false);
     assert.equal(existsSync(join(consumer, 'node_modules/@boring/files')), withResources);
