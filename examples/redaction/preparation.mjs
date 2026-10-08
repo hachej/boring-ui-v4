@@ -163,7 +163,7 @@ export function createPreparation({ harness, provider, models, allowed, options 
       const ref = await conversation.commit(async tx => {
         if (!visible(actor, request, 'admit')) throw new Error('Preparation admission revoked');
         const record = await tx.doc(bindings, key(request), null);
-        if (record.binding) { if (!equal(record.binding.request, request) || !equal(record.binding.ref.actor, actor)) throw new Error('Preparation binding changed'); return structuredClone(record.binding.ref); }
+        if (record.binding) { if (!equal(record.binding.request, request) || !equal(record.binding.ref.actor, actor)) throw new Error('Preparation binding changed'); return JSON.parse(JSON.stringify(record.binding.ref)); }
         const input = { request, actor, notes, dossier, settings, generationId: reservation.record.generationId, guard: reservation.guard };
         const producing = await tx.createTask(producer, input, { ownership: { kind: 'conversation' } });
         const validating = await tx.createTask(validation.task, { producer: producing }, { ownership: { kind: 'conversation' } });

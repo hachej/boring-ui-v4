@@ -218,3 +218,20 @@ test('restricted layout reads refuse a privileged malformed shell without hiding
   assert.equal((await f.runtime.resourceClient('first', 'preparation-layout', actor).read({ target: f.first.preparation.layoutTarget, revision: { kind: 'latest' } })).kind, 'unavailable');
   assert.equal((await f.runtime.resourceClient('first', 'notes', actor).read({ target: f.first.notesTarget, revision: { kind: 'latest' } })).kind, 'available');
 });
+
+
+test('concurrent retries acknowledge one native admission with the same retained IDs', async t => {
+  const gate = Promise.withResolvers();
+  const f = await fixture(t, { fixtureOptions: () => ({ preparation: { beforeProduce: () => gate.promise } }) });
+  const captured = await f.capture('concurrent-admission'); assert.equal(captured.kind, 'captured');
+  let results;
+  try {
+    results = await Promise.all(Array.from({ length: 12 }, () => f.runtime.preparationAdmit('first', captured.request, actor)));
+    assert.deepEqual(results.map(result => result.kind), Array(12).fill('admitted'));
+    for (const result of results) assert.deepEqual(result.ref, results[0].ref);
+    const inspected = (await f.app.local.harness.inspect(context)).tasks.map(item => item.record);
+    for (const name of ['produce', 'validate', 'deliver']) assert.equal(inspected.filter(task => task.kind === `fixture.redaction.preparation.${name}`).length, 1);
+  } finally { gate.resolve(); }
+  await f.app.local.harness.waitForTask(results[0].ref.delivery, context);
+  assert.equal((await f.runtime.preparationResult('first', results[0].ref, actor)).kind, 'committed');
+});
