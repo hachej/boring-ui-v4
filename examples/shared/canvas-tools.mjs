@@ -196,10 +196,14 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
       const { document } = current, doomed = new Set(args.ids.map(id => createShapeId(slug(id))));
       const unknown = args.ids.find(id => document.store[createShapeId(slug(id))]?.typeName !== 'shape');
       if (unknown !== undefined) return reply({ kind: 'denied', reason: `Shape "${unknown}" is not on the canvas` });
-      for (const binding of bindingsOf(document)) if (doomed.has(binding.toId)) doomed.add(binding.fromId);
-      // Children of a removed frame or group go with it.
-      for (let grew = true; grew;) { grew = false; for (const shape of shapesOf(document)) if (doomed.has(shape.parentId) && !doomed.has(shape.id)) { doomed.add(shape.id); grew = true; } }
-      for (const binding of bindingsOf(document)) if (doomed.has(binding.fromId) || doomed.has(binding.toId)) delete document.store[binding.id];
+      const shapes = shapesOf(document), bindings = bindingsOf(document);
+      let previousSize = -1;
+      while (doomed.size !== previousSize) {
+        previousSize = doomed.size;
+        for (const shape of shapes) if (doomed.has(shape.parentId)) doomed.add(shape.id);
+        for (const binding of bindings) if (doomed.has(binding.toId)) doomed.add(binding.fromId);
+      }
+      for (const binding of bindings) if (doomed.has(binding.fromId) || doomed.has(binding.toId)) delete document.store[binding.id];
       for (const id of doomed) delete document.store[id];
       return reply(await publish(ws, api, context, document, current.revision));
     },

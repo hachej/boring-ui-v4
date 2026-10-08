@@ -9,6 +9,7 @@ import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { openNodeConnection } from '@boring/files/sqlite';
 import { openSqliteFileSystem } from '@boring/files/sqlite-filesystem';
+import { createTLSchema, createShapeId } from '@tldraw/tlschema';
 import { lastReadRevisions } from '@boring/agent/file-guard';
 import { createCanvasTools } from '../../examples/shared/canvas-tools.mjs';
 import { openSqliteWorkspaces } from '../../examples/shared/sqlite-workspaces.mjs';
@@ -159,4 +160,67 @@ test('a create acknowledgement claiming replacement remains unconfirmed without 
   assert.equal((await f.run('add_canvas_shapes', { shapes: [shape('first')] })).kind, 'unknown');
   assert.equal(await f.baseline(), undefined);
   assert.equal((await f.run('add_canvas_shapes', { shapes: [shape('second')] })).kind, 'conflict');
+});
+
+async function nestedCanvas(t, { rootType = 'group', reverse = false } = {}) {
+  const f = await fixture(t);
+  await f.run('add_canvas_shapes', { shapes: [shape('leaf'), shape('outside-a'), shape('outside-b')] });
+  const schema = createTLSchema();
+  let sequence = 0;
+  const rewrite = async change => {
+    const saved = await f.read();
+    const document = JSON.parse(new TextDecoder().decode(saved.snapshot.bytes));
+    change(document);
+    for (const record of Object.values(document.store)) schema.types[record.typeName].validate(record);
+    const result = await f.actual.publication.publish({ operationId: `fictional-hierarchy-${sequence++}`, atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: saved.snapshot.ref,
+      mediaType: saved.snapshot.mediaType, bytes: new TextEncoder().encode(JSON.stringify(document)) }] }, access);
+    assert.equal(result.kind, 'committed');
+    await f.run('read_canvas');
+  };
+  await rewrite(document => {
+    const page = Object.values(document.store).find(record => record.typeName === 'page');
+    const container = (id, type, parentId, index = 'a1') => schema.types.shape.create({ id: createShapeId(id), type, parentId, index,
+      props: type === 'frame' ? { w: 500, h: 500, name: id, color: 'black' } : {} });
+    for (const record of [container('root', rootType, page.id, 'a4'), container('middle', rootType === 'group' ? 'frame' : 'group', createShapeId('root')),
+      container('inner', 'group', createShapeId('middle'))]) document.store[record.id] = record;
+    document.store['shape:leaf'].parentId = createShapeId('inner');
+  });
+  await f.run('add_canvas_shapes', { arrows: [{ from: 'leaf', to: 'outside-a' }, { from: 'middle', to: 'outside-b' },
+    { from: 'outside-a', to: 'outside-b' }, { from: 'outside-a', to: 'outside-b' }] });
+  await rewrite(document => {
+    document.store['shape:arrow-outside-a-outside-b-2'].parentId = createShapeId('inner');
+    if (reverse) document.store = Object.fromEntries(Object.entries(document.store).reverse());
+  });
+  const document = async () => JSON.parse(new TextDecoder().decode((await f.read()).snapshot.bytes));
+  return { ...f, document };
+}
+
+for (const rootType of ['group', 'frame']) for (const reverse of [false, true]) {
+  test(`removing a nested ${rootType} removes descendant arrows and bindings with ${reverse ? 'reversed' : 'forward'} record insertion`, async t => {
+    const f = await nestedCanvas(t, { rootType, reverse });
+    const before = await f.document();
+    const result = await f.run('remove_canvas_shapes', { ids: ['root'] });
+    assert.equal(result.kind, 'saved');
+    assert.deepEqual(result.shapes.map(shape => shape.id).sort(), ['arrow-outside-a-outside-b', 'outside-a', 'outside-b']);
+    const after = await f.document();
+    const surviving = ['shape:outside-a', 'shape:outside-b', 'shape:arrow-outside-a-outside-b',
+      'binding:arrow-outside-a-outside-b-start', 'binding:arrow-outside-a-outside-b-end'];
+    assert.deepEqual(Object.values(after.store).filter(record => record.typeName === 'shape' || record.typeName === 'binding').map(record => record.id).sort(), [...surviving].sort());
+    for (const id of surviving) assert.deepEqual(after.store[id], before.store[id]);
+    for (const binding of Object.values(after.store).filter(record => record.typeName === 'binding')) {
+      assert.ok(after.store[binding.fromId]); assert.ok(after.store[binding.toId]);
+    }
+    assert.equal(await f.baseline(), result.revision);
+  });
+}
+
+test('removing an arrow removes both bindings and preserves its endpoints and unrelated records', async t => {
+  const f = await nestedCanvas(t);
+  const before = await f.document();
+  const result = await f.run('remove_canvas_shapes', { ids: ['arrow-leaf-outside-a'] });
+  assert.equal(result.kind, 'saved');
+  const after = await f.document();
+  const removed = new Set(['shape:arrow-leaf-outside-a', 'binding:arrow-leaf-outside-a-start', 'binding:arrow-leaf-outside-a-end']);
+  assert.deepEqual(after.store, Object.fromEntries(Object.entries(before.store).filter(([id]) => !removed.has(id))));
+  assert.ok(after.store['shape:leaf']); assert.ok(after.store['shape:outside-a']);
 });
