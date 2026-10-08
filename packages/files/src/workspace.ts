@@ -313,6 +313,7 @@ export function createWorkspaceProvider(options: WorkspaceProviderOptions): Work
           changes: plans.map(({ change, path, after }) => change.kind === 'create' ? { kind: 'create', path, before: null, after } : { kind: 'replace', path, before: change.target.revision, after }),
         };
 
+        if (access.signal?.aborted) return refuse('The save was cancelled before any change');
         if (batch) {
           // SQLite: every file, and the receipt when the journal shares the database, in one transaction. The expectations are
           // checked again inside it against the bytes they were hashed from, so a shell write in between is a conflict, not lost.
@@ -349,7 +350,10 @@ export function createWorkspaceProvider(options: WorkspaceProviderOptions): Work
             const written = await fs.writeFile(temporary, change.bytes, ctx);
             if (!written.ok) return await failure(written.error.message);
             const renamed = await fs.renameFile(temporary, target, ctx);
-            if (!renamed.ok) return await failure(`The file could not be replaced atomically: ${renamed.error.message}`);
+            if (!renamed.ok) {
+              if (renamed.error.code === 'unknown' || renamed.error.code === 'aborted') throw renamed.error;
+              return await failure(`The file could not be replaced atomically: ${renamed.error.message}`);
+            }
           }
           journal.complete(operation, record, versions);
         }
