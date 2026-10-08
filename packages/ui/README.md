@@ -110,6 +110,18 @@ The native toolbar and Save/Check saved version controls use the concrete contro
 
 Run `npm run test:canvas-editor-consumer` for the selected renderer's tarball recipe, actual native/SQLite DOM tests and browser bundle. It uses the same `skipLibCheck` recipe and library-checks Boring's declarations as above, so only the upstream lodash and `ArrowShapeUtil` declaration diagnostics are tolerated. Fictional font/network test boundaries do not qualify browser geometry, real fonts, CSS, egress or production licensing. See the [canvas owner](../../docs/architecture/CANVAS.md).
 
+## Mounted canvas commands
+
+Pass `onMountedTools` to `CanvasEditor` to receive `CanvasMountedTools`, or `null` on detach. Capture `tools.getTarget()` before submitting a command. Its resource, revision, buffer version, viewer instance, mount and native page must still match at invocation. Callback replacement retains the live handle; unmount invalidates it. The controller and store remain borrowed.
+
+- `inspect.invoke(target, { expiresAt })` returns the exact save selection, dirty flag, current-page native shapes, selected IDs, camera and viewport. Returned data is a detached frozen snapshot.
+- `select.invoke(target, { expiresAt, shapeIds })` selects existing shapes on the captured page. Duplicate IDs normalize; an empty list clears selection. Missing or other-page IDs refuse before changing selection.
+- `frame.invoke(target, { expiresAt, shapeIds })` immediately frames the shapes' combined native page bounds. It requires a nonempty list and visible geometry, respects camera locking and constraints, and verifies actual viewport containment before reporting applied.
+
+`expiresAt` is an absolute millisecond deadline; pass the native abort signal as the third argument when composing `@boring/agent/presentation`. These session commands work with read-only and dirty documents and never publish. A target change during a reentrant native callback refuses the result, but does not promise rollback of intermediate session effects. Saved-resource edits and remote browser delivery remain separate operations.
+
+`test/compatibility/canvas-mounted-native.test.mjs` composes selection with a real native ToolTask. `npm run canvas:journey:commands` requires `CHROMIUM` and permitted loopback sockets; it checks real desktop/phone viewport geometry with fictional assets. Production fonts, licensing, egress and CSS isolation remain separate qualifications.
+
 ## Optional HTML source and preview
 
 Import `createHtmlController` and the concrete `HtmlController` from `@boring/ui/html`. Import `HtmlViewer` from `@boring/ui/html-viewer` only when selecting the React renderer. These entries need no agent, native environment, Tiptap or canvas runtime. The headless controller accepts the same resource identity/client and new or saved source shape as the Markdown controller. Saved resources must be `text/html` with valid UTF-8.

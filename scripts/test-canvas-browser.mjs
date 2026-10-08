@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { runCaptured } from './run-captured.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -17,15 +17,29 @@ const step = async (name, run) => {
   try { await run(); item.status = 'passed'; }
   catch (error) { item.status = 'failed'; item.error = String(error); throw error; }
 };
-const ready = () => browser.until('mounted canvas commands and native viewport', `window.canvasJourney?.fixture.tools?.getTarget() && window.canvasJourney.fixture.editor?.getViewportScreenBounds().w > 100`);
+const ready = () => browser.until('mounted canvas commands and measured native viewport', `(() => {
+  const fixture = window.canvasJourney?.fixture;
+  if (!fixture?.tools?.getTarget() || !fixture.editor) return false;
+  const rect = fixture.editor.getContainer().getBoundingClientRect();
+  const viewport = fixture.editor.getViewportScreenBounds();
+  return rect.width > 100 && rect.height > 100 && Math.abs(rect.x - viewport.x) < 1e-6
+    && Math.abs(rect.y - viewport.y) < 1e-6 && Math.abs(rect.width - viewport.w) < 1e-6
+    && Math.abs(rect.height - viewport.h) < 1e-6;
+})()`);
 const run = expression => browser.evaluate(`(async () => { const j = window.canvasJourney; ${expression} })()`);
 try {
-  report.head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-  report.dirty = execFileSync('git', ['status', '--short'], { encoding: 'utf8' }).trim();
+  const git = args => {
+    const result = runCaptured('git', args);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.error, undefined);
+    return result.stdout.trim();
+  };
+  report.head = git(['rev-parse', 'HEAD']);
+  report.dirty = git(['status', '--short']);
   await step('explicit Chromium binary and browser-only bundle', async () => {
     assert.ok(process.env.CHROMIUM, 'Set CHROMIUM to a Chromium or chrome-headless-shell binary');
     const bundled = await build({ entryPoints: ['test/fixtures/canvas-mounted-browser.jsx'], outdir: directory, entryNames: 'fixture', bundle: true, format: 'esm', platform: 'browser', metafile: true, define: { 'process.env.NODE_ENV': '"production"' } });
-    const forbidden = Object.keys(bundled.metafile.inputs).filter(path => /pi-kernel|packages\/(agent|execution)\/|node:fs/.test(path));
+    const forbidden = Object.keys(bundled.metafile.inputs).filter(path => /@earendil-works|packages\/(agent|execution)\/|@boring\/(agent|execution)|node:fs|sqlite/.test(path));
     assert.deepEqual(forbidden, [], 'canvas bundle must not load kernel, agent or execution');
     writeFileSync(join(evidence, 'bundle.json'), JSON.stringify(bundled.metafile, null, 2));
   });
@@ -95,6 +109,33 @@ try {
       assert.deepEqual(result.after, result.before);
       assert.equal(result.oldDocument.kind, 'stale'); assert.equal(result.wrongPage.kind, 'stale');
       assert.notEqual(result.locked.kind, 'applied'); assert.deepEqual(result.afterCamera, result.camera);
+    });
+    await step(`${device}: hidden canvas cannot report successful framing`, async () => {
+      const result = await run(`
+        const container = j.fixture.editor.getContainer();
+        const previous = container.style.display;
+        const camera = structuredClone(j.fixture.editor.getCamera());
+        j.fixture.editor.setCameraOptions({ isLocked: false });
+        container.style.display = 'none';
+        try {
+          const rect = container.getBoundingClientRect();
+          const frame = await j.command('frame', { shapeIds: j.shapeIds });
+          return { width: rect.width, height: rect.height, frame, camera, after: j.fixture.editor.getCamera() };
+        } finally { container.style.display = previous; }
+      `);
+      assert.equal(result.width, 0); assert.equal(result.height, 0);
+      assert.equal(result.frame.kind, 'unavailable');
+      assert.deepEqual(result.after, result.camera);
+    });
+    await step(`${device}: native zoom limits refuse an impossible frame`, async () => {
+      const result = await run(`
+        j.fixture.editor.setCameraOptions({ isLocked: false, zoomSteps: [8] });
+        const before = j.state();
+        const frame = await j.command('frame', { shapeIds: j.shapeIds });
+        return { before, after: j.state(), frame };
+      `);
+      assert.equal(result.frame.kind, 'unavailable');
+      assert.deepEqual(result.after, result.before);
     });
     await step(`${device}: read-only commands and old mounted handles`, async () => {
       await run('window.oldCanvas = { tools: j.fixture.tools, target: j.fixture.tools.getTarget() }; j.mount(true);'); await ready();

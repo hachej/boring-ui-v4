@@ -1,5 +1,12 @@
 # Partial implementation checkpoint
 
+## Mounted canvas commands, 2026-10-08
+
+This increment adds inspect/select/frame to the optional native canvas renderer, preserving concrete native types and exact document/mount/page targets. It also removes a render-time owner mutation reproduced by a suspended controller replacement. See the [feature entry](FEATURES.md#mounted-canvas-commands) for public, native, installed and browser evidence commands, and the [canvas owner](../architecture/CANVAS.md#mounted-presentation-commands) for remaining qualifications.
+
+The dedicated implementation branch stacks on PR40 at `c8a87d7`. Raw logs, independent review, exact commits and CI results belong under ignored `.cache/evidence/canvas-commands/`, with a resumable copy in the requested checkout. Local loopback is refused with EPERM; real browser claims require the separately executed CI journey. W00 remains reconciled; W01-W08/W10-W13 remain partial; W09 remains a public-seam probe. P01-P14, A01-A48 and H01-H10 remain in scope. Eleven global release proofs remain deferred; this increment does not promote any of them.
+
+
 This is a resumable implementation record, not release approval. The full P01-P14 roadmap remains the objective. S0/S1 are increments within it.
 
 ## Current status notes (cleanup wave 1)

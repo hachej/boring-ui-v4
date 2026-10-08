@@ -55,6 +55,7 @@
     "test:question-consumer": "node scripts/test-question-consumer.mjs",
     "test:canvas-consumer": "node scripts/test-canvas-consumer.mjs",
     "test:canvas-editor-consumer": "node scripts/test-canvas-consumer.mjs --editor",
+    "canvas:journey:commands": "node scripts/test-canvas-browser.mjs",
     "test:remote-shell-consumer": "node scripts/test-remote-shell-consumer.mjs",
     "registry:build": "shadcn build registry.json --output public/r",
     "test:registry-consumer": "node scripts/test-registry-consumer.mjs",

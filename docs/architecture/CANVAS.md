@@ -1,6 +1,6 @@
 # Default canvas: tldraw
 
-Decision: tldraw, explicitly selected by Julien. No Excalidraw default or mandatory clinical canvas. The optional document controller now uses the pinned 5.5.0 SDK. The optional React renderer uses the same native store and controller; deployment qualifications remain pending.
+Decision: tldraw, explicitly selected by Julien. No Excalidraw default or mandatory clinical canvas. The optional document controller now uses the pinned 5.5.2 SDK. The optional React renderer uses the same native store and controller; deployment qualifications remain pending.
 
 ## Durable document and local session
 
@@ -47,3 +47,9 @@ The toolbar exposes native selection, hand, drawing, rectangle, text, arrow, lin
 The asset map must cover every pinned native font, icon, translation and embed icon. These are trusted host URLs, not document content or authenticated asset authorization. Unsupported paste/import/upload handlers are disabled before the host mount callback. Native default shapes remain available internally, while the controller refuses unsupported published records. The host callback receives the direct native editor and remains trusted application code.
 
 Tests with fictional font-loading and asset-response boundaries establish DOM controls and publication only. They cannot establish real fonts, layout, pointer geometry, browser input, CSS isolation, CSP or vendor/license traffic. Consumers set `skipLibCheck: true` for the pinned SDK's own declarations (missing upstream lodash types; `ArrowShapeUtil.onHandleDrag`/`onTranslateStart` incompatible under exact optional properties). The installed consumers still check consumer code strictly and fail on any library diagnostic outside tldraw's declarations ([UI README](../../packages/ui/README.md)).
+
+## Mounted presentation commands
+
+The renderer exposes concrete inspect/select/frame commands through optional `onMountedTools`. The [UI guide](../../packages/ui/README.md#mounted-canvas-commands) owns their input, targeting and refusal rules. Commands retain native shape/page/camera types and act only on the committed mounted editor. Selection and viewport changes stay local session state, including for read-only or dirty documents. They do not grant resource access or produce publication receipts.
+
+The public DOM suite covers native editor lifecycle and target invalidation; the native compatibility test composes the same selection command with an ordinary Pi ToolTask. The isolated renderer consumer checks its concrete types and repeats the public DOM suite without Pi. `npm run canvas:journey:commands` drives actual desktop/phone geometry with fictional inline assets. Raw execution results and exact candidate stay in the current implementation checkpoint. A browser geometry pass does not establish production asset, CSS isolation, licensing, egress, multiplayer or migration guarantees. Saved-canvas shape mutation and remote browser delivery remain separate qualification work.

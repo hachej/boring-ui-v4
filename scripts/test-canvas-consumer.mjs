@@ -73,10 +73,31 @@ controller.actions.refresh();
 controller.actions.discardToRemote();
 const problem: string | null = controller.getSnapshot().problem;
 controller.dispose();
-${editor ? `import { CanvasEditor, type CanvasEditorProps } from '@boring/ui/canvas-editor';
+${editor ? `import { CanvasEditor, type CanvasEditorProps, type CanvasMountedTools, type CanvasMountedSubject } from '@boring/ui/canvas-editor';
 import { createElement } from 'react';
 declare const props: CanvasEditorProps;
-createElement(CanvasEditor, props);` : ''}
+createElement(CanvasEditor, props);
+const withTools: CanvasEditorProps = { ...props, onMountedTools: tools => {
+  if (!tools) return;
+  const concrete: CanvasMountedTools = tools;
+  const target = concrete.getTarget();
+  if (!target) return;
+  const subject: CanvasMountedSubject = target.subject;
+  concrete.inspect.invoke(target, { expiresAt: Date.now() + 1000 }).then(result => {
+    if (result.kind === 'applied') {
+      const page = result.value.pageId;
+      const shapes = result.value.shapes;
+      const dirty: boolean = result.value.dirty;
+    }
+  });
+  concrete.select.invoke(target, { expiresAt: Date.now() + 1000, shapeIds: [] });
+  concrete.frame.invoke(target, { expiresAt: Date.now() + 1000, shapeIds: ['shape:fictional'] });
+  // @ts-expect-error mounted canvas commands require shape IDs, not rich-text coordinates
+  concrete.select.invoke(target, { expiresAt: 1000, selection: { anchor: 1, head: 2 } });
+  // @ts-expect-error a save target without mount/page identity cannot address a renderer
+  concrete.inspect.invoke(controller.actions.selection().target, { expiresAt: 1000 });
+} };
+createElement(CanvasEditor, withTools);` : ''}
 `);
   // The consumer recipe sets skipLibCheck, as tldraw apps do: the pinned SDK's own declarations do not check strictly
   // (@tldraw/utils imports lodash.* whose @types it lists only as devDependencies; tldraw's ArrowShapeUtil overrides break
