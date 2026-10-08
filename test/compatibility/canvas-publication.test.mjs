@@ -21,11 +21,11 @@ async function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'boring-canvas-publication-'));
   const owner = openSqliteWorkspaces({ filename: join(directory, 'files.sqlite'), providerId: target.resource.providerId, authorize: () => true });
   const actual = owner.workspace(access.scopeId);
-  const control = { read: (request, granted) => actual.read(request, granted), publish: (request, granted) => actual.publication.publish(request, granted) };
-  const files = { ...actual, read: (request, granted) => control.read(request, granted), publication: { ...actual.publication, publish: (request, granted) => control.publish(request, granted) } };
+  const control = { read: (request, granted) => actual.read(request, granted), publish: (request, granted) => actual.publication.publish(request, granted), lookup: (id, granted) => actual.reconciliation.lookup(id, granted) };
+  const files = { ...actual, read: (request, granted) => control.read(request, granted), publication: { ...actual.publication, publish: (request, granted) => control.publish(request, granted) }, reconciliation: { lookup: (id, granted) => control.lookup(id, granted) } };
   const registry = createRegistry();
   const tools = createCanvasTools({ workspace: { files, root: '/workspace', access } });
-  assert.equal(tools.find(tool => tool.name === 'add_canvas_shapes').replay, 'unsafe');
+  assert.equal(tools.find(tool => tool.name === 'add_canvas_shapes').replay, 'safe');
   registry.install(defineExtension({ name: 'fictional.canvas-publication', docs: [lastReadRevisions], tools }));
   const harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'native.sqlite')), { registry, models: createModels() }, context);
   t.after(async () => { await harness.close(context); owner.close(); rmSync(directory, { recursive: true, force: true }); });
@@ -47,6 +47,76 @@ async function fixture(t) {
   const read = () => actual.read({ target, revision: { kind: 'latest' } }, access);
   return { actual, control, run, baseline, read, directory };
 }
+
+test('canvas tool reconciles a committed write when publication acknowledgement throws', async t => {
+  const f = await fixture(t);
+  let attempts = 0;
+  f.control.publish = async (request, granted) => {
+    attempts++;
+    const result = await f.actual.publication.publish(request, granted);
+    assert.equal(result.kind, 'committed');
+    throw new Error('Fictional lost acknowledgement');
+  };
+  const result = await f.run('add_canvas_shapes', { shapes: [shape('first')] });
+  assert.equal(result.kind, 'saved');
+  assert.equal(attempts, 1);
+  assert.equal(result.revision, (await f.read()).snapshot.ref.revision);
+  assert.equal(await f.baseline(), result.revision);
+  assert.deepEqual(result.shapes.map(item => item.id), ['first']);
+});
+
+test('canvas tool reports unknown when publication throws without a receipt', async t => {
+  const f = await fixture(t);
+  let attempts = 0;
+  f.control.publish = async () => { attempts++; throw new Error('Fictional transport failure'); };
+  const result = await f.run('add_canvas_shapes', { shapes: [shape('first')] });
+  assert.equal(result.kind, 'unknown');
+  assert.equal(typeof result.operationId, 'string');
+  assert.equal(attempts, 1);
+  assert.equal((await f.read()).kind, 'missing');
+  assert.equal(await f.baseline(), undefined);
+});
+
+test('canvas tool validates lookup evidence after a malformed acknowledgement', async t => {
+  const f = await fixture(t);
+  let attempts = 0, lookups = 0;
+  f.control.publish = async (request, granted) => {
+    attempts++;
+    assert.equal((await f.actual.publication.publish(request, granted)).kind, 'committed');
+    return { kind: 'committed' };
+  };
+  f.control.lookup = async (id, granted) => { lookups++; return f.actual.reconciliation.lookup(id, granted); };
+  const result = await f.run('add_canvas_shapes', { shapes: [shape('first')] });
+  assert.equal(result.kind, 'saved');
+  assert.equal(result.revision, (await f.read()).snapshot.ref.revision);
+  assert.equal(attempts, 1);
+  assert.equal(lookups, 1);
+});
+
+test('canvas tool preserves a newer conversation read while settling its own publication', async t => {
+  const f = await fixture(t);
+  await f.run('add_canvas_shapes', { shapes: [shape('first')] });
+  let ownRevision, newerRevision;
+  f.control.publish = async (request, granted) => {
+    const own = await f.actual.publication.publish(request, granted);
+    assert.equal(own.kind, 'committed');
+    ownRevision = own.receipt.changes[0].after.revision;
+    const document = JSON.parse(new TextDecoder().decode(request.changes[0].bytes));
+    document.store['shape:first'].x = 999;
+    const human = await f.actual.publication.publish({ operationId: 'fictional-human-concurrent-read', atomicity: 'all-or-nothing', changes: [{ kind: 'replace',
+      target: own.receipt.changes[0].after, mediaType: request.changes[0].mediaType, bytes: new TextEncoder().encode(JSON.stringify(document)) }] }, access);
+    assert.equal(human.kind, 'committed');
+    newerRevision = human.receipt.changes[0].after.revision;
+    assert.equal((await f.run('read_canvas')).shapes.find(item => item.id === 'first').x, 999);
+    throw new Error('Fictional lost acknowledgement after concurrent read');
+  };
+  const result = await f.run('add_canvas_shapes', { shapes: [shape('second')] });
+  assert.equal(result.kind, 'saved');
+  assert.equal(result.revision, ownRevision);
+  assert.equal(result.shapes.find(item => item.id === 'first').x, 0);
+  assert.equal(await f.baseline(), newerRevision);
+  assert.equal((await f.read()).snapshot.ref.revision, newerRevision);
+});
 
 test('canvas tool acknowledges its own receipt and refuses a later unread edit after an intervening human publication', async t => {
   const f = await fixture(t);
@@ -131,13 +201,17 @@ const mismatches = {
   before: result => { result.receipt.changes[0].before.revision += '-other'; },
   kind: result => { result.receipt.changes[0].kind = 'create'; result.receipt.changes[0].before = null; },
 };
-for (const [name, alter] of Object.entries(mismatches)) test(`canvas ${name} acknowledgement leaves the committed write unconfirmed and preserves the prior baseline`, async t => {
+for (const [name, alter] of Object.entries(mismatches)) test(`canvas ${name} acknowledgement and lookup leave the committed write unconfirmed and preserves the prior baseline`, async t => {
   const f = await fixture(t);
   const before = await f.run('add_canvas_shapes', { shapes: [shape('first')] });
   let operationId;
   f.control.publish = async (request, granted) => {
     operationId = request.operationId;
     const result = structuredClone(await f.actual.publication.publish(request, granted));
+    assert.equal(result.kind, 'committed'); alter(result); return result;
+  };
+  f.control.lookup = async (id, granted) => {
+    const result = structuredClone(await f.actual.reconciliation.lookup(id, granted));
     assert.equal(result.kind, 'committed'); alter(result); return result;
   };
   const result = await f.run('add_canvas_shapes', { shapes: [shape('second')] });
@@ -157,6 +231,7 @@ test('a create acknowledgement claiming replacement remains unconfirmed without 
     result.receipt.changes[0].before = { ...structuredClone(result.receipt.changes[0].after), revision: 'unrelated-before' };
     return result;
   };
+  f.control.lookup = async () => ({ kind: 'not-found' });
   assert.equal((await f.run('add_canvas_shapes', { shapes: [shape('first')] })).kind, 'unknown');
   assert.equal(await f.baseline(), undefined);
   assert.equal((await f.run('add_canvas_shapes', { shapes: [shape('second')] })).kind, 'conflict');
