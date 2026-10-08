@@ -6,7 +6,7 @@ import { createOutputValidation } from '@boring/agent/validation';
 import { locator, reference } from '@boring/files/publication';
 import { actorSnapshot, decode, equal, encode } from './bindings.mjs';
 import { expectation, expected, readable, change, checkedPublication, requestId } from './adoption-bindings.mjs';
-import { preparationTargets, parsePreparation, parsePreparationDossier } from './preparation-schema.mjs';
+import { preparationTargets, parsePreparation, parsePreparationDossier, preparationDeliveryOperation } from './preparation-schema.mjs';
 import { preparationDossier, preparationConfig } from './preparation-fixtures.mjs';
 import { installPreparationModel } from './preparation-model.mjs';
 
@@ -19,7 +19,6 @@ const conflict = () => ({ kind: 'conflict', current: [], reason: 'Preparation in
 const key = request => JSON.stringify([request.instanceId, request.requestId]);
 const recordTarget = request => ({ resource: { providerId: 'redaction', path: `${request.instanceId}/preparation/requests/${requestId(request.requestId)}.json` }, view: { kind: 'published' } });
 const operation = request => JSON.stringify(['fictional.preparation.reserve.v1', request.instanceId, request.requestId]);
-const deliveryOperation = (instanceId, taskId) => JSON.stringify(['fictional.preparation.deliver.v1', instanceId, taskId]);
 
 export function createPreparation({ harness, provider, models, allowed, options }) {
   const fake = installPreparationModel(models);
@@ -98,7 +97,7 @@ export function createPreparation({ harness, provider, models, allowed, options 
         return { kind: 'valid', value: parsed };
       } catch { return { kind: 'invalid', errors: ['Preparation must match its complete captured fictional source and actual tool evidence'] }; }
     } });
-  const publication = (input, taskId, document) => ({ operationId: deliveryOperation(input.request.instanceId, taskId), atomicity: 'all-or-nothing', preconditions: [{ kind: 'revision', target: input.guard }, ...['notes', 'dossier', 'config'].map(name => ({ kind: 'revision', target: input.request[name] }))], changes: [change(input.request.output, document, 'application/json')] });
+  const publication = (input, taskId, document) => ({ operationId: preparationDeliveryOperation(input.request.instanceId, taskId), atomicity: 'all-or-nothing', preconditions: [{ kind: 'revision', target: input.guard }, ...['notes', 'dossier', 'config'].map(name => ({ kind: 'revision', target: input.request[name] }))], changes: [change(input.request.output, document, 'application/json')] });
   const deliver = defineTask({ name: 'fixture.redaction.preparation.deliver', version: 1, initial: () => ({ phase: 'wait' }), phases: {
     wait: (task, runtime, ctx) => runtime.commit(() => ({ status: 'waiting', on: [task.input.validation], policy: 'allSettled', checkpoint: { phase: 'publish' } }), ctx),
     publish: async (task, runtime, ctx) => {
@@ -168,7 +167,7 @@ export function createPreparation({ harness, provider, models, allowed, options 
         const producing = await tx.createTask(producer, input, { ownership: { kind: 'conversation' } });
         const validating = await tx.createTask(validation.task, { producer: producing }, { ownership: { kind: 'conversation' } });
         const delivering = await tx.createTask(deliver, { request, actor, guard: reservation.guard, validation: validating }, { ownership: { kind: 'conversation' } });
-        const ref = { instanceId, requestId: request.requestId, generationId: reservation.record.generationId, actor, reservation: reservation.reservation, guard: reservation.guard, producer: producing, validation: validating, delivery: delivering, operationId: deliveryOperation(instanceId, delivering) };
+        const ref = { instanceId, requestId: request.requestId, generationId: reservation.record.generationId, actor, reservation: reservation.reservation, guard: reservation.guard, producer: producing, validation: validating, delivery: delivering, operationId: preparationDeliveryOperation(instanceId, delivering) };
         record.binding = { request, ref };
         if (!visible(actor, request, 'admit')) throw new Error('Preparation admission revoked');
         return structuredClone(ref);

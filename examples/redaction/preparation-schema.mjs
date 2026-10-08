@@ -62,3 +62,5 @@ export function preparationMetadata(value) {
     return { ref: slot.ref, metadata: { section: slot.section, attention: item.attention, target: item.target, review: item.review } };
   });
 }
+
+export const preparationDeliveryOperation = (instanceId, taskId) => JSON.stringify(['fictional.preparation.deliver.v1', instanceId, taskId]);

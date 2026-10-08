@@ -52,6 +52,8 @@ jobs:
         run: npm run morning:journey
       - name: Fictional redaction browser
         run: npm run redaction:journey
+      - name: Fictional preparation experience
+        run: npm run redaction:preparation:journey
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model
@@ -118,3 +120,12 @@ jobs:
             .cache/evidence
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Preparation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: redaction-preparation-evidence
+          path: .cache/evidence/redaction-preparation-journey
+          retention-days: 7
+          if-no-files-found: ignore

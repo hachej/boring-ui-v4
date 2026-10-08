@@ -78,6 +78,7 @@
     "test:morning-consumer": "node scripts/test-experience-consumer.mjs --morning",
     "redaction:browser": "node examples/redaction-browser/server.mjs",
     "redaction:journey": "node scripts/test-redaction-browser.mjs",
+    "redaction:preparation:journey": "node scripts/test-redaction-preparation.mjs",
     "test:redaction-browser-consumer": "node scripts/test-editor-consumer.mjs --redaction"
   },
   "devDependencies": {

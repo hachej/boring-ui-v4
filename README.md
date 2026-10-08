@@ -59,7 +59,7 @@ The example prepares email, calendar and todo documents through native tasks. It
 
 ## Read
 
-For the fictional consultation workflow, run `npm run redaction:browser` after building. The [example guide](examples/redaction-browser/README.md) covers exact notes saves, source-mode dictation, human corrections and explicit record/letter adoption. `npm run redaction:journey` drives its Chromium controls; `npm run test:redaction-browser-consumer` exercises an isolated package installation.
+For the fictional consultation workflow, run `npm run redaction:browser` after building. The [example guide](examples/redaction-browser/README.md) covers exact notes saves, source-mode dictation, human corrections, explicit record/letter adoption and a typed six-section preparation experience. `npm run redaction:journey` and `npm run redaction:preparation:journey` drive its Chromium controls; `npm run test:redaction-browser-consumer` exercises an isolated package installation.
 
 | Document | Purpose |
 | --- | --- |

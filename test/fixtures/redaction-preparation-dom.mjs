@@ -13,7 +13,7 @@ import { preparationSections, preparationTargets } from '../../examples/redactio
 import { preparationCanaries } from '../../examples/redaction/preparation-fixtures.mjs';
 import { fakePreparationEvaluator, preparationLayout } from '../../examples/redaction-browser/preparation-composition.mjs';
 
-const modulePath = process.env.REDACTION_PREPARATION_DOM_MODULE ?? '../../dist/redaction-preparation-view.js';
+const modulePath = process.env.REDACTION_PREPARATION_DOM_MODULE ?? '../../dist/redaction-browser-view.js';
 test('preparation real native/SQLite composition, retained editors, current owner and conditional Pin DOM', { timeout: 120000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'preparation-dom-')), window = new Window({ url: 'https://fictional.invalid/' }), globals = new Map(), evaluated = [], calls = [];
   let reverse = true, failReservation = false;

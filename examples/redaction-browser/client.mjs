@@ -2,7 +2,7 @@ import { createResourceClient } from '@boring/files/remote';
 import { readJsonBody } from '@boring/files/request-guard';
 import { locator, reference, parsePublicationResult } from '@boring/files/publication';
 import { validatePreparationLayout } from './preparation-composition.mjs';
-import { parsePreparation, preparationTargets } from '../redaction/preparation-schema.mjs';
+import { parsePreparation, preparationTargets, preparationDeliveryOperation } from '../redaction/preparation-schema.mjs';
 import { actorSnapshot, requestSnapshot, paths, encode, equal } from '../redaction/bindings.mjs';
 import { domainPaths, expectation, change, checkedPublication, correctionRequestTarget } from '../redaction/adoption-bindings.mjs';
 
@@ -181,7 +181,7 @@ export function createRedactionBrowserClient({ origin, identity, fetch: transpor
       expectation(value.generation, preparationTargetsForOwner.generation); expectation(value.output, preparationTargetsForOwner.output); return structuredClone(value);
     };
     const preparationRef = (value, request) => {
-      if (!value || value.instanceId !== config.instanceId || value.requestId !== request.requestId || !equal(value.actor, actor) || !/^[0-9a-f-]{36}$/.test(value.generationId) || value.operationId !== JSON.stringify(['fictional.preparation.deliver.v1', value.delivery])) throw new TypeError('Wrong preparation native owner');
+      if (!value || value.instanceId !== config.instanceId || value.requestId !== request.requestId || !equal(value.actor, actor) || !/^[0-9a-f-]{36}$/.test(value.generationId) || value.operationId !== preparationDeliveryOperation(config.instanceId, value.delivery)) throw new TypeError('Wrong preparation native owner');
       if (!equal(locator(reference(value.guard)), preparationTargetsForOwner.generation) || !equal(locator(reference(value.reservation)), { resource: { providerId: 'redaction', path: `${config.instanceId}/preparation/requests/${request.requestId}.json` }, view: { kind: 'published' } })) throw new TypeError('Wrong preparation reservation');
       for (const key of ['producer', 'validation', 'delivery']) if (!Number.isSafeInteger(value[key]) || value[key] < 1) throw new TypeError('Missing preparation native task'); return structuredClone(value);
     };
