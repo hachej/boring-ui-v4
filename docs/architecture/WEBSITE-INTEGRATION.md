@@ -40,6 +40,23 @@ The native tool, editor diff and review card reference one exact proposal with b
 
 Offer opt-in injected draft storage, scoped to principal/resource/view/base revision. Sensitive hosts may omit browser persistence. Restore/discard requires an explicit choice and checks the current revision; a recovered draft is not a receipt or generation input until normal save/flush succeeds. Define logout/revocation/expiry and storage-failure behavior, including prevention of late writes after logout. Delete only the acknowledged draft version; a late save cannot delete later typing. Encryption/key management is host policy, not a claim that browser storage is inherently private.
 
+The injected text-draft store binds an authenticated session to a stable provider
+instance namespace. A replacement provider uses a new namespace. Records carry
+their format, base, writer identity, and monotonic sequence. Stores atomically
+reject older writes and retain a deletion floor after removal, so delayed writes
+cannot recreate an acknowledged draft. Removing one writer's version preserves
+newer versions and other writers. Reads and mutations check session validity and
+expiry within their storage transaction; logout revokes that session and purges
+its payloads in the same transaction. Abort notifications alone do not establish
+this guarantee. Normal viewer disposal does not revoke a borrowed store.
+
+Recovery validates the current resource and the selected local buffer again
+before applying text. A pending or unknown save blocks restoration, including a
+save of a clean buffer. Canvas recovery includes validated document records and
+schema only. Experience recovery validates fixed descriptor text and clears
+proposal and Pin authority. Draft persistence does not reconstruct a publication
+attempt after reload or provide native chat continuity.
+
 Retain v2 interaction behavior and the v3 proposal/controller pattern, but not implicit continued-typing overwrite. Quiet expert mode retains required questions and actionable errors. Read-only diagnostics link existing native/provider evidence and distinguish reconnect, reconciliation and new execution; no generic retry-all or duplicate trace store. Performance/calibration obligations live in [ACCEPTANCE.md](../acceptance/ACCEPTANCE.md#performance-and-recovery-calibration).
 
 ## Chat continuity and porting
