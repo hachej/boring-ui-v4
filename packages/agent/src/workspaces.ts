@@ -125,6 +125,8 @@ export interface WorkspaceCacheOptions<W extends OpenedWorkspace = OpenedWorkspa
   readonly key: (target: EnvTarget, context: Context) => string | undefined | Promise<string | undefined>;
   /** Open the workspace of `key`: one provider instance over one env. Called once per key while it stays open. */
   readonly open: (key: string, context: Context) => W | Promise<W>;
+  /** A native cwd view over this same workspace. The workspace owner closes any resources it acquires. Other cwd values refuse without this factory. */
+  readonly atCwd?: (workspace: W, cwd: string, context: Context) => W['env'] | Promise<W['env']>;
   /** Close a workspace this long after its last use, when nothing holds it (default 10 minutes; `Infinity`: never). */
   readonly idleMs?: number;
   /**
@@ -155,7 +157,7 @@ export interface WorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace> {
   readonly close: () => Promise<void>;
 }
 
-type Entry<W> = { readonly opening: Promise<W>; leases: number; lastUsed: number; timer?: ReturnType<typeof setTimeout> | undefined; closing?: Promise<void> };
+type Entry<W> = { readonly opening: Promise<W>; readonly views: Map<string, Promise<W>>; leases: number; lastUsed: number; timer?: ReturnType<typeof setTimeout> | undefined; closing?: Promise<void> };
 
 /**
  * One open workspace per key, opened on first use and closed when idle. The cache owns what `open` returns: a lease or a call
@@ -180,6 +182,7 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
     let busy = false;
     try { busy = (await options.busy?.(key)) === true; } catch { busy = true; }
     if (entries.get(key) !== entry || entry.leases > 0) return;
+    if (Date.now() - entry.lastUsed < idleMs) return arm(key, entry);
     if (busy) { entry.lastUsed = Date.now(); return arm(key, entry); }
     await dispose(key, entry);
   }
@@ -199,7 +202,7 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
         withWorkspace(workspace.env, workspace);
         return workspace;
       });
-      entry = { opening, leases: 0, lastUsed: Date.now() };
+      entry = { opening, views: new Map(), leases: 0, lastUsed: Date.now() };
       entries.set(key, entry);
       const created = entry;
       opening.catch(() => { if (entries.get(key) === created) entries.delete(key); });
@@ -217,7 +220,24 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
   }
   const forTarget = async (target: EnvTarget, context: Context): Promise<W | undefined> => {
     const key = await options.key(target, context);
-    return key === undefined ? undefined : (await use(key, context, false)).workspace;
+    if (key === undefined) return undefined;
+    const { workspace, entry } = await use(key, context, false);
+    const cwd = target.cwd;
+    if (cwd === undefined || cwd === workspace.env.cwd) return workspace;
+    const atCwd = options.atCwd;
+    if (atCwd === undefined) throw new Error(`Workspace ${key} cannot provide working directory ${cwd}`);
+    let selected = entry.views.get(cwd);
+    if (selected === undefined) {
+      selected = Promise.resolve().then(() => atCwd(workspace, cwd, context)).then(env => {
+        if (env === workspace.env || env.id !== workspace.env.id || env.cwd !== cwd) throw new Error('A cwd view must be independent and use the same namespace and requested working directory');
+        const binding = { ...workspace, env };
+        withWorkspace(env, binding);
+        return binding;
+      });
+      entry.views.set(cwd, selected);
+      void selected.catch(() => { entry.views.delete(cwd); });
+    }
+    return selected;
   };
   return {
     env: async (target, context) => (await forTarget(target, context))?.env,
