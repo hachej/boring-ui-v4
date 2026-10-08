@@ -44,10 +44,11 @@ const propose = async (kind, summary) => {
   const previous = (await saved()).ref.revision, count = publications;
   const result = await run(`return j.propose(${JSON.stringify(kind)}, ${JSON.stringify(summary)});`);
   assert.equal(result.kind, 'proposed');
-  await browser.until('proposal summary rendered', `document.body.innerText.includes(${JSON.stringify(summary)})`);
-  await browser.click(`document.querySelector('[data-boring=canvas-proposal] details > summary')`);
-  await browser.until('review shows affected native shape identity', `document.querySelector('[data-boring=canvas-proposal]')?.innerText.includes('shape:reviewed')`);
-  assert.equal(await browser.evaluate(`!!document.querySelector('[data-boring=canvas-proposal] table')`), true, 'review uses changed-field rows');
+  const card = `[...document.querySelectorAll('[data-boring=canvas-proposal]')].find(card => card.querySelector('h3')?.textContent === ${JSON.stringify(summary)})`;
+  await browser.until('proposal summary rendered', card);
+  await browser.click(`${card}?.querySelector('details > summary')`);
+  await browser.until('review shows affected native shape identity', `${card}?.innerText.includes('shape:reviewed')`);
+  assert.equal(await browser.evaluate(`!!${card}?.querySelector('table')`), true, 'review uses changed-field rows');
   assert.equal((await saved()).ref.revision, previous); assert.equal(publications, count);
 };
 const accept = async () => {
