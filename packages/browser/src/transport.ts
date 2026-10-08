@@ -102,8 +102,10 @@ export function connectWorker(worker: string | URL | WorkerEndpoint | Worker): W
 
   async function workerFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const request = input instanceof Request && !init ? input : new Request(input, init);
+    request.signal.throwIfAborted();
     const id = ++next;
     const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+    request.signal.throwIfAborted();
     const response = new Promise<Response>((resolve, reject) => pending.set(id, { resolve, reject }));
     request.signal.addEventListener('abort', () => {
       endpoint.postMessage({ type: 'abort', id });
