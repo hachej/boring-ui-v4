@@ -1,5 +1,7 @@
 'use client';
 
+import { TextDraftControls } from './text-draft-controls.js';
+
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ExperienceRenderer } from './experience-renderer.js';
 import type { RenderedExperienceCell } from './experience-renderer.js';
@@ -57,6 +59,7 @@ function MountedDocument({ controller, cells, canView, onRegenerate, title = 'Ex
         });
       }}>Regenerate {region.region}</button>)}
     </div>
+    <TextDraftControls recovery={state.recovery} actions={controller.actions} readOnly={state.readOnly} blocked={state.lifecycle !== 'active' || state.save.kind === 'pending' || (state.save.kind === 'settled' && state.save.result.kind === 'unknown')} />
     {proposal && <div role="group" aria-label={proposal.kind === 'region' ? 'Proposed region' : 'Proposed layout'}>
       <button type="button" disabled={disposed || state.readOnly} onClick={() => {
         const result = controller.actions.adopt(proposal.id);

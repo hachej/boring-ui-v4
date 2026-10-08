@@ -1,5 +1,7 @@
 'use client';
 
+import { TextDraftControls } from './text-draft-controls.js';
+
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { HtmlController } from './html.js';
 import type { ReadResult } from '@boring/files';
@@ -80,6 +82,7 @@ function MountedHtmlViewer({ controller, title = 'HTML document', className, hea
       <button type="button" disabled={disposed || !unknown} onClick={() => perform(controller.actions.abandon)}>Abandon and refresh, keeping my draft</button>
       <button type="button" disabled={disposed || pending || unknown || snapshot.remote === null} onClick={() => perform(controller.actions.discardToRemote)}>Discard local edits</button>
     </div>}
+    <TextDraftControls recovery={snapshot.recovery} actions={controller.actions} readOnly={snapshot.readOnly} blocked={snapshot.lifecycle !== 'active' || snapshot.save.kind === 'pending' || (snapshot.save.kind === 'settled' && snapshot.save.result.kind === 'unknown')} />
     {error && <p role="alert">{error}</p>}
     {mode === 'source'
       ? <textarea className="boring-html-viewer__source" aria-label="HTML source" readOnly={snapshot.readOnly || disposed} value={snapshot.text} onChange={event => { if (!snapshot.readOnly && !disposed) controller.actions.edit(event.currentTarget.value); }} />

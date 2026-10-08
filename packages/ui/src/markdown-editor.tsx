@@ -1,5 +1,7 @@
 'use client';
 
+import { TextDraftControls } from './text-draft-controls.js';
+
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import type { SelectionBookmark } from '@tiptap/pm/state';
@@ -211,6 +213,7 @@ function MarkdownEditorSession({ controller, title = 'Document', initialMode = '
       <button type="button" aria-pressed={mode === 'source'} disabled={!richOffered} onClick={switchMode}>Markdown source</button>
       <button type="button" disabled={unavailable || !state.dirty || pending || uncertain} onClick={save}>Save</button>
     </header>}
+    <TextDraftControls recovery={state.recovery} actions={controller.actions} readOnly={state.readOnly} blocked={state.lifecycle !== 'active' || state.save.kind === 'pending' || (state.save.kind === 'settled' && state.save.result.kind === 'unknown')} />
     {mode === 'rich' && <div role="toolbar" aria-label="Text formatting" className="boring-markdown-toolbar">
       {tool('Bold', 'Bold', marks?.bold, () => chain().toggleBold().run())}
       {tool('Italic', 'Italic', marks?.italic, () => chain().toggleItalic().run())}
