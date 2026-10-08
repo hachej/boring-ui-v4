@@ -5,7 +5,7 @@ import { flushSync } from 'react-dom';
 import { createResourceClient } from '@boring/files/remote';
 import { createMarkdownController } from '@boring/ui/markdown';
 import { MarkdownEditor } from '@boring/ui/markdown-editor';
-import { createTaskListController, createTaskListFeature } from '../../registry/task-list-viewer/task-list-controller';
+import { createTaskListFeature } from '../../registry/task-list-viewer/task-list-controller';
 import { TaskListViewer } from '../../registry/task-list-viewer/task-list-viewer';
 
 const identity = { scopeId: 'fictional', principalId: 'browser', initiatorId: 'journey' };

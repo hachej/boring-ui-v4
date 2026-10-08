@@ -255,7 +255,7 @@ This is trusted-host opt-in for untrusted content, not a claim of qualification:
 
 `task-list-viewer` installs the consumer-owned domain, controller and React renderer. It uses `@boring/ui/text-buffer` and public resource contracts. The host parses the `fictional.task-list` version 1 descriptor with `createTaskListFeature(options)`, then passes its concrete controller to `TaskListViewer`. Descriptors select the already-bound source and carry no access credentials. No core file-type switch changes are required for this direct host composition.
 
-The renderer supports task creation, completion, removal, exact Save, Refresh, Discard and receipt Reconcile. The host owns controller disposal and its resource client. New documents remain local until Save. A concurrent native save leaves a human draft intact and makes a stale human save conflict.
+The renderer supports task creation, completion, removal, exact Save, Refresh, Discard, receipt Reconcile and explicit Abandon save. The host owns controller disposal and its resource client. New documents remain local until Save. A concurrent native save leaves a human draft intact and makes a stale human save conflict.
 
 `examples/shared/task-list-tools.mjs` separately registers native `read_task_list` and `edit_task_list` tools. Supply a resolver with the original binding ID, target, current access and public reader/publisher/lookup capabilities. A binding ID identifies a provider incarnation and must change when that authority changes. The tools retain publication intent in native task memo state and recover attempted saves by lookup only. Installing the React recipe does not register tools or grant authorization.
 

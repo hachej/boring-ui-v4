@@ -490,6 +490,8 @@ Exact candidate gates, baseline comparisons and independent review remain under 
 
 The branch based on PR 47 adds the optional public text-buffer entry, an actual consumer-defined task-list feature/controller/renderer and native saved-resource tools. It reuses the existing buffer state and conditional publication contract. There is no new plugin runtime or application file-type switch. Review reproduced and fixed refresh overwriting an edit made by its synchronous replacement callback; the same fence protects disposal.
 
+Independent review also found hidden resolved refresh refusals and an unfinished task title carried across controller replacement. Both have renderer fixes and real React/SQLite regressions. Explicit Abandon save preserves an unreceipted draft without replay.
+
 Fourteen focused task-list tests pass, including six real SQLite/SIGKILL recovery cases. Successful recovery returns the original receipt/document even after a newer human publication. Changed binding/actor, revoked authorization and missing receipts never republish. Public buffer and existing HTML/canvas regression checks pass. Registry installation/restyle/native tests and actual browser journeys are required integration gates, with final results retained under `.cache/evidence/custom-task-viewer/` in the implementation checkout. Loopback restrictions prevent local browser execution; CI must establish that claim.
 
 W10/A43/A46 remain partial. Full P01-P14/A01-A48/H01-H10 remain in scope; no VERIFY.json deferral is removed. Hosted recipes, live identity/provider/model behavior, human/expert review and tldraw production licensing/assets remain separate qualifications.
