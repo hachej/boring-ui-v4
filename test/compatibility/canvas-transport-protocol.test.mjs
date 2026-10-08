@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createTLSchema } from '@tldraw/tlschema';
 import { schema, version, parseOpen, parseEnvelope, parseResult, parseInput, json } from '../../examples/shared/canvas-transport-protocol.mjs';
 
 const target = () => ({ instanceId: 'viewer', epoch: 'epoch', subject: { scopeId: 'fictional', bufferVersion: 0, mountId: 'mount', pageId: 'page:one',
@@ -34,4 +35,14 @@ test('canvas replies cannot claim publication or proposal adoption and retain un
   assert.throws(() => parseResult('propose', { kind: 'proposed', proposalId: 'proposal', base: other }, captured));
   assert.deepEqual(parseResult('propose', { kind: 'proposed', proposalId: 'proposal', base: captured }, captured), { kind: 'proposed', proposalId: 'proposal', base: captured });
   assert.deepEqual(parseResult('select', { kind: 'unknown', reason: 'Acknowledgement lost' }, captured), { kind: 'unknown', reason: 'Acknowledgement lost' });
+});
+
+test('canvas transport parses real native create and update records before delivery', () => {
+  const native = createTLSchema();
+  const record = native.types.shape.create({ id: 'shape:one', type: 'group', parentId: 'page:one', index: 'a1', props: {} });
+  for (const kind of ['create', 'update']) {
+    const input = { expiresAt: 123, summary: 'Fictional change', edits: [{ kind, record }] };
+    assert.deepEqual(parseInput('propose', input), input);
+    assert.throws(() => parseInput('propose', { ...input, edits: [{ kind, record: { ...record, type: 'uninstalled-shape' } }] }));
+  }
 });

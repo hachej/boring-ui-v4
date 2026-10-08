@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { parseCanvasEdits } from '@boring/ui/canvas-document';
+import { createTLSchema } from '@tldraw/tlschema';
 
 export const schema = 'boring.canvas-presentation';
 export const version = 1;
 export const maxBodyBytes = 65_536;
 export const maxResultBytes = 8_192;
 const encoder = new TextEncoder();
+const canvasSchema = createTLSchema();
 const text = maximum => z.string().min(1).refine(value => encoder.encode(value).length <= maximum && !/[\uD800-\uDFFF]/u.test(value));
 const id = text(256);
 const resource = z.object({ providerId: id, path: text(2048) }).strict();
@@ -32,7 +34,7 @@ export function parseInput(command, value) {
   if (command === 'select') return select.parse(value);
   if (command === 'propose') {
     const parsed = propose.parse(value);
-    return { ...parsed, edits: parseCanvasEdits(parsed.edits) };
+    return { ...parsed, edits: parseCanvasEdits(parsed.edits, canvasSchema) };
   }
   throw new TypeError('Unknown canvas presentation command');
 }
