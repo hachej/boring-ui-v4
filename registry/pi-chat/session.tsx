@@ -121,7 +121,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const sendBlocked = uploading > 0 || state.disposed || !connected || unconfirmed;
   /** Puts a message back into the composer ahead of whatever is there now (nothing is dropped). */
   const putBack = (text: string, images: readonly ChatAttachment[]) => {
-    if (!current()) return;
+    if (controller.getSnapshot().disposed) return;
     const draft = controller.getSnapshot().draft;
     controller.setText([text, draft.text].filter(value => value.trim()).join('\n'));
     if (images.length) controller.setAttachments([...images, ...draft.attachments.filter(item => !images.some(image => image.id === item.id))]);
@@ -141,7 +141,7 @@ export function useChatSession(options: ChatSessionOptions) {
         try { attached = await attach(typed.text); }
         catch (cause) { putBack(typed.text, typed.attachments); throw cause; }
         if (attached.kind === 'refused') { putBack(typed.text, typed.attachments); throw new Error(attached.reason); }
-        if (!current()) return;
+        if (!current()) { putBack(typed.text, typed.attachments); return; }
         const submission = await controller.send('followUp', { text: attached.text, attachments: typed.attachments, restore: { text: typed.text, attachments: typed.attachments } });
         if (submission) feedback?.sent?.();
       });

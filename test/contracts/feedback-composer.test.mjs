@@ -19,6 +19,86 @@ const { createElement } = await import('react');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { Composer } = await load('composer', `export { Composer } from '${root}registry/pi-chat/composer.tsx';`);
 
+test('pending feedback preserves the originating live controller after its presentation leaves', { timeout: 20000 }, async t => {
+  const { Window } = await import('happy-dom');
+  const window = new Window({ url: 'https://fictional.invalid/' });
+  const globals = new Map();
+  for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'IS_REACT_ACT_ENVIRONMENT']) {
+    globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
+    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: name === 'window' ? window : name === 'IS_REACT_ACT_ENVIRONMENT' ? true : window[name] });
+  }
+  t.after(async () => { await window.happyDOM.close(); for (const [name, descriptor] of globals) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name]; } });
+  const { Harness: NativeHarness, MemoryStorage, createRegistry } = await import('@earendil-works/pi-durable');
+  const { BACKGROUND_CONTEXT: context } = await import('@earendil-works/chord/context');
+  const { createNativeChatController } = await import('@boring/ui/native-chat');
+  const { createFakeChatModel } = await import('@boring/testing/model');
+  const { act } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { Surface } = await load('feedback-retarget', `
+    import { createElement } from 'react';
+    import { Composer } from '${root}registry/pi-chat/composer.tsx';
+    import { useChatSession } from '${root}registry/pi-chat/session.tsx';
+    export function Surface({ controller, activeController, feedback }) {
+      const session = useChatSession({ controller, activeController, mode: 'expert', fileAccept: 'image/*', feedback });
+      return createElement(Composer, session.composer);
+    }`);
+  for (const leave of ['retarget', 'unmount', 'dispose']) for (const result of ['ok', 'refused', 'throw']) {
+    await t.test(`${leave}, attachment ${result}`, async () => {
+      const fake = createFakeChatModel();
+      const native = await NativeHarness.open(new MemoryStorage(), { registry: createRegistry(), models: fake.models }, context);
+      const controllers = [], conversations = [];
+      const container = document.createElement('div'); document.body.append(container);
+      const ui = createRoot(container);
+      try {
+        for (let i = 0; i < 2; i++) {
+          const conversation = await native.createConversation({ ownership: { kind: 'ownerless' }, agent: { model: fake.model } }, context);
+          conversations.push(conversation);
+          const controller = createNativeChatController({ identity: { runtimeId: 'fixture', scopeId: 'fixture', principalId: 'person' }, context, conversation });
+          controllers.push(controller); await controller.connect();
+        }
+        const [origin, replacement] = controllers;
+        const image = id => ({ id, name: `${id}.png`, content: { type: 'image', data: 'AA==', mimeType: 'image/png' } });
+        const first = image('first'), second = image('second');
+        origin.setText('Original text'); origin.setAttachments([first]); replacement.setText('Other conversation');
+        let resolve, reject;
+        const pending = new Promise((yes, no) => { resolve = yes; reject = no; });
+        let sent = 0;
+        const feedback = { start: () => {}, pending: true, attach: () => pending, sent: () => sent++ };
+        const activeController = { current: origin };
+        await act(async () => ui.render(createElement(Surface, { controller: origin, activeController, feedback })));
+        await act(async () => container.querySelector('[data-testid=composer-submit]').click());
+        assert.equal(origin.getSnapshot().draft.text, '');
+        await act(async () => { origin.setText('Newer text'); origin.setAttachments([first, second]); });
+        await act(async () => {
+          if (leave === 'retarget') activeController.current = replacement;
+          ui.render(leave === 'retarget' ? createElement(Surface, { key: 'replacement', controller: replacement, activeController }) : null);
+        });
+        if (leave === 'dispose') await origin.dispose();
+        const beforeSettlement = origin.getSnapshot();
+        await act(async () => {
+          if (result === 'throw') reject(new Error('Fictional attachment failure'));
+          else resolve(result === 'ok' ? { kind: 'ok', text: 'Original text\n@feedback/fictional' } : { kind: 'refused', reason: 'Fictional refusal' });
+          await pending.catch(() => {});
+        });
+        if (leave === 'dispose') assert.equal(origin.getSnapshot(), beforeSettlement, 'a disposed controller is never mutated');
+        else assert.equal(origin.getSnapshot().draft.text, 'Original text\nNewer text');
+        assert.deepEqual(origin.getSnapshot().draft.attachments, [first, second]);
+        assert.equal(replacement.getSnapshot().draft.text, 'Other conversation');
+        assert.equal(sent, 0);
+        for (const conversation of conversations) {
+          const entries = (await conversation.context(context)).entries;
+          assert.equal(entries.flatMap(entry => entry.model ?? []).filter(message => message.role === 'user').length, 0);
+        }
+        assert.equal(fake.calls.length, 0);
+      } finally {
+        await act(async () => ui.unmount()); container.remove();
+        for (const controller of controllers) await controller.dispose();
+        await native.close(context);
+      }
+    });
+  }
+});
+
 test('without the feedback prop the composer renders byte-identical markup to the composer of main', () => {
   const golden = JSON.parse(readFileSync(join(root, 'test/fixtures/pi-chat-composer-baseline.json'), 'utf8'));
   const cases = composerCases();
