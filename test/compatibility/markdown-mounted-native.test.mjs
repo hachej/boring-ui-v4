@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Window } from 'happy-dom';
-import { Harness, MemoryStorage, createRegistry, defineExtension, defineTool } from '@earendil-works/pi-durable';
+import { Harness, MemoryStorage, createRegistry, defineExtension } from '@earendil-works/pi-durable';
+import { createPresentationTool } from '@boring/agent/presentation';
 import { createModels } from '@earendil-works/pi-ai/models';
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { Type } from '@earendil-works/pi-ai';
@@ -62,15 +63,19 @@ test('native ToolTask uses a captured mounted Markdown target without owning the
 
   const commandResults = [];
   let observedCommand;
-  const tool = defineTool({ name: 'navigate_markdown', description: 'Navigate fictional mounted notes',
-    parameters: Type.Object({ index: Type.Integer({ minimum: 0 }) }), replay: 'unsafe',
-    execute: async (args, _api, nativeContext) => {
-      // The host deliberately binds the original handle and target when registering this native tool.
-      const result = await first.revealHeading.invoke(captured, { index: args.index, expiresAt: Date.now() + 5000 }, nativeContext.abortSignal);
+  const tool = createPresentationTool({ name: 'navigate_markdown', description: 'Navigate fictional mounted notes',
+    parameters: Type.Object({ index: Type.Integer({ minimum: 0 }) }),
+    target: captured,
+    command: { ...first.revealHeading, invoke: async (...args) => {
+      const result = await first.revealHeading.invoke(...args);
       commandResults.push(result);
       observedCommand?.resolve(result);
-      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
-    } });
+      return result;
+    } },
+    prepareInput: args => ({ index: args.index, expiresAt: Date.now() + 5000 }),
+    authorize: (_input, _target, api) => api.conversationId === conversation.id,
+    formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
+  });
   const registry = createRegistry(); registry.install(defineExtension({ name: 'fixture.mounted-markdown', tools: [tool] }));
   harness = await Harness.open(new MemoryStorage(), { registry, models: createModels() }, context);
   const conversation = await harness.root(context);

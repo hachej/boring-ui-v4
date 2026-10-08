@@ -130,3 +130,10 @@ Chat projections refuse raw archived history and recheck revocation after reques
 Workspace save retries validate the retained operation without reapplying old bytes over later agent edits. Delivery success and abort reconciliation share validation of the admitted digest, identity, target and revisions. These changes retain the Studio adapter's separate SQLite/working-file authorities; they do not establish cross-store atomicity.
 
 `npm run studio:journey:correctness` is a fictional-model browser gate for questions, editing, save reconciliation, denied access, conflicts and reconnect. It records candidate identity and failures under ignored evidence. A gate that cannot launch its server or browser remains blocked. SVG opening is unchanged by explicit user direction. Full P01–P14/A01–A48/H01–H10 and the six global runtime deferrals remain unchanged.
+
+
+## Direct native viewer command binding
+
+`@boring/agent/presentation` adapts one captured `PresentationCommand` through ordinary native tool registration. The [agent guide](../../packages/agent/README.md#target-bound-viewer-commands) owns the input mapping, authorization, result projection and lifecycle contract. Public-output tests are in `test/packages/agent-presentation.test.mjs`; the existing `test/compatibility/markdown-mounted-native.test.mjs` uses the adapter against actual React/Tiptap controls. `npm run test:presentation-consumer` installs package archives, checks concrete input/subject types, and runs the native behavior/crash tests without React or editor packages.
+
+This is a partial P05/A42/A43/A47 increment. Evidence qualifies only the executed direct bindings. It does not establish remote browser delivery, canvas command completeness, live-model behavior, full viewer parity or a global BORING-PI proof. Raw results and exact candidate are recorded under `.cache/evidence/viewer-tools/`.

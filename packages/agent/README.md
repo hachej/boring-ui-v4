@@ -242,3 +242,34 @@ Evidence is registered in [VERIFY.json](../../VERIFY.json) under `features`. Not
 ### Question notification recovery
 
 External channel question notifications record success after `adapter.send` resolves. A restart retries an unacknowledged notification with the same assistant-entry-bound question ID. A crash after the external send but before the native acknowledgement can duplicate the notification; this is at-least-once delivery. The adapter may deduplicate that stable ID. A local success record does not prove that a person read the message.
+
+
+## Target-bound viewer commands
+
+`@boring/agent/presentation` exports `createPresentationTool`. It returns an ordinary native `ToolRegistration`; install it through the host's native extension/registry. Select this subpath with the optional `@boring/ui` peer installed. The adapter imports UI contracts only, with no controller or renderer runtime.
+
+Bind one `PresentationCommand` and its captured `ViewerTarget`. The target and parsed command input must be structured-cloneable data. Authorization receives a separate input/target copy, so its asynchronous work cannot change the command that executes. The adapter snapshots it at construction, so later calls never switch to whichever viewer is currently focused. Commands retain responsibility for checking resource, buffer, mount, projection, expiry and read-only state at their actual effect. A replaced editor can therefore refuse an old tool as stale or unavailable.
+
+The host supplies:
+
+- Native `parameters` for model arguments. Pi validates them before execution.
+- `prepareInput`, which maps those arguments to command input, including a host-controlled deadline. The command's parser validates the mapped input.
+- `authorize`, which checks the input and captured target against the actual native invocation and current host policy on every call. Target metadata is not permission.
+- `formatResult`, which explicitly chooses the native result content/details. Inspection can contain private buffer text or resource references; project only what this conversation may retain. Refused commands always produce `isError: true`.
+
+```ts
+const navigate = createPresentationTool({
+  name: 'navigate_notes',
+  description: 'Navigate the bound notes viewer',
+  parameters: Type.Object({ index: Type.Integer({ minimum: 0 }) }),
+  command: mounted.revealHeading,
+  target: capturedTarget,
+  prepareInput: ({ index }) => ({ index, expiresAt: Date.now() + 5000 }),
+  authorize: (_input, _target, api, context) => canNavigate(api.conversationId, context),
+  formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify({ kind: result.kind }) }] }),
+});
+```
+
+Here `Type` is Pi AI's native schema builder, and `mounted`, `capturedTarget` and `canNavigate` belong to the host. The adapter passes native cancellation to the command and fixes replay to `unsafe`: an interrupted presentation call cannot safely be redirected or repeated. It acquires no controller, provider or Harness and owns none of their cleanup.
+
+This is direct in-process binding. A server cannot manipulate a remote browser through this adapter alone. Authenticated transport, browser target admission and mounted canvas commands remain separate work. Presentation/proposal results are not publication receipts or human approval.

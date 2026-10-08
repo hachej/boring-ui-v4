@@ -51,6 +51,7 @@
     "verify:release": "npm run check && npm run typecheck && node scripts/run-tests.mjs && node scripts/verify-invariants.mjs --release",
     "test:editor-consumer": "node scripts/test-editor-consumer.mjs",
     "test:virtual-consumer": "node scripts/test-virtual-consumer.mjs",
+    "test:presentation-consumer": "node scripts/test-question-consumer.mjs --presentation",
     "test:question-consumer": "node scripts/test-question-consumer.mjs",
     "test:canvas-consumer": "node scripts/test-canvas-consumer.mjs",
     "test:canvas-editor-consumer": "node scripts/test-canvas-consumer.mjs --editor",

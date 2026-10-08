@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { runCaptured } from './run-captured.mjs';
 import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
+const presentation = process.argv.includes('--presentation');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const directory = mkdtempSync(join(tmpdir(), 'boring-question-consumer-'));
+const directory = mkdtempSync(join(tmpdir(), presentation ? 'boring-presentation-consumer-' : 'boring-question-consumer-'));
 const cache = process.env.npm_config_cache;
 assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
 function run(command, args, env) {
@@ -20,8 +21,8 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  // The selected subpath reads request bodies through @boring/files/request-guard (their one owner), so a real consumer installs files too.
-  for (const name of ['files', 'agent']) {
+  // Presentation selects UI contracts explicitly; ordinary questions must still install without UI.
+  for (const name of presentation ? ['files', 'ui', 'agent'] : ['files', 'agent']) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -29,7 +30,7 @@ try {
   const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const dependencies = Object.fromEntries(Object.entries(agent.peerDependencies).filter(([name]) => !agent.peerDependenciesMeta?.[name]?.optional));
   for (const name of ['typescript', '@types/node', '@modelcontextprotocol/sdk']) dependencies[name] = rootManifest.devDependencies[name];
-  const manifest = { name: 'isolated-question-consumer', version: '1.0.0', private: true, type: 'module', dependencies };
+  const manifest = { name: presentation ? 'isolated-presentation-consumer' : 'isolated-question-consumer', version: '1.0.0', private: true, type: 'module', dependencies };
   writeFileSync(join(directory, 'package.json'), JSON.stringify(manifest));
   const sourceLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   const packages = {};
@@ -55,8 +56,8 @@ try {
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
   run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
   run('npm', ['ci', ...npmInstallFlags(cache)]);
-  for (const name of ['@boring/ui', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
-  writeFileSync(join(directory, 'consumer.ts'), `import { createQuestions } from '@boring/agent/questions';
+  for (const name of presentation ? ['@boring/execution', 'react', '@tiptap/core', 'tldraw'] : ['@boring/ui', '@boring/execution']) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  writeFileSync(join(directory, 'consumer.ts'), presentation ? readFileSync(join(root, 'test/fixtures/isolated-presentation-consumer.ts'), 'utf8') : `import { createQuestions } from '@boring/agent/questions';
 import { createQuestionResponseHandler } from '@boring/agent/question-response';
 import type { QuestionResponseAccess } from '@boring/agent/question-response';
 const questions = createQuestions({ runtimeId: 'fictional', authorize: () => undefined, isCurrent: () => false });
@@ -66,8 +67,9 @@ const result: Promise<Response> = handler(new Request('https://fictional.invalid
 `);
   writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: ['node'], lib: ['ES2023', 'DOM'] }, include: ['consumer.ts'] }));
   assertConsumerTypeFiles(run(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--listFiles'], isolated), directory);
-  for (const path of ['test/packages']) mkdirSync(join(directory, path), { recursive: true });
-  for (const path of ['test/packages/agent-question-response.test.mjs']) copyFileSync(join(root, path), join(directory, path));
-  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/packages/agent-question-response.test.mjs'], isolated);
-  console.log('PASS: packed agent questions, pinned registry dependencies, strict public declarations and original-runtime Fetch resolution; with Boring files (request guard); no UI/execution installed');
+  for (const path of ['test/packages', 'test/fixtures']) mkdirSync(join(directory, path), { recursive: true });
+  const testFile = presentation ? 'test/packages/agent-presentation.test.mjs' : 'test/packages/agent-question-response.test.mjs';
+  for (const path of [testFile, ...(presentation ? ['test/fixtures/presentation-crash-child.mjs'] : [])]) copyFileSync(join(root, path), join(directory, path));
+  run(process.execPath, ['--test', '--experimental-test-isolation=none', testFile], isolated);
+  console.log(presentation ? 'PASS: packed presentation adapter, concrete native parameters and viewer subject types, native public-output tests; no React/editor/execution installed' : 'PASS: packed agent questions, pinned registry dependencies, strict public declarations and original-runtime Fetch resolution; with Boring files (request guard); no UI/execution installed');
 } finally { rmSync(directory, { recursive: true, force: true }); }
