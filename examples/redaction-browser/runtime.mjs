@@ -3,6 +3,8 @@ import { publicationSnapshot, parsePublicationResult, reference } from '@boring/
 import { openRedactionFixture, redactionActor } from '../redaction/app.mjs';
 import { actorSnapshot, equal, encode } from '../redaction/bindings.mjs';
 import { fictionalNotes, fictionalConfig, fictionalTranscript } from './fixtures.mjs';
+import { preparationTargets, parsePreparation } from '../redaction/preparation-schema.mjs';
+import { preparationLayout, validatePreparationLayout, composePreparation } from './preparation-composition.mjs';
 
 const ids = ['first', 'second'], subjects = ['A', 'B', 'C'];
 const denied = () => ({ kind: 'denied', reason: 'Current redaction access denied' });
@@ -38,8 +40,10 @@ export async function openRedactionBrowser({ directory, policy = () => true, tra
   }
   try {
     for (const id of ids) {
-      const app = apps[id] = await openRedactionFixture({ ...fixtureOptions(id), directory: join(directory, id), policy: (actor, action, target) => allowed(id, actor, action, target) });
-      targets[id] = Object.freeze({ notes: freezeTarget(app.paths('A').source), ...Object.fromEntries(subjects.flatMap(subject => [[`letter-${subject}`, freezeTarget(app.domainPaths(subject).letter)], [`record-${subject}`, freezeTarget(app.domainPaths(subject).record)]])) });
+      const selectedOptions = fixtureOptions(id);
+      const app = apps[id] = await openRedactionFixture({ ...selectedOptions, preparation: { ...selectedOptions.preparation, layout: preparationLayout }, directory: join(directory, id), policy: (actor, action, target) => allowed(id, actor, action, target) });
+      const preparation = preparationTargets(app.instanceId);
+      targets[id] = Object.freeze({ preparation: freezeTarget(preparation.output), 'preparation-layout': freezeTarget(preparation.layout), notes: freezeTarget(app.paths('A').source), ...Object.fromEntries(subjects.flatMap(subject => [[`letter-${subject}`, freezeTarget(app.domainPaths(subject).letter)], [`record-${subject}`, freezeTarget(app.domainPaths(subject).record)]])) });
       const actor = redactionActor(), provider = app.local.provider.workspace(actor.scopeId), changes = [];
       for (const [target, bytes, mediaType] of [[targets[id].notes, encode(fictionalNotes[id]), 'text/markdown'], [app.paths('A').config, encode(fictionalConfig()), 'application/json']]) {
         const saved = await provider.read({ target, revision: { kind: 'latest' } }, actor);
@@ -62,15 +66,21 @@ export async function openRedactionBrowser({ directory, policy = () => true, tra
           const request = structuredClone(input);
           if (!sameTarget(request.target, target) || !can('read', signal)) return denied();
           const result = await app.local.provider.read(request, access(signal));
+          if (resource === 'preparation' && result.kind === 'available') {
+            try { if (parsePreparation(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(result.snapshot.bytes))).instanceId !== app.instanceId) return unavailable(); } catch { return unavailable(); }
+          }
           return can('read', signal) ? result : denied();
         },
         publish: async (input, signal) => {
-          if (resource.startsWith('record-')) return denied();
+          if (resource.startsWith('record-') || resource === 'preparation') return denied();
           let request;
           try { request = publicationSnapshot(input); } catch { return denied(); }
-          if (request.changes.length !== 1 || request.changes.some(change => !sameTarget(change.target, target) || change.kind === 'delete' || change.mediaType !== 'text/markdown' || change.bytes.length > 4096)
+          if (request.changes.length !== 1 || request.changes.some(change => !sameTarget(change.target, target) || change.kind === 'delete' || change.mediaType !== (resource === 'preparation-layout' ? 'application/json' : 'text/markdown') || change.bytes.length > (resource === 'preparation-layout' ? 32768 : 4096))
             || request.preconditions?.some(item => !sameTarget(item.target, target))) return denied();
-          try { new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(request.changes[0].bytes); } catch { return denied(); }
+          try {
+            const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(request.changes[0].bytes);
+            if (resource === 'preparation-layout') validatePreparationLayout(JSON.parse(text), () => allowed(id, actor, 'read', targets[id].preparation) && visible(id, actor));
+          } catch { return denied(); }
           if (!can('publish', signal)) {
             const prior = await app.local.provider.workspace(actor.scopeId).reconciliation.lookup(request.operationId, actor);
             return prior.kind === 'not-found' ? denied() : unknown(request.operationId);
@@ -97,7 +107,7 @@ export async function openRedactionBrowser({ directory, policy = () => true, tra
       configuration: async identity => {
         let actor; try { actor = actorOf(identity); } catch { return denied(); }
         if (ids.some(id => !visible(id, actor))) return denied();
-        return { kind: 'available', identity: actor, consultations: ids.map(id => ({ id, title: id === 'first' ? 'First fictional consultation' : 'Second fictional consultation', instanceId: apps[id].instanceId, notesTarget: targets[id].notes,
+        return { kind: 'available', identity: actor, consultations: ids.map(id => ({ id, title: id === 'first' ? 'First fictional consultation' : 'Second fictional consultation', instanceId: apps[id].instanceId, notesTarget: targets[id].notes, preparation: { outputTarget: targets[id].preparation, layoutTarget: targets[id]['preparation-layout'] },
           letters: Object.fromEntries(subjects.map(subject => [subject, targets[id][`letter-${subject}`]])), records: Object.fromEntries(subjects.map(subject => [subject, freezeTarget(apps[id].domainPaths(subject).record)])) })) };
       },
       resourceClient,
@@ -128,6 +138,58 @@ export async function openRedactionBrowser({ directory, policy = () => true, tra
       adopt: (id, request, actor) => { const input = structuredClone(request); return invoke(id, actor, 'adopt', (app, captured) => app.adopt(input, captured), true); },
       adoptionResult: (id, ref, actor) => { const input = structuredClone(ref); return invoke(id, actor, 'adopt', (app, captured) => app.adoptionResult(input, captured), true); },
       latest: (id, subject, actor) => invoke(id, actor, 'read', (app, captured) => app.latest(subject, captured)),
+      preparationCapture: async (id, value, identity) => {
+        const input = structuredClone(value);
+        if (!exact(input, ['requestId', 'source', 'saveOperationId']) || !requestId(input.requestId) || typeof input.saveOperationId !== 'string' || input.saveOperationId.length > 512) return denied();
+        return invoke(id, identity, 'admit', async (app, actor) => {
+          let source, found;
+          try { source = reference(input.source); found = parsePublicationResult(await resourceClient(id, 'notes', actor).lookup(input.saveOperationId)); } catch { return unavailable(); }
+          if (!sameTarget(source, targets[id].notes) || found.kind !== 'committed') return found.kind === 'unknown' ? found : denied();
+          const receipt = found.receipt;
+          if (receipt.operationId !== input.saveOperationId || !equal({ principalId: receipt.principalId, initiatorId: receipt.initiatorId, scopeId: receipt.scopeId }, actor)
+            || receipt.changes.length !== 1 || !equal(receipt.changes[0].after, source)) return denied();
+          return app.preparation.capture({ requestId: input.requestId, notes: source }, actor);
+        });
+      },
+      preparationAdmit: (id, value, actor) => { const input = structuredClone(value); return invoke(id, actor, 'admit', (app, captured) => app.preparation.admit(input, captured), true); },
+      preparationLatest: (id, actor) => invoke(id, actor, 'read', (app, captured) => app.preparation.latest(captured)),
+      preparationResult: (id, value, actor) => { const input = structuredClone(value); return invoke(id, actor, 'read', (app, captured) => app.preparation.result(input, captured), true); },
+      preparationCompose: async (id, value, identity, { evaluation = { kind: 'local' }, signal } = {}) => {
+        signal ??= new AbortController().signal;
+        let actor, app, input;
+        try { ({ actor, app } = binding(id, identity)); input = structuredClone(value); if (!exact(input, ['preparation', 'descriptor', 'trigger']) || !['open', 'phase', 'request'].includes(input.trigger)) return denied(); reference(input.preparation); } catch { return denied(); }
+        if (!['local', 'fake', 'jev'].includes(evaluation.kind) || typeof evaluation.evaluate !== 'function') return unavailable();
+        const permitted = () => !signal?.aborted && visible(id, actor) && allowed(id, actor, 'compose', targets[id].preparation)
+          && allowed(id, actor, 'read', targets[id].preparation) && (evaluation.kind !== 'jev' || allowed(id, actor, 'process-composition-metadata', targets[id].preparation));
+        const current = async () => {
+          if (!permitted()) return denied();
+          const read = await app.preparation.read(actor);
+          if (!permitted()) return denied();
+          if (read.kind !== 'available') return read;
+          return equal(read.snapshot.ref, input.preparation) ? read : conflict();
+        };
+        const initial = await current(); if (initial.kind !== 'available') return initial;
+        let refusal;
+        try {
+          const document = parsePreparation(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(initial.snapshot.bytes)));
+          if (document.instanceId !== app.instanceId) return unavailable();
+          const snapshots = [], canView = () => permitted();
+          const evaluate = async request => {
+            const before = await current(); if (before.kind !== 'available') { refusal = before; throw new Error('Preparation composition no longer available'); }
+            const response = await evaluation.evaluate(request);
+            const after = await current(); if (after.kind !== 'available') { refusal = after; throw new Error('Preparation composition no longer available'); }
+            return response;
+          };
+          for await (const snapshot of composePreparation({ descriptor: input.descriptor, document, trigger: input.trigger, canView, evaluate, signal })) {
+            const latest = await current(); if (latest.kind !== 'available') return latest;
+            if (snapshot.descriptor) validatePreparationLayout(snapshot.descriptor, canView);
+            snapshots.push(snapshot);
+          }
+          if (refusal) return refusal;
+          const latest = await current(); if (latest.kind !== 'available') return latest;
+          return { kind: 'composed', preparation: initial.snapshot.ref, snapshots };
+        } catch { return refusal ?? (permitted() ? unavailable() : denied()); }
+      },
       transcribe: async (id, value, identity, signal) => {
         const input = structuredClone(value);
         if (!exact(input, ['requestId', 'recordingId']) || !requestId(input.requestId) || !requestId(input.recordingId) || signal?.aborted) return denied();

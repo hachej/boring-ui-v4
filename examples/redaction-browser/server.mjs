@@ -10,6 +10,7 @@ import { webRequest, sendWebResponse } from '@boring/files/node-http';
 import { redactionActor } from '../redaction/app.mjs';
 import { actorSnapshot } from '../redaction/bindings.mjs';
 import { openRedactionBrowser } from './runtime.mjs';
+import { fakePreparationEvaluator } from './preparation-composition.mjs';
 import { matchesActionRequestId } from './action-binding.mjs';
 
 const json = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -21,14 +22,14 @@ const generation = value => exact(value, 'instanceId,subject,requestId,source,co
 const proposal = value => exact(value, 'instanceId,subject,requestId,generationId,reservation,guard,actor,producer,delivery,operationId,validation,formatter');
 const adoption = value => exact(value, 'instanceId,subject,requestId,proposal,choices,corrections,record,letter') && proposal(value.proposal) && choices(value.choices) && corrections(value.corrections) && expected(value.record) && expected(value.letter);
 
-export function createRedactionBrowserHandler({ runtime, identity = redactionActor(), getOrigin }) {
+export function createRedactionBrowserHandler({ runtime, identity = redactionActor(), getOrigin, evaluation = { kind: 'local' } }) {
   const actor = actorSnapshot(identity);
   const authenticate = async request => request.headers.get('authorization') === 'Bearer fictional-redaction' && request.headers.get('origin') === getOrigin() ? { ...actor } : null;
   const resources = new Map();
-  for (const id of ['first', 'second']) for (const resource of ['notes', 'letter-A', 'letter-B', 'letter-C', 'record-A', 'record-B', 'record-C']) {
+  for (const id of ['first', 'second']) for (const resource of ['notes', 'letter-A', 'letter-B', 'letter-C', 'record-A', 'record-B', 'record-C', 'preparation', 'preparation-layout']) {
     resources.set(`/consultations/${id}/${resource}`, createResourceHandler({ authenticate,
       reader: { read: (request, access) => runtime.resourceClient(id, resource, access).read(request) },
-      ...(!resource.startsWith('record-') ? { publisher: { publish: (request, access) => runtime.resourceClient(id, resource, access).publish(request) }, lookup: { lookup: (operationId, access) => runtime.resourceClient(id, resource, access).lookup(operationId) } } : {}), maxRequestBytes: 32768 }));
+      ...(!resource.startsWith('record-') && resource !== 'preparation' ? { publisher: { publish: (request, access) => runtime.resourceClient(id, resource, access).publish(request) }, lookup: { lookup: (operationId, access) => runtime.resourceClient(id, resource, access).lookup(operationId) } } : {}), maxRequestBytes: 32768 }));
   }
   return async request => {
     const path = new URL(request.url).pathname;
@@ -43,6 +44,11 @@ export function createRedactionBrowserHandler({ runtime, identity = redactionAct
       const [, id, route] = matched;
       let call;
       switch (route) {
+        case 'preparation-capture': if (exact(input, 'requestId,source,saveOperationId')) call = () => runtime.preparationCapture(id, input, actor); break;
+        case 'preparation-admit': if (exact(input, 'instanceId,requestId,notes,dossier,config,generation,output') && expected(input.generation) && expected(input.output)) call = () => runtime.preparationAdmit(id, input, actor); break;
+        case 'preparation-latest': if (exact(input, '')) call = () => runtime.preparationLatest(id, actor); break;
+        case 'preparation-result': if (exact(input, 'instanceId,requestId,generationId,actor,reservation,guard,producer,validation,delivery,operationId')) call = () => runtime.preparationResult(id, input, actor); break;
+        case 'preparation-compose': if (exact(input, 'preparation,descriptor,trigger')) call = () => runtime.preparationCompose(id, input, actor, { evaluation, signal: request.signal }); break;
         case 'capture': if (exact(input, 'subject,requestId,source,saveOperationId')) call = () => runtime.capture(id, input, actor); break;
         case 'admit': if (generation(input)) call = () => runtime.admit(id, input, actor); break;
         case 'view': if (proposal(input)) call = () => runtime.view(id, input, actor); break;
@@ -63,10 +69,10 @@ export function createRedactionBrowserHandler({ runtime, identity = redactionAct
   };
 }
 
-export async function startRedactionBrowserServer({ runtime, identity = redactionActor(), port = 0, host = '127.0.0.1' }) {
+export async function startRedactionBrowserServer({ runtime, identity = redactionActor(), port = 0, host = '127.0.0.1', evaluation = { kind: 'local' } }) {
   const directory = mkdtempSync(join(tmpdir(), 'redaction-browser-assets-'));
   let origin, closed = false, bundle;
-  const handler = createRedactionBrowserHandler({ runtime, identity, getOrigin: () => origin });
+  const handler = createRedactionBrowserHandler({ runtime, identity, evaluation, getOrigin: () => origin });
   try { bundle = await build({ entryPoints: [fileURLToPath(new URL('./view.jsx', import.meta.url))], outdir: directory, entryNames: 'view', bundle: true, platform: 'browser', format: 'esm', metafile: true, define: { 'process.env.NODE_ENV': '"production"' } }); }
   catch (error) { rmSync(directory, { recursive: true, force: true }); throw error; }
   const server = createServer(async (incoming, outgoing) => {
@@ -88,7 +94,7 @@ export async function startRedactionBrowserServer({ runtime, identity = redactio
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const runtime = await openRedactionBrowser({ directory: resolve('.cache/redaction-browser-demo') });
   try {
-    const server = await startRedactionBrowserServer({ runtime, port: Number(process.env.PORT ?? 3001) });
+    const server = await startRedactionBrowserServer({ runtime, port: Number(process.env.PORT ?? 3001), evaluation: { kind: 'fake', evaluate: fakePreparationEvaluator } });
     console.log(`Fictional redaction: ${server.origin}`);
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await server.close(); await runtime.close(); process.exit(0); });
   } catch (error) { await runtime.close(); throw error; }

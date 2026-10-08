@@ -20,7 +20,7 @@ const requests = defineDocFamily({ kind: 'fixture.redaction.requests', version: 
 
 export async function openRedactionFixture({ directory, policy = () => true, beforeProduce = async () => {},
   afterReservationCommit = async () => {}, afterAdmission = async () => {}, afterDeliveryCommit = async () => {},
-  afterRepairDecision = async () => {}, beforeAdoptionPublish = async () => {}, afterAdoptionCommit = async () => {} }) {
+  afterRepairDecision = async () => {}, beforeAdoptionPublish = async () => {}, afterAdoptionCommit = async () => {}, preparation }) {
   mkdirSync(directory, { recursive: true });
   let closed = false, closing, instanceId, harness;
   const allowed = (actor, action, target) => {
@@ -50,7 +50,9 @@ export async function openRedactionFixture({ directory, policy = () => true, bef
     },
   }, abort: async (_task, runtime, ctx) => runtime.commit(() => ({ status: 'terminal', outcome: { status: 'aborted' } }), ctx) });
   const proposals = createRedactionProposals({ harness: () => harness, allowed, beforeProduce, afterRepairDecision });
+  const preparing = preparation ? (await import('./preparation.mjs')).createPreparation({ harness: () => harness, provider, models: proposals.models, allowed, options: preparation }) : null;
   const registry = createRegistry();
+  if (preparing) { registry.install(preparing.extension); registry.install(preparing.validation); }
   registry.install(proposals.extension);
   registry.install(proposals.validation.extension);
   registry.install(defineExtension({ name: 'fixture.redaction', tasks: [producer] }));
@@ -60,6 +62,7 @@ export async function openRedactionFixture({ directory, policy = () => true, bef
     harness = await Harness.open(storage, { registry, models: proposals.models }, context);
     const conversation = await harness.root(context);
     instanceId = await conversation.commit(async tx => (await tx.doc(installation)).instanceId, context);
+    await preparing?.initialize(instanceId, conversation);
     const delivery = createDocumentDelivery({ operationNamespace: `fictional.redaction:${instanceId}`, validationVersion: 'fictional-heading-v1',
       lookup: provider.reconciliation, publisher: { publish: async (...args) => {
         const result = await provider.publication.publish(...args);
@@ -212,7 +215,7 @@ export async function openRedactionFixture({ directory, policy = () => true, bef
     const adoption = createAdoption({ provider, harness, conversation, instanceId, allowed, getProposal,
       readCorrection: corrections.readCorrection, beforeAdoptionPublish, afterAdoptionCommit });
     registry.install(adoption.extension);
-    return { instanceId, paths: subject => paths(instanceId, subject), capture, latest,
+    return { instanceId, paths: subject => paths(instanceId, subject), capture, latest, ...(preparing ? { preparation: preparing.service } : {}),
       admit: (value, actor) => admitNative(value, actor, 'text'), admitProposal: (value, actor) => admitNative(value, actor, 'proposal'),
       domainPaths: (subject, itemId) => domainPaths(instanceId, subject, itemId),
       viewProposal: corrections.viewProposal, correctItem: corrections.correctItem,
