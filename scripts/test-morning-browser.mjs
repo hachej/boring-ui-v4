@@ -90,7 +90,7 @@ try {
   });
   await step('Slot acceptance and Tick lost acknowledgment reconcile without replay', async () => {
     const calendar = await record('calendar'); await browser.click(button(`Accept ${calendar.document.options[0].label}`)); await outcome('calendar', 'committed'); assert.equal((await record('calendar')).document.selected, calendar.document.options[0].id);
-    await run('j.faults.loseActionReply = true;'); await browser.click('document.querySelector("input[aria-label=\"Tick reply\"]")'); await outcome('todo', 'unknown'); const before = counts();
+    await run('j.faults.loseActionReply = true;'); await browser.click(`document.querySelector('input[aria-label="Tick reply"]')`); await outcome('todo', 'unknown'); const before = counts();
     await browser.click(button('Reconcile todo')); await outcome('todo', 'committed'); assert.deepEqual(counts(), before); assert.equal((await record('todo')).document.items.find(item => item.id === 'reply').completed, true);
   });
   await step('stale layout keep conflicts and cannot replace another writer', async () => {
