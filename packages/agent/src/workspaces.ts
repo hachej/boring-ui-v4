@@ -189,7 +189,10 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
   function dispose(key: string, entry: Entry<W>): Promise<void> {
     if (entries.get(key) === entry) entries.delete(key);
     if (entry.timer !== undefined) clearTimeout(entry.timer);
-    entry.closing ??= entry.opening.then(async workspace => { await workspace.close?.(); }, () => undefined).catch(error => { options.onError?.(error, key); });
+    entry.closing ??= entry.opening.then(async workspace => {
+      await Promise.allSettled(entry.views.values());
+      await workspace.close?.();
+    }, () => undefined).catch(error => { options.onError?.(error, key); });
     return entry.closing;
   }
   async function use(key: string, context: Context, lease: boolean): Promise<{ readonly workspace: W; readonly entry: Entry<W> }> {
@@ -211,6 +214,7 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
     entry.lastUsed = Date.now();
     try {
       const workspace = await entry.opening;
+      if (closed || entries.get(key) !== entry) throw new Error('The workspace was closed during acquisition');
       if (!lease) arm(key, entry);
       return { workspace, entry };
     } catch (error) {
@@ -222,6 +226,7 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
     const key = await options.key(target, context);
     if (key === undefined) return undefined;
     const { workspace, entry } = await use(key, context, false);
+    if (closed || entries.get(key) !== entry) throw new Error('The workspace was closed during acquisition');
     const cwd = target.cwd;
     if (cwd === undefined || cwd === workspace.env.cwd) return workspace;
     const atCwd = options.atCwd;
@@ -237,7 +242,9 @@ export function createWorkspaceCache<W extends OpenedWorkspace = OpenedWorkspace
       entry.views.set(cwd, selected);
       void selected.catch(() => { entry.views.delete(cwd); });
     }
-    return selected;
+    const view = await selected;
+    if (closed || entries.get(key) !== entry) throw new Error('The workspace was closed during cwd acquisition');
+    return view;
   };
   return {
     env: async (target, context) => (await forTarget(target, context))?.env,
