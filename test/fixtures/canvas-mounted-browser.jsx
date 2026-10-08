@@ -2,22 +2,13 @@ import 'tldraw/tldraw.css';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { LANGUAGES, atom, createTLStore } from '@tldraw/editor';
+import { atom, createTLStore } from '@tldraw/editor';
 import { DocumentRecordType, PageRecordType, TLDOCUMENT_ID, createShapeId } from '@tldraw/tlschema';
-import { DEFAULT_EMBED_DEFINITIONS, GeoShapeUtil, defaultBindingUtils, defaultEditorAssetUrls, defaultShapeUtils, iconTypes } from 'tldraw';
+import { GeoShapeUtil, defaultBindingUtils, defaultShapeUtils } from 'tldraw';
 import { createCanvasController, canvasMediaType } from '@boring/ui/canvas';
 import { CanvasEditor } from '@boring/ui/canvas-editor';
 
-// Fictional inline assets qualify geometry, not production fonts, icons or licensing.
-const BLANK_FONT = 'data:font/ttf;base64,AAEAAAAKAIAAAwAgT1MvMkD2QTgAAAEoAAAAYGNtYXAADABGAAABjAAAACxnbHlmAAAAAAAAAbwAAAABaGVhZCzkcPYAAACsAAAANmhoZWEDIgEuAAAA5AAAACRobXR4AfQAAAAAAYgAAAAEbG9jYQAAAAAAAAG4AAAABG1heHAAAgACAAABCAAAACBuYW1lKx4ttQAAAcAAAABacG9zdAADAAAAAAIcAAAAJAABAAAAAQAAaVjayF8PPPUAAwPoAAAAAObnGAsAAAAA5ucYCwAAAAAAAAAAAAAAAwACAAAAAAAAAAEAAAMg/zgAAAH0AAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAEAAAABAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAwH0AZAABQAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPz8/PwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAB9AAAAAAAAgAAAAMAAAAUAAMAAQAAABQABAAYAAAAAgACAAAAAP//AAD//wABAAAAAAAAAAAAAAAAAAQANgABAAAAAAABAAUAAAABAAAAAAACAAcABQADAAEECQABAAoADAADAAEECQACAA4AFkJsYW5rUmVndWxhcgBCAGwAYQBuAGsAUgBlAGcAdQBsAGEAcgAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA';
-const BLANK_ICON = 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22/%3E';
-const BLANK_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-const ASSETS = {
-  fonts: Object.fromEntries(Object.keys(defaultEditorAssetUrls.fonts).map(key => [key, BLANK_FONT])),
-  icons: Object.fromEntries(iconTypes.map(key => [key, BLANK_ICON])),
-  translations: Object.fromEntries(LANGUAGES.map(({ locale }) => [locale, 'data:application/json,%7B%7D'])),
-  embedIcons: Object.fromEntries(DEFAULT_EMBED_DEFINITIONS.map(({ type }) => [type, BLANK_PNG])),
-};
+import { ASSETS } from './canvas-mounted-browser-assets.mjs';
 
 const root = createRoot(document.getElementById('root'));
 const pageId = PageRecordType.createId('fictional-one');
