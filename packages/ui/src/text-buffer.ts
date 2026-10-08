@@ -230,6 +230,7 @@ export function createTextBuffer(options: TextBufferOptions) {
       decoded = read.kind === 'available' ? options.readText(read.snapshot) : options.emptyText ?? '';
       if (disposed() || sequence !== refreshSequence || attempt || !sameBase(previousBase, state.base) || state.bufferVersion !== previousVersion) return read;
       options.replaceText?.(decoded);
+      if (disposed() || sequence !== refreshSequence || attempt || !sameBase(previousBase, state.base) || state.bufferVersion !== previousVersion) return read;
     }
     catch { return { kind: 'unavailable', reason: 'Remote document could not be decoded or validated' }; }
     savedText = decoded;

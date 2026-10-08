@@ -74,3 +74,32 @@ test('public custom text buffer validates remote documents and keeps read-only p
   assert.equal((await buffer.refresh(false)).kind, 'unavailable');
   assert.equal(buffer.getSnapshot().text, initial);
 });
+
+for (const effect of ['edit', 'dispose']) test(`refresh preserves ${effect} performed by the replacement callback`, async t => {
+  const provider = openSqliteWorkspaces({ filename: ':memory:', providerId: 'tasks' });
+  t.after(() => provider.close());
+  const client = { read: request => provider.read(request, identity), publish: request => provider.publication.publish(request, identity) };
+  await client.publish({ operationId: 'seed', atomicity: 'all-or-nothing', changes: [
+    { kind: 'create', target, expected: { kind: 'absent' }, bytes: new TextEncoder().encode(initial), mediaType },
+  ] });
+  const source = await client.read({ target, revision: { kind: 'latest' } });
+  let buffer;
+  buffer = createTextBuffer({ identity, instanceId: 'custom', epoch: 'one', client, mediaType, readText,
+    source: { kind: 'saved', snapshot: source.snapshot }, replaceText: () => {
+      if (effect === 'edit') buffer.edit('{"items":[{"id":"newer","completed":false}]}');
+      else buffer.dispose();
+    } });
+  t.after(() => buffer.dispose());
+  await client.publish({ operationId: 'remote', atomicity: 'all-or-nothing', changes: [
+    { kind: 'replace', target: source.snapshot.ref, bytes: new TextEncoder().encode(initial.replace('false', 'true')), mediaType },
+  ] });
+  await buffer.refresh(false);
+  assert.equal(buffer.getSnapshot().base.target.revision, source.snapshot.ref.revision);
+  if (effect === 'edit') {
+    assert.match(buffer.getSnapshot().text, /newer/);
+    assert.equal(buffer.getSnapshot().dirty, true);
+  } else {
+    assert.equal(buffer.getSnapshot().lifecycle, 'disposed');
+    assert.equal(buffer.getSnapshot().text, initial);
+  }
+});
