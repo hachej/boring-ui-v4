@@ -7,7 +7,7 @@ import { canvasMediaType, parseCanvasDocument, applyCanvasEdits } from '@boring/
 import { defineTool } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
 import { parsePublicationResult, publicationDigest } from '@boring/files/publication';
-import { baselineKey, lastReadRevision, recordRevision } from '@boring/agent/file-guard';
+import { baselineKey, lastReadRevision, lastReadRevisions, recordRevision } from '@boring/agent/file-guard';
 import { asWorkspaceResolver, workspaceFor } from '@boring/agent/workspaces';
 import { DocumentRecordType, PageRecordType, TLDOCUMENT_ID, createBindingId, createShapeId, createTLSchema, toRichText } from '@tldraw/tlschema';
 import { getIndexAbove } from '@tldraw/utils';
@@ -64,7 +64,7 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
     if (resolved.refused) return { refused: { kind: 'denied', reason: resolved.refused } };
     const { binding } = resolved, granted = access ?? binding.access;
     if (!granted) return { refused: { kind: 'denied', reason: 'The host gave no access for this workspace' } };
-    return { files: binding.files, access: granted, key: baselineKey(binding, path), target: { resource: { providerId: binding.files.providerId, path }, view: { kind: 'published' } } };
+    return { files: binding.files, access: { ...granted }, root: binding.root, workspaceId: binding.id ?? binding.files.providerId, key: baselineKey(binding, path), target: { resource: { providerId: binding.files.providerId, path }, view: { kind: 'published' } } };
   }
   async function load({ files, access, target }) {
     const read = await files.read({ target, revision: { kind: 'latest' } }, access);
@@ -86,26 +86,75 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
     if (known !== current.revision) return { refused: { kind: 'conflict', reason: 'The canvas changed since you last read it. Call read_canvas again and redo the change.' } };
     return current;
   }
+  const intentMemo = 'boring.canvas.intent.v1', attemptedMemo = 'boring.canvas.attempted.v1';
+  const unknown = (intent, reason) => ({ kind: 'unknown', operationId: intent.operationId, reason });
+  const bindingOf = ws => ({ namespace, root: ws.root, workspaceId: ws.workspaceId, key: ws.key, target: ws.target,
+    principalId: ws.access.principalId, scopeId: ws.access.scopeId, initiatorId: ws.access.initiatorId, authorizationRef: ws.access.authorizationRef ?? null });
+
+  async function mutation(api, context) {
+    const intent = await api.memo(intentMemo, context);
+    let ws;
+    try { ws = await bind(api, context); }
+    catch (error) {
+      if (!intent) throw error;
+      return { result: unknown(intent, 'The original canvas workspace or access could not be resolved') };
+    }
+    if (ws.refused) return { result: intent ? unknown(intent, 'The original canvas workspace or access is no longer available') : ws.refused };
+    return intent ? { result: await settlePublication(ws, api, context, intent) } : { ws };
+  }
+
   async function publish(ws, api, context, document, revision) {
-    const { files, access, target } = ws;
-    const bytes = new TextEncoder().encode(JSON.stringify(document));
-    const request = { operationId: JSON.stringify([namespace, api.taskId]), atomicity: 'all-or-nothing',
-      changes: [revision === null ? { kind: 'create', target, expected: { kind: 'absent' }, bytes, mediaType: canvasMediaType }
-        : { kind: 'replace', target: { ...target, revision }, bytes, mediaType: canvasMediaType }] };
+    const intent = await api.memo(intentMemo, {
+      version: 1, operationId: JSON.stringify([namespace, api.taskId]), binding: bindingOf(ws),
+      revision, baseline: await lastReadRevision(api, ws.key, context) ?? null, text: JSON.stringify(document),
+    }, context);
+    return settlePublication(ws, api, context, intent);
+  }
+
+  async function settlePublication(ws, api, context, intent) {
+    if (intent.version !== 1 || JSON.stringify(intent.binding) !== JSON.stringify(bindingOf(ws))) {
+      return unknown(intent, 'Canvas publication binding changed; reconcile using the original workspace and identity');
+    }
+    const { target } = intent.binding, revision = intent.revision;
+    const request = { operationId: intent.operationId, atomicity: 'all-or-nothing',
+      changes: [revision === null ? { kind: 'create', target, expected: { kind: 'absent' }, bytes: new TextEncoder().encode(intent.text), mediaType: canvasMediaType }
+        : { kind: 'replace', target: { ...target, revision }, bytes: new TextEncoder().encode(intent.text), mediaType: canvasMediaType }] };
     const digest = await publicationDigest(request);
-    const acknowledgement = await files.publication.publish(request, access);
-    const unknown = () => ({ kind: 'unknown', operationId: request.operationId, reason: 'Canvas publication acknowledgement does not identify the requested change. Read the canvas before making another change.' });
+    const uncertain = () => unknown(intent, 'Canvas publication could not be confirmed; reconcile this operation before making another change');
+    function evidence(value) {
+      let result;
+      try { result = parsePublicationResult(value); } catch { return uncertain(); }
+      if (result.kind === 'partial' || result.kind === 'unknown') return uncertain();
+      if (result.kind !== 'committed') return result;
+      const receipt = result.receipt, change = receipt.changes[0];
+      const sameTarget = ref => ref?.resource.providerId === target.resource.providerId && ref.resource.path === target.resource.path && ref.view.kind === 'published';
+      if (receipt.operationId !== request.operationId || receipt.argumentDigest !== digest || receipt.scopeId !== intent.binding.scopeId
+        || receipt.principalId !== intent.binding.principalId || receipt.initiatorId !== intent.binding.initiatorId || receipt.changes.length !== 1
+        || !sameTarget(change.after) || (revision === null ? change.kind !== 'create' || change.before !== null
+          : change.kind !== 'replace' || !sameTarget(change.before) || change.before.revision !== revision)) return uncertain();
+      return result;
+    }
+    async function lookup() {
+      try {
+        const result = evidence(await ws.files.reconciliation.lookup(intent.operationId, ws.access));
+        return result.kind === 'committed' ? result : uncertain();
+      } catch { return uncertain(); }
+    }
     let result;
-    try { result = parsePublicationResult(acknowledgement); } catch { return unknown(); }
+    if (await api.memo(attemptedMemo, context)) result = await lookup();
+    else {
+      await api.memo(attemptedMemo, true, context);
+      try { result = evidence(await ws.files.publication.publish(request, ws.access)); }
+      catch { result = uncertain(); }
+      if (result.kind === 'unknown') result = await lookup();
+    }
     if (result.kind !== 'committed') return result;
-    const receipt = result.receipt, change = receipt.changes[0];
-    const sameTarget = ref => ref?.resource.providerId === target.resource.providerId && ref.resource.path === target.resource.path && ref.view.kind === 'published';
-    if (receipt.operationId !== request.operationId || receipt.argumentDigest !== digest || receipt.scopeId !== access.scopeId
-      || receipt.principalId !== access.principalId || receipt.initiatorId !== access.initiatorId || receipt.changes.length !== 1
-      || !sameTarget(change.after) || (revision === null ? change.kind !== 'create' || change.before !== null
-        : change.kind !== 'replace' || !sameTarget(change.before) || change.before.revision !== revision)) return unknown();
-    await recordRevision(api, ws.key, change.after.revision, context);
-    return { kind: 'saved', revision: change.after.revision, shapes: describe(document) };
+    const after = result.receipt.changes[0].after.revision;
+    await api.commit(async tx => {
+      const doc = await tx.doc(lastReadRevisions, api.conversationId);
+      if ((doc.revisions[ws.key] ?? null) === intent.baseline) doc.revisions[ws.key] = after;
+    }, context);
+    return { kind: 'saved', revision: after, shapes: describe(JSON.parse(intent.text)) };
   }
 
   const readCanvas = defineTool({
@@ -139,12 +188,12 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
         text: Type.Optional(Type.String({ description: 'Optional label on the arrow.' })),
       }, { additionalProperties: false }))),
     }, { additionalProperties: false }),
-    replay: 'unsafe',
+    replay: 'safe',
     execute: async (args, api, context) => {
-      const shapes = args.shapes ?? [], arrows = args.arrows ?? [];
+      const start = await mutation(api, context);
+      if (start.result) return reply(start.result);
+      const { ws } = start, shapes = args.shapes ?? [], arrows = args.arrows ?? [];
       if (shapes.length + arrows.length === 0) return reply({ kind: 'denied', reason: 'Nothing to add' });
-      const ws = await bind(api, context);
-      if (ws.refused) return reply(ws.refused);
       const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
       const document = structuredClone(current.document), edits = [], page = pageOf(document);
@@ -184,10 +233,11 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
   const removeShapes = defineTool({
     name: 'remove_canvas_shapes', description: 'Remove shapes by id from the canvas you read. Arrows attached to a removed shape are removed too.',
     parameters: Type.Object({ ids: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) }, { additionalProperties: false }),
-    replay: 'unsafe',
+    replay: 'safe',
     execute: async (args, api, context) => {
-      const ws = await bind(api, context);
-      if (ws.refused) return reply(ws.refused);
+      const start = await mutation(api, context);
+      if (start.result) return reply(start.result);
+      const { ws } = start;
       const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
       if (current.revision === null) return reply({ kind: 'denied', reason: 'No canvas is saved' });
