@@ -66,7 +66,9 @@ try {
     holdPublish = false; releasePublish(); releasePublish = undefined;
     await browser.until('V1 saved preserves V2', `${state('html')}.save.result?.kind==='saved'&&${state('html')}.dirty`);
     await browser.evaluate("window.drafts.controllers.get('html').actions.checkpointDraft()");
-    await reload(); await browser.click(button('html', 'Check stored drafts')); await browser.until('V2 recovered choice', `${state('html')}.recovery.discovery.choices?.some(choice=>choice.text==='<p>Newer V2 🌞</p>')`); await browser.click(button('html', 'Restore draft')); assert.equal(await browser.evaluate(`${state('html')}.text`), '<p>Newer V2 🌞</p>');
+    await reload(); await browser.click(button('html', 'Check stored drafts')); await browser.until('V2 recovered choice', `${state('html')}.recovery.discovery.choices?.some(choice=>choice.text==='<p>Newer V2 🌞</p>')`); await browser.click(button('html', 'Restore draft'));
+    await browser.until('V2 restore completed with exact text', `${state('html')}.text==='<p>Newer V2 🌞</p>'&&${state('html')}.dirty`);
+    assert.equal(await browser.evaluate(`${state('html')}.text`), '<p>Newer V2 🌞</p>');
     await browser.click(button('html', 'Save')); await browser.until('V2 saved', `${state('html')}.save.result?.kind==='saved'&&!${state('html')}.dirty`); assert.equal(host.publications(), 6);
   });
   await step('changed resource revision offers conflict without overwrite', async () => {
@@ -85,5 +87,8 @@ try {
     await browser.evaluate("window.drafts.holdWrite=true; window.drafts.controllers.get('html').actions.edit('<p>Logout race</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await browser.until('storage write held before transaction', 'window.drafts.writeHeld'); await browser.evaluate('window.drafts.logout()'); await browser.evaluate('window.drafts.releaseWrite();'); await browser.until('revocation visible', `${state('html')}.recovery.kind==='revoked'`); const oldEpoch = await browser.evaluate('window.drafts.session.epoch'); await reload(); assert.notEqual(await browser.evaluate('window.drafts.session.epoch'), oldEpoch); await browser.click(button('html', 'Check stored drafts')); await browser.until('logout purged old payloads', `${state('html')}.recovery.discovery.kind==='empty'`); assert.equal(host.publications(), 6);
   });
   report.status = 'passed';
-} catch (error) { report.status = 'failed'; report.error = String(error); process.exitCode = 1; }
+} catch (error) {
+  report.status = 'failed'; report.error = String(error); process.exitCode = 1;
+  report.html = await browser?.evaluate("window.drafts?.controllers.get('html').getSnapshot()").catch(() => undefined);
+}
 finally { releasePublish?.(); await browser?.close(); if (server?.listening) await new Promise(resolve => server.close(resolve)); host?.close(); rmSync(directory, { recursive: true, force: true }); writeFileSync(join(evidence, 'journey.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report)); }

@@ -40,6 +40,8 @@ jobs:
       # "No usable sandbox". Re-allow them for this job rather than running Chromium without its sandbox.
       - name: Allow the Chromium sandbox (user namespaces)
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Document draft recovery with IndexedDB
+        run: npm run draft-recovery:journey
       - name: Mounted canvas command geometry
         run: npm run canvas:journey:commands
       - name: Canvas proposal review and persistence
@@ -54,8 +56,6 @@ jobs:
         run: npm run redaction:journey
       - name: Fictional preparation experience
         run: npm run redaction:preparation:journey
-      - name: Document draft recovery with IndexedDB
-        run: npm run draft-recovery:journey
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model
