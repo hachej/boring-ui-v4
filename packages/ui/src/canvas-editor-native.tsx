@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { CSSProperties } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import { useEditor, useValue, GeoShapeGeoStyle, LANGUAGES } from '@tldraw/editor';
 import type { Editor, TLOnMountHandler } from '@tldraw/editor';
 import { Tldraw, iconTypes, DEFAULT_EMBED_DEFINITIONS } from 'tldraw';
@@ -9,6 +9,8 @@ import type { TLDefaultFonts, TLUiAssetUrls } from 'tldraw';
 import type { ReadResult } from '@boring/files';
 import type { SaveResult } from './resources.js';
 import type { CanvasController } from './canvas.js';
+import { createMountedCanvasTools } from './canvas-mounted.js';
+import type { CanvasMountedTools } from './canvas-mounted.js';
 
 export type CanvasFontUrls = Readonly<Record<`${keyof TLDefaultFonts}${'' | '_italic' | '_bold' | '_italic_bold'}`, string>>;
 export type CanvasAssetUrls = Omit<TLUiAssetUrls, 'fonts' | 'embedIcons'> & {
@@ -23,6 +25,7 @@ export interface CanvasEditorProps {
   readonly height?: CSSProperties['height'];
   readonly licenseKey?: string;
   readonly onMount?: TLOnMountHandler;
+  readonly onMountedTools?: (tools: CanvasMountedTools | null) => void;
 }
 
 const fontKeys: readonly (keyof CanvasFontUrls)[] = [
@@ -41,14 +44,14 @@ function assetSignature(assets: CanvasAssetUrls): string {
   for (const [key, value] of requirements) if (typeof value !== 'string' || !value.trim()) throw new TypeError(`Canvas asset URL is required: ${key}`);
   return JSON.stringify(requirements);
 }
-interface SessionProps extends CanvasEditorProps { readonly activeController: { readonly current: CanvasController } }
 
-export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', className, height = 480, licenseKey, onMount, activeController: active }: SessionProps) {
+export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', className, height = 480, licenseKey, onMount, onMountedTools }: CanvasEditorProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const revokeTools = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const signature = useMemo(() => assetSignature(assetUrls), [assetUrls]);
   const assets = useMemo(() => ({ fonts: { ...assetUrls.fonts }, icons: { ...assetUrls.icons }, translations: { ...assetUrls.translations }, embedIcons: { ...assetUrls.embedIcons } }), [signature]);
   const outcome = state.save.kind === 'settled' ? state.save.result : undefined;
@@ -57,22 +60,23 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
   const conflict = outcome?.kind === 'conflict' || state.remote !== null;
   const unavailable = state.readOnly || state.lifecycle === 'disposed';
   const run = async (action: () => Promise<ReadResult | SaveResult>) => {
-    if (active.current !== controller || controller.getSnapshot().lifecycle === 'disposed') return;
+    if (!mounted.current || controller.getSnapshot().lifecycle === 'disposed') return;
     setBusy(true); setError(null);
     try {
       const result = await action();
-      if (mounted.current && active.current === controller && (result.kind === 'unavailable' || result.kind === 'denied')) setError(result.reason);
+      if (mounted.current && (result.kind === 'unavailable' || result.kind === 'denied')) setError(result.reason);
     } catch (cause) {
-      if (mounted.current && active.current === controller) setError(cause instanceof Error ? cause.message : 'Canvas operation failed');
-    } finally { if (mounted.current && active.current === controller) setBusy(false); }
+      if (mounted.current) setError(cause instanceof Error ? cause.message : 'Canvas operation failed');
+    } finally { if (mounted.current) setBusy(false); }
   };
   const save = () => run(() => controller.flush(controller.actions.selection()));
   const attach = (editor: Editor) => {
-    if (controller.getSnapshot().readOnly || controller.getSnapshot().lifecycle === 'disposed' || active.current !== controller) editor.updateInstanceState({ isReadonly: true });
+    if (controller.getSnapshot().readOnly || controller.getSnapshot().lifecycle === 'disposed') editor.updateInstanceState({ isReadonly: true });
     editor.registerExternalAssetHandler('file', null);
     editor.registerExternalAssetHandler('url', null);
     for (const type of externalContentTypes) editor.registerExternalContentHandler(type, null);
-    return active.current === controller ? onMount?.(editor) : undefined;
+    const cleanup = onMount?.(editor);
+    return () => { revokeTools.current?.(); cleanup?.(); };
   };
   return <section className={className} data-boring="canvas-editor" data-dirty={state.dirty || undefined}
     onKeyDownCapture={event => {
@@ -100,7 +104,8 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
       onAuxClickCapture={event => { if (event.target instanceof Element && event.target.closest('a')) event.preventDefault(); }}>
       <Tldraw store={controller.store} hideUi locale="en"
         autoFocus={false} assetUrls={assets} {...(licenseKey === undefined ? {} : { licenseKey })} onMount={attach}>
-        <CanvasTools controller={controller} activeController={active} />
+        <CanvasTools controller={controller} />
+        <MountedCommands controller={controller} revokeTools={revokeTools} {...(onMountedTools ? { onMountedTools } : {})} />
       </Tldraw>
     </div>}
   </section>;
@@ -112,11 +117,11 @@ const choices: readonly (readonly [string, string])[] = [
   ['select', 'Select'], ['hand', 'Hand'], ['draw', 'Draw'], ['geo', 'Rectangle'], ['text', 'Text'],
   ['arrow', 'Arrow'], ['line', 'Line'], ['note', 'Note'], ['frame', 'Frame'], ['highlight', 'Highlight'], ['eraser', 'Erase'],
 ];
-function CanvasTools({ controller, activeController }: Pick<SessionProps, 'controller' | 'activeController'>) {
+function CanvasTools({ controller }: Pick<CanvasEditorProps, 'controller'>) {
   const editor = useEditor();
   const state = useValue('canvas controls', () => ({ tool: editor.getCurrentToolId(), readOnly: controller.getSnapshot().readOnly || editor.getIsReadonly(), undo: editor.getCanUndo(), redo: editor.getCanRedo() }), [editor]);
   const act = (action: () => void, changesDocument = true) => {
-    if (!editor.isDisposed && activeController.current === controller && controller.getSnapshot().lifecycle === 'active'
+    if (!editor.isDisposed && controller.getSnapshot().lifecycle === 'active'
       && (!changesDocument || (!controller.getSnapshot().readOnly && !editor.getIsReadonly()))) action();
   };
   return <div role="toolbar" aria-label="Canvas tools" style={{ position: 'absolute', top: 8, left: 8, zIndex: 300, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -126,4 +131,18 @@ function CanvasTools({ controller, activeController }: Pick<SessionProps, 'contr
     <button type="button" disabled={state.readOnly || !state.redo} onClick={() => act(() => { editor.redo(); })}>Redo</button>
     <button type="button" onClick={() => act(() => { editor.zoomToFit(); }, false)}>Fit canvas</button>
   </div>;
+}
+
+function MountedCommands({ controller, onMountedTools, revokeTools }: Pick<CanvasEditorProps, 'controller' | 'onMountedTools'> & { readonly revokeTools: RefObject<(() => void) | null> }) {
+  const editor = useEditor();
+  const binding = useMemo(() => createMountedCanvasTools({ controller, editor }), [controller, editor]);
+  useLayoutEffect(() => {
+    binding.activate(); revokeTools.current = binding.dispose;
+    return () => { binding.dispose(); if (revokeTools.current === binding.dispose) revokeTools.current = null; };
+  }, [binding, revokeTools]);
+  useLayoutEffect(() => {
+    onMountedTools?.(binding.tools);
+    return () => { onMountedTools?.(null); };
+  }, [binding, onMountedTools]);
+  return null;
 }

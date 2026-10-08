@@ -48,9 +48,9 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = originalNodeEnv;
   });
-  const { act, createElement } = await import('react');
+  const { act, createElement, Suspense, startTransition, StrictMode } = await import('react');
   const { createRoot } = await import('react-dom/client');
-  const { createTLStore, LANGUAGES, createShapeId } = await import('@tldraw/editor');
+  const { createTLStore, LANGUAGES, createShapeId, Box } = await import('@tldraw/editor');
   const { defaultEditorAssetUrls, iconTypes, DEFAULT_EMBED_DEFINITIONS } = await import('tldraw');
   const { PageRecordType, DocumentRecordType, TLDOCUMENT_ID, TLINSTANCE_ID } = await import('@tldraw/tlschema');
   const { createCanvasController } = await import('@boring/ui/canvas');
@@ -97,8 +97,8 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     window.document.body.append(container);
     const root = createRoot(container);
     let editor, readonlyAtMount, unmounted = false;
-    const render = async (selected = controller, mounted = native => { editor = native; readonlyAtMount = native.getIsReadonly(); }, assetUrls = assets) => {
-      await act(async () => root.render(createElement(CanvasEditor, { controller: selected, assetUrls, title, onMount: mounted })));
+    const render = async (selected = controller, mounted = native => { editor = native; readonlyAtMount = native.getIsReadonly(); }, assetUrls = assets, extra = {}) => {
+      await act(async () => root.render(createElement(CanvasEditor, { controller: selected, assetUrls, title, onMount: mounted, ...extra })));
       await waitFor(() => container.querySelector('[aria-label="Canvas tools"]'), 'Native canvas did not mount');
     };
     const unmount = async () => { await act(async () => root.unmount()); unmounted = true; };
@@ -118,6 +118,238 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     return JSON.parse(new TextDecoder().decode(read.snapshot.bytes));
   }
   async function click(container, label) { await act(async () => button(container, label).click()); }
+
+  await t.test('a suspended replacement keeps committed canvas controls active', async t => {
+    const f = await fixture(t);
+    const replacement = await fixture(t, { mount: false, title: 'Replacement' });
+    const pending = new Promise(() => {});
+    function Suspend() { throw pending; }
+    const tree = (controller, suspend) => createElement(Suspense, { fallback: 'Waiting' },
+      createElement(CanvasEditor, { controller, assetUrls: assets }), suspend ? createElement(Suspend) : null);
+    await act(async () => f.root.render(tree(f.controller, false)));
+    await waitFor(() => f.container.querySelector('[aria-label="Canvas tools"]'), 'Canvas absent');
+    await act(async () => startTransition(() => f.root.render(tree(replacement.controller, true))));
+    await click(f.container, 'Rectangle');
+    assert.equal(button(f.container, 'Rectangle').getAttribute('aria-pressed'), 'true');
+  });
+
+  async function mountedFixture(t, options) {
+    const f = await fixture(t, options);
+    let tools;
+    await f.render(f.controller, undefined, assets, { onMountedTools: value => { tools = value; } });
+    assert.ok(tools);
+    return { ...f, f, get tools() { return tools; } };
+  }
+  function syntheticViewport(f) {
+    f.editor.getContainer().getBoundingClientRect = () => new window.DOMRect(0, 0, 800, 600);
+    f.editor.updateViewportScreenBounds(new Box(0, 0, 800, 600));
+  }
+  const expiry = () => ({ expiresAt: Date.now() + 10000 });
+  async function invoke(f, command, input = expiry(), target = f.tools.getTarget(), signal) {
+    let result;
+    await act(async () => { result = await f.tools[command].invoke(target, input, signal); });
+    return result;
+  }
+
+  await t.test('mounted inspection and selection preserve exact dirty document and never publish', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo', props: { w: 80, h: 60 } }));
+    const target = f.tools.getTarget(), selection = f.controller.actions.selection();
+    const result = await invoke(f, 'inspect');
+    assert.equal(result.kind, 'applied');
+    assert.equal(result.value.dirty, true);
+    assert.deepEqual(result.value.selection, selection);
+    assert.equal(result.value.pageId, pageId);
+    assert.equal(result.value.shapes[0].id, shapeId);
+    assert.ok(Object.isFrozen(result.value.shapes[0].props));
+    assert.notEqual(result.value.shapes[0], f.editor.getShape(shapeId));
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId, shapeId] })).kind, 'applied');
+    assert.deepEqual(f.editor.getSelectedShapeIds(), [shapeId]);
+    assert.deepEqual(f.tools.getTarget(), target);
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [] })).kind, 'applied');
+    assert.deepEqual(f.editor.getSelectedShapeIds(), []);
+    assert.deepEqual(f.controller.actions.selection(), selection);
+    assert.equal(f.f.writes, 0);
+  });
+
+  await t.test('mounted commands reject stale targets, expiry, cancellation and missing shapes atomically', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo' }));
+    const target = f.tools.getTarget();
+    for (const mutate of [x => { x.instanceId += 'old'; }, x => { x.epoch += 'old'; }, x => { x.subject.scopeId += 'old'; },
+      x => { x.subject.mountId += 'old'; }, x => { x.subject.pageId += 'old'; }, x => { x.subject.bufferVersion++; },
+      x => { x.subject.base.target.resource.path += '.old'; }, x => { x.subject.base.target.revision += 'old'; },
+      x => { x.subject.base.target.resource.providerId += 'old'; }, x => { x.subject.base.target.view = { kind: 'working', viewId: 'other' }; }]) {
+      const changed = structuredClone(target); mutate(changed);
+      assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId] }, changed)).kind, 'stale');
+    }
+    assert.equal((await invoke(f, 'inspect', { expiresAt: 0 })).kind, 'stale');
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId] }, target, AbortSignal.abort())).kind, 'denied');
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId, 'shape:absent'] })).kind, 'denied');
+    assert.deepEqual(f.editor.getSelectedShapeIds(), []);
+    await act(async () => f.editor.updateShape({ id: shapeId, type: 'geo', x: 9 }));
+    assert.equal((await invoke(f, 'inspect', expiry(), target)).kind, 'stale');
+    assert.equal(f.f.writes, 0);
+  });
+
+  await t.test('page changes and detached or disposed owners revoke commands', async t => {
+    const f = await mountedFixture(t);
+    const old = f.tools.getTarget();
+    const second = PageRecordType.createId('second');
+    await act(async () => f.editor.createPage({ id: second, name: 'Second' }));
+    const otherShape = createShapeId('other-page');
+    await act(async () => f.editor.createShape({ id: otherShape, parentId: second, type: 'geo' }));
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [otherShape] })).kind, 'denied');
+    const before = f.tools.getTarget();
+    await act(async () => f.editor.setCurrentPage(second));
+    assert.equal((await invoke(f, 'inspect', expiry(), before)).kind, 'stale');
+    assert.notEqual(f.tools.getTarget().subject.pageId, old.subject.pageId);
+    f.container.remove();
+    assert.equal(f.tools.getTarget(), null);
+    assert.equal((await invoke(f, 'inspect', expiry(), before)).kind, 'unavailable');
+    window.document.body.append(f.container);
+    await act(async () => f.controller.dispose());
+    assert.equal(f.tools, null);
+  });
+
+  await t.test('callback replacement preserves one binding and cleanup revokes old handles', async t => {
+    const f = await fixture(t);
+    const events = [];
+    const first = value => events.push(['first', value]);
+    const second = value => events.push(['second', value]);
+    await f.render(f.controller, undefined, assets, { onMountedTools: first });
+    const tools = events[0][1], target = tools.getTarget();
+    await f.render(f.controller, undefined, assets, { onMountedTools: second });
+    assert.deepEqual(events.map(([name, value]) => [name, value === null]), [['first', false], ['first', true], ['second', false]]);
+    assert.equal(events[2][1], tools);
+    await f.unmount();
+    assert.equal(events.at(-1)[1], null);
+    assert.equal(tools.getTarget(), null);
+    assert.equal((await tools.inspect.invoke(target, expiry())).kind, 'unavailable');
+    assert.equal(f.controller.getSnapshot().lifecycle, 'active');
+  });
+
+  await t.test('readonly presentation works while locked camera refuses framing', async t => {
+    const f = await mountedFixture(t, { readOnly: true });
+    await act(async () => { f.editor.updateInstanceState({ isReadonly: false }); f.editor.createShape({ id: shapeId, type: 'geo' }); f.editor.updateInstanceState({ isReadonly: true }); });
+    const before = f.controller.actions.selection();
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId] })).kind, 'applied');
+    await act(async () => f.editor.setCameraOptions({ isLocked: true }));
+    const camera = structuredClone(f.editor.getCamera());
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'denied');
+    assert.deepEqual(f.editor.getCamera(), camera);
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [] })).kind, 'denied');
+    assert.deepEqual(f.controller.actions.selection(), before);
+    assert.equal(f.f.writes, 0);
+  });
+
+  await t.test('native framing verifies bounds with synthetic DOM geometry and reports zoom constraints', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => {
+      syntheticViewport(f);
+      f.editor.createShape({ id: shapeId, type: 'geo', x: 500, y: 700, props: { w: 80, h: 60 } });
+    });
+    const selection = f.controller.actions.selection();
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'applied');
+    const viewport = f.editor.getViewportPageBounds(), bounds = f.editor.getShapePageBounds(shapeId);
+    assert.ok(viewport.contains(bounds));
+    assert.deepEqual(f.controller.actions.selection(), selection);
+    await act(async () => {
+      f.editor.setCameraOptions({ zoomSteps: [1] });
+      f.editor.updateShape({ id: shapeId, type: 'geo', props: { w: 5000 } });
+    });
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'unavailable');
+    assert.equal(f.f.writes, 0);
+    for (const value of [null, {}, { expiresAt: Infinity }, { expiresAt: 2.5 }]) assert.throws(() => f.tools.inspect.input.parse(value));
+    for (const shapeIds of [null, [7], ['']]) assert.throws(() => f.tools.select.input.parse({ ...expiry(), shapeIds }));
+  });
+
+  await t.test('framing refuses stale native geometry and reentrant DOM hide or resize', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => { syntheticViewport(f); f.editor.createShape({ id: shapeId, type: 'geo', x: 500 }); });
+    f.editor.getContainer().getBoundingClientRect = () => new window.DOMRect(0, 0, 400, 300);
+    const camera = structuredClone(f.editor.getCamera());
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'unavailable');
+    assert.deepEqual(f.editor.getCamera(), camera);
+    for (const width of [0, 400]) {
+      await act(async () => syntheticViewport(f));
+      f.editor.once('stop-camera-animation', () => {
+        f.editor.getContainer().getBoundingClientRect = () => new window.DOMRect(0, 0, width, 300);
+      });
+      assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'unavailable');
+    }
+    assert.equal(f.f.writes, 0);
+  });
+
+  await t.test('reentrant native effects refuse success after controller teardown or cancellation', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo' }));
+    await act(async () => syntheticViewport(f));
+    const abort = new AbortController();
+    f.editor.once('stop-camera-animation', () => abort.abort());
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] }, f.tools.getTarget(), abort.signal)).kind, 'denied');
+    const remove = f.store.sideEffects.registerAfterChangeHandler('instance_page_state', () => f.controller.dispose());
+    t.after(remove);
+    assert.equal((await invoke(f, 'select', { ...expiry(), shapeIds: [shapeId] })).kind, 'unavailable');
+    assert.equal(f.f.writes, 0);
+  });
+
+  await t.test('host mount cleanup runs once and a remount never reactivates old commands', async t => {
+    const f = await fixture(t, { mount: false });
+    let mounts = 0, cleanups = 0, tools;
+    const onMount = () => { mounts++; return () => { cleanups++; assert.equal(tools.getTarget(), null); }; };
+    const onMountedTools = value => { if (value) tools = value; };
+    await f.render(f.controller, onMount, assets, { onMountedTools });
+    const old = tools, target = old.getTarget();
+    await f.render(f.controller, onMount, assets, { onMountedTools });
+    assert.equal(mounts, 1); assert.equal(cleanups, 0);
+    await act(async () => f.root.render(null));
+    assert.equal(cleanups, 1); assert.equal(old.getTarget(), null);
+    await f.render(f.controller, onMount, assets, { onMountedTools });
+    assert.equal(mounts, 2);
+    assert.notEqual(tools.getTarget().subject.mountId, target.subject.mountId);
+    assert.equal((await tools.inspect.invoke(target, expiry())).kind, 'stale');
+    assert.equal((await old.inspect.invoke(target, expiry())).kind, 'unavailable');
+  });
+
+  await t.test('StrictMode retains writable canvas and invokes host mounts', async t => {
+    const f = await fixture(t, { mount: false });
+    let editor, mounts = 0;
+    await act(async () => f.root.render(createElement(StrictMode, null, createElement(CanvasEditor, {
+      controller: f.controller, assetUrls: assets, onMount: value => { editor = value; mounts++; },
+    }))));
+    await waitFor(() => f.container.querySelector('[aria-label="Canvas tools"]'), 'StrictMode canvas absent');
+    assert.ok(mounts > 0);
+    assert.equal(editor.isDisposed, false);
+    assert.equal(editor.getIsReadonly(), false);
+    assert.equal(button(f.container, 'Rectangle').disabled, false);
+  });
+
+  await t.test('zero DOM viewport refuses camera effects', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => {
+      f.editor.updateViewportScreenBounds(new Box(0, 0, 800, 600));
+      f.editor.createShape({ id: shapeId, type: 'geo', x: 500 });
+    });
+    const camera = structuredClone(f.editor.getCamera());
+    assert.equal((await invoke(f, 'frame', { ...expiry(), shapeIds: [shapeId] })).kind, 'unavailable');
+    assert.deepEqual(f.editor.getCamera(), camera);
+  });
+
+  await t.test('unsupported document capture inside a native transaction returns unavailable', async t => {
+    const f = await mountedFixture(t);
+    const target = f.tools.getTarget();
+    const asset = f.store.schema.types.asset.create({ id: 'asset:local', type: 'image', props: { name: 'Fictional', src: 'https://example.invalid/image.png', w: 20, h: 20, mimeType: 'image/png', isAnimated: false } });
+    await act(async () => {
+      f.store.atomic(() => {
+        f.store.put([asset]);
+        assert.equal(f.controller.getSnapshot().problem, null);
+        assert.equal(f.tools.getTarget(), null);
+      });
+    });
+    assert.match(f.controller.getSnapshot().problem, /asset adapter/);
+    assert.equal((await invoke(f, 'inspect', expiry(), target)).kind, 'unavailable');
+  });
 
   await t.test('real native tools, shape edits, exact save and host asset maps', async t => {
     const f = await fixture(t);
