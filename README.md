@@ -50,6 +50,13 @@ Portable headless state/actions/tools power both human viewer controls and nativ
 
 Use just-bash/isomorphic-git over one selected virtual working view; optional code mode reuses upstream pi-codemode. Use tldraw for the selected canvas and json-render for declared layout composition. These are optional capabilities, not mandatory runtimes or permission grants. Generated content never installs executable plugins.
 
+## Fictional morning example
+
+Run `npm run build` and `npm run morning`, then open `http://127.0.0.1:3000`.
+The example prepares email, calendar and todo documents through native tasks. Its cells use their owning services for Snooze, Send, Slot and Tick. Send queues a fictional outbox record; it sends no email. The Markdown reply stays outside the generated decisions region. Regenerate offers a layout; adoption is local, and Pin/Keep require a publication receipt.
+
+`npm run morning:journey` runs the authenticated Chromium journey. `npm run test:morning-consumer` tests packed libraries in an isolated installation. See the [checkpoint](docs/implementation/PARTIAL.md#fictional-morning-experience-candidate-2026-10-08) for qualification limits.
+
 ## Read
 
 | Document | Purpose |

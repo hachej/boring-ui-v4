@@ -48,6 +48,8 @@ jobs:
         run: npm run canvas:journey:remote
       - name: Consumer task-list viewer
         run: npm run task-list:journey
+      - name: Fictional morning experience
+        run: npm run morning:journey
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model
@@ -89,6 +91,13 @@ jobs:
           name: task-list-evidence
           path: .cache/evidence/task-list-browser
           if-no-files-found: ignore
+          retention-days: 7
+      - name: Morning experience evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: morning-evidence
+          path: .cache/evidence/morning-browser
           retention-days: 7
       - name: Evidence of a failed run
         if: failure()

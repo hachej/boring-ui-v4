@@ -7,7 +7,8 @@ import { runCaptured } from './run-captured.mjs';
 import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-assert.equal(process.argv.length, 2, 'Expected no options');
+const morning = process.argv[2] === '--morning';
+assert.ok(process.argv.length === 2 || process.argv.length === 3 && morning, 'Expected no options or --morning');
 const directory = mkdtempSync(join(tmpdir(), 'boring-experience-consumer-'));
 const cache = process.env.npm_config_cache;
 assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
@@ -129,5 +130,32 @@ void tools;
   assertConsumerTypeFiles(resourceInputs.map(path => resolve(directory, path)).join('\n'), directory);
   assert.ok(resourceInputs.some(path => path.endsWith('@boring/ui/dist/experience-document.js')));
   assert.ok(resourceInputs.every(path => !/@earendil-works|@boring\/(agent|execution)|@tiptap|tldraw|marked|entities|sqlite|node:/.test(path)), 'Layout publication browser bundle must exclude native/server/unrelated viewer implementations');
+  if (morning) {
+    const installedManifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+    const installedLock = JSON.parse(readFileSync(join(directory, 'package-lock.json'), 'utf8'));
+    const selected = Object.entries(ui.peerDependencies).filter(([name]) => name.startsWith('@tiptap/') || ['marked', '@earendil-works/pi-durable', '@earendil-works/pi-ai', '@earendil-works/chord'].includes(name));
+    selected.push(['@modelcontextprotocol/sdk', rootManifest.devDependencies['@modelcontextprotocol/sdk']]);
+    for (const [name, version] of selected) { installedManifest.dependencies[name] = version; include(name); }
+    for (const [path, entry] of Object.entries(packages)) if (path && !installedLock.packages[path]) installedLock.packages[path] = entry;
+    installedLock.packages[''].dependencies = installedManifest.dependencies;
+    writeFileSync(join(directory, 'package.json'), JSON.stringify(installedManifest));
+    writeFileSync(join(directory, 'package-lock.json'), JSON.stringify(installedLock));
+    run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache)]);
+    run('npm', ['ci', ...npmInstallFlags(cache)]);
+    for (const path of ['examples/morning', 'examples/shared', 'test/compatibility', 'test/fixtures', 'dist']) mkdirSync(join(directory, path), { recursive: true });
+    for (const name of ['runtime.mjs', 'documents.mjs', 'fixtures.mjs', 'composition.mjs', 'view.jsx', 'client.mjs', 'server.mjs']) copyFileSync(join(root, 'examples/morning', name), join(directory, 'examples/morning', name));
+    copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'examples/shared/sqlite-workspaces.mjs'));
+    for (const name of ['morning.test.mjs', 'morning-composition.test.mjs']) copyFileSync(join(root, 'test/compatibility', name), join(directory, 'test/compatibility', name));
+    for (const name of ['morning-crash-child.mjs', 'morning-dom.mjs', 'native-document.mjs']) copyFileSync(join(root, 'test/fixtures', name), join(directory, 'test/fixtures', name));
+    run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/compatibility/morning.test.mjs', 'test/compatibility/morning-composition.test.mjs'], isolated);
+    run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'examples/morning/view.jsx', '--bundle', '--packages=external', '--platform=node', '--format=esm', '--jsx=automatic', '--outfile=dist/morning-view.js'], isolated);
+    run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/fixtures/morning-dom.mjs'], isolated);
+    run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'examples/morning/view.jsx', '--bundle', '--platform=browser', '--format=esm', '--jsx=automatic', '--outfile=morning-browser.js', '--metafile=morning-browser-meta.json'], isolated);
+    const inputs = Object.keys(JSON.parse(readFileSync(join(directory, 'morning-browser-meta.json'), 'utf8')).inputs);
+    assertConsumerTypeFiles(inputs.map(path => resolve(directory, path)).join('\n'), directory);
+    assert.ok(inputs.some(path => path.endsWith('examples/morning/view.jsx')));
+    assert.ok(inputs.every(path => !/@earendil-works|@boring\/(agent|execution)|sqlite|node:|morning\/(runtime|server|fixtures)\.mjs/.test(path)), 'Morning UI must exclude native/server code');
+    console.log('PASS: isolated morning native tasks, application receipts, SIGKILL recovery, composition privacy and real DOM controls; browser bundle only, not Chromium execution');
+  }
   console.log('PASS: isolated experience declarations, public validation/native metadata and region composition without files, browser/server-safe bundles including the fixed hub view and native renderer/generated offers/conditional Keep and region Pin with borrowed SQLite document controllers; no browser journey claimed');
 } finally { rmSync(directory, { recursive: true, force: true }); }

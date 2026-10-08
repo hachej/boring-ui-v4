@@ -495,3 +495,14 @@ Independent review also found hidden resolved refresh refusals and an unfinished
 Fourteen focused task-list tests pass, including six real SQLite/SIGKILL recovery cases. Successful recovery returns the original receipt/document even after a newer human publication. Changed binding/actor, revoked authorization and missing receipts never republish. Public buffer and existing HTML/canvas regression checks pass. Registry installation/restyle/native tests and actual browser journeys are required integration gates, with final results retained under `.cache/evidence/custom-task-viewer/` in the implementation checkout. Loopback restrictions prevent local browser execution; CI must establish that claim.
 
 W10/A43/A46 remain partial. Full P01-P14/A01-A48/H01-H10 remain in scope; no VERIFY.json deferral is removed. Hosted recipes, live identity/provider/model behavior, human/expert review and tldraw production licensing/assets remain separate qualifications.
+
+
+## Fictional morning experience candidate, 2026-10-08
+
+The candidate adds concrete email, calendar and todo services, native preparation tasks with a dependent merge, and an experience that calls each owning service. Send atomically queues a fictional outbox record against exact saved draft and email revisions. It does not deliver external email. Native action and preparation recovery retain their request and reconcile without replay after an attempted publication. Restricted draft/layout clients cannot write another resource.
+
+The generated decisions region receives registered references and enumerated metadata. Private fixture data stays out of its inputs and browser bundle. The fixed Markdown editor preserves its controller and local draft through proposals. Expand/Focus are local controls. Current authorization is checked by services and composition callbacks; this is not atomic authorization across independent external systems.
+
+Independent review found committed retries reported as denied, mutable exported locators, a lookup error misreported after publication, and loss of a leading Unicode byte-order mark. Regression tests cover their fixes. Focused runtime tests include eight real SIGKILL cases. The installed consumer runs the concrete example against package tarballs, native tasks and React controls. `morning:journey` is the separate actual-browser gate; DOM tests do not establish that claim. Candidate command results and review evidence live under ignored `.cache/evidence/morning-experience/`.
+
+W11 and A25-A32 remain partial. Live application connectors, evaluator quality, externally scheduled morning preparation, human acceptance and deployment require separate qualification. Full P01-P14/A01-A48/H01-H10 remain in scope, and no global VERIFY.json deferral is removed.
