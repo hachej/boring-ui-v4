@@ -15,7 +15,7 @@ const report = { status: 'running', steps: [] };
 let host, server, browser, holdPublish = false, publishHeld = false, releasePublish;
 const held = async predicate => { const until = Date.now() + 10000; while (!predicate()) { assert.ok(Date.now() < until, 'Host barrier arrived'); await delay(10); } };
 const step = async (name, action) => { const item = { name, status: 'running' }; report.steps.push(item); try { await action(); item.status = 'passed'; } catch (error) { item.status = 'failed'; throw error; } };
-const ready = () => browser.until('four concrete viewers ready', 'window.drafts?.ready && window.drafts.editor');
+const ready = () => browser.until('four concrete viewers ready', '!!(window.drafts?.ready && window.drafts.editor)');
 const button = (format, label) => `[...document.querySelectorAll('[data-format="${format}"] button')].find(button=>button.textContent.trim()===${JSON.stringify(label)})`;
 const state = format => `window.drafts.controllers.get('${format}').getSnapshot()`;
 const type = async (format, text) => { const selector = q(`[data-format="${format}"] textarea`); await browser.click(selector); await browser.evaluate(`(${selector}).select()`); await browser.send('Input.insertText', { text }); };
