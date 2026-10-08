@@ -141,6 +141,34 @@ test('restricted resource clients cannot read, write, precondition or reveal ano
   assert.equal((await r.layoutClient(actor).read({ target: r.draftTarget, revision: { kind: 'latest' } })).kind, 'denied');
 });
 
+for (const app of ['email', 'layout']) test(`restricted ${app} client checks current access after SQLite reads and lookups`, async t => {
+  let armed, permitted = true, calls = 0;
+  const { runtime: r } = await fixture(t, { authorize: (selected, permission) => {
+    if (selected === app && permission === armed?.permission && ++calls === armed.at) queueMicrotask(() => { permitted = false; });
+    return permitted;
+  } });
+  const client = app === 'email' ? r.draftClient(actor) : r.layoutClient(actor);
+  const target = app === 'email' ? r.draftTarget : r.layoutTarget;
+  const original = await client.read({ target, revision: { kind: 'latest' } });
+  assert.equal(original.kind, 'available');
+  const operationId = `current-${app}`;
+  const published = await client.publish({ operationId, atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: original.snapshot.ref, bytes: original.snapshot.bytes, mediaType: original.snapshot.mediaType }] });
+  assert.equal(published.kind, 'committed');
+  armed = { permission: 'read', at: 1 }; calls = 0;
+  const read = await client.read({ target, revision: { kind: 'latest' } });
+  assert.equal(permitted, false);
+  assert.equal(read.kind, 'denied');
+  assert.equal('snapshot' in read, false);
+  for (const at of [2, 3]) {
+    permitted = true; armed = { permission: 'lookup', at }; calls = 0;
+    const found = await client.lookup(operationId);
+    assert.equal(permitted, false);
+    assert.equal(found.kind, 'unknown');
+    assert.equal(found.operationId, operationId);
+    assert.equal('receipt' in found, false);
+  }
+});
+
 test('native execute revocation at the publication boundary prevents effects despite retained write access', async t => {
   let execute = true;
   const { runtime: r } = await fixture(t, {

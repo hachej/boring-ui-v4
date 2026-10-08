@@ -64,7 +64,10 @@ export async function openMorningRuntime({ directory, identity = morningIdentity
     async function lookup(app, operationId, access) {
       if (typeof operationId !== 'string' || !operationId || operationId.length > 256) return refusal('Invalid operation ID');
       if (!allowed(app, 'lookup', access)) return unknown(operationId, 'Current access does not permit lookup');
-      try { return await providers[app].reconciliation.lookup(operationId, access); } catch { return unknown(operationId, 'Publication lookup is unavailable'); }
+      try {
+        const result = await providers[app].reconciliation.lookup(operationId, access);
+        return allowed(app, 'lookup', access) ? result : unknown(operationId, 'Current access does not permit lookup');
+      } catch { return unknown(operationId, 'Publication lookup is unavailable'); }
     }
     async function dispatch(app, input, access, execution = false) {
       const request = publicationSnapshot(input), granted = accessSnapshot(access);
@@ -119,7 +122,11 @@ export async function openMorningRuntime({ directory, identity = morningIdentity
     function restrictedClient(app, selected, access) {
       const captured = accessSnapshot(access);
       return {
-        read: request => sameLocator(request.target, selected) ? providers[app].read(request, captured) : Promise.resolve(refusal('Resource is outside this client')),
+        read: async request => {
+          if (!sameLocator(request.target, selected)) return refusal('Resource is outside this client');
+          const result = await providers[app].read(request, captured);
+          return allowed(app, 'read', captured) ? result : refusal('Current read access denied');
+        },
         publish: input => {
           let request;
           try { request = publicationSnapshot(input); } catch { return Promise.resolve(refusal('Invalid publication request')); }
@@ -129,6 +136,7 @@ export async function openMorningRuntime({ directory, identity = morningIdentity
         },
         lookup: async operationId => {
           const result = await lookup(app, operationId, captured);
+          if (!allowed(app, 'lookup', captured)) return unknown(operationId, 'Current access does not permit lookup');
           return result.kind === 'committed' && result.receipt.changes.some(change => !sameLocator(change.after ?? change.before, selected)) ? unknown(operationId, 'Receipt is outside this client') : result;
         },
       };
