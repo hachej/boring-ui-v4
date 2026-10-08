@@ -45,7 +45,7 @@ const propose = async (kind, summary) => {
   const result = await run(`return j.propose(${JSON.stringify(kind)}, ${JSON.stringify(summary)});`);
   assert.equal(result.kind, 'proposed');
   const card = `[...document.querySelectorAll('[data-boring=canvas-proposal]')].find(card => card.querySelector('h3')?.textContent === ${JSON.stringify(summary)})`;
-  await browser.until('proposal summary rendered', card);
+  await browser.until('proposal summary rendered', `!!(${card})`);
   await browser.click(`${card}?.querySelector('details > summary')`);
   await browser.until('review shows affected native shape identity', `${card}?.innerText.includes('shape:reviewed')`);
   assert.equal(await browser.evaluate(`!!${card}?.querySelector('table')`), true, 'review uses changed-field rows');
