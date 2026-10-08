@@ -20,7 +20,8 @@ test('fixed and derived experiences with real React/json-render/SQLite in HappyD
   });
   const { createElement: h, act, useSyncExternalStore } = await import('react');
   const { createRoot } = await import('react-dom/client');
-  const { Experience } = await import('@boring/ui/experience');
+  const { Experience, ExperienceRenderer } = await import('@boring/ui/experience');
+  const { validateExperience } = await import('@boring/ui/experience/compose');
   const { createHtmlController } = await import('@boring/ui/html');
   let sequence = 0;
   const original = '<p>Original fictional document</p>\n';
@@ -252,4 +253,21 @@ test('fixed and derived experiences with real React/json-render/SQLite in HappyD
     assert.equal(result.kind, 'saved'); assert.deepEqual(result.selection, selected);
     assert.deepEqual((await f.saved()).bytes, new TextEncoder().encode(draft)); assert.equal(f.writes(), 1);
   });
+  await t.test('public renderer displays an already adopted descriptor without another acceptance layer', async () => {
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    let permitted = true;
+    const cells = [{ ref: 'fixture/card', kind: 'fixture/card', version: 1, render: () => h('p', null, 'Visible fixture') }];
+    const descriptor = validateExperience({ format: 'boring.experience', version: 1, name: 'fixture', source: 'fixed',
+      kinds: { 'boring/cell': 1, 'fixture/card': 1 }, root: 'card', elements: { card: { type: 'boring/cell', props: { ref: 'fixture/card' }, children: [] } },
+    }, { cells, canView: () => true });
+    try {
+      await act(async () => root.render(h(ExperienceRenderer, { descriptor, cells, canView: () => permitted })));
+      assert.equal(container.textContent, 'Visible fixture'); assert.equal(container.querySelector('button'), null);
+      permitted = false;
+      await act(async () => root.render(h(ExperienceRenderer, { descriptor, cells, canView: () => permitted })));
+      assert.equal(container.textContent, 'Cell unavailable');
+    } finally { await act(async () => root.unmount()); container.remove(); }
+  });
+
 });

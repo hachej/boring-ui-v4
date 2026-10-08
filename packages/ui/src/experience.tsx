@@ -6,6 +6,7 @@ import type { RenderedExperienceCell } from './experience-renderer.js';
 import { validateExperience } from './experience-compose.js';
 import type { ExperienceAccess, ExperienceDescriptor } from './experience-compose.js';
 
+export { ExperienceRenderer } from './experience-renderer.js';
 export type { RenderedExperienceCell } from './experience-renderer.js';
 export interface ExperienceProps {
   readonly descriptor: unknown;
