@@ -57,6 +57,7 @@ export function createMorningHandler({ runtime, identity = morningIdentity, getO
       if (path === '/compose') {
         if (Object.keys(input).sort().join(',') !== 'descriptor,trigger' || !['request', 'phase', 'open'].includes(input.trigger)) return denied();
         await beforeCompose?.(request.signal);
+        request.signal.throwIfAborted();
         const records = await Promise.all([runtime.email.read(identity), runtime.calendar.read(identity), runtime.todo.read(identity)]);
         if (records.some(record => record.kind !== 'available')) return denied();
         const metadata = morningMetadata({ email: records[0].document, calendar: records[1].document, todo: records[2].document });

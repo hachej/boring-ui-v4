@@ -14,7 +14,7 @@ import { createMorningClient } from '../../examples/morning/client.mjs';
 const modulePath = process.env.MORNING_DOM_MODULE ?? '../../dist/morning-view.js';
 test('fictional morning real native/SQLite owner actions and stable experience DOM', { timeout: 60000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'boring-morning-dom-')), window = new Window({ url: 'https://fictional.invalid/' }), globals = new Map();
-  let runtime, root, session, act, revoked = false, calendarFailed = false, failEvaluator = false, releaseComposition, delayComposition = false, delayEvaluation = false, releaseEvaluation, dropReply = false, mutateReply, mutateRequest, denyLookup = false;
+  let runtime, root, session, act, revoked = false, calendarFailed = false, failEvaluator = false, releaseComposition, heldSignal, delayComposition = false, delayEvaluation = false, releaseEvaluation, dropReply = false, mutateReply, mutateRequest, denyLookup = false;
   const evaluated = [], requests = [];
   for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Text', 'DOMParser', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
     globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
@@ -26,7 +26,7 @@ test('fictional morning real native/SQLite owner actions and stable experience D
   const { MorningView, createMorningSession } = await import(modulePath);
   runtime = await openMorningRuntime({ directory, layout: morningLayout, authorize: (app, permission) => !(revoked && app === 'email' && ['write', 'execute'].includes(permission)) && !(calendarFailed && app === 'calendar') });
   const prepared = await runtime.prepare(); assert.ok(prepared); const counts = structuredClone(runtime.local.publicationCounts);
-  const handler = createMorningHandler({ runtime, getOrigin: () => 'https://fictional.invalid', evaluate: async input => { evaluated.push(structuredClone(input)); if (delayEvaluation) { delayEvaluation = false; await new Promise(resolve => { releaseEvaluation = resolve; }); } if (failEvaluator) throw new Error('Fictional evaluator unavailable'); return fakeMorningEvaluator(input); }, beforeCompose: async () => { if (delayComposition) { delayComposition = false; await new Promise(resolve => { releaseComposition = resolve; }); } } });
+  const handler = createMorningHandler({ runtime, getOrigin: () => 'https://fictional.invalid', evaluate: async input => { evaluated.push(structuredClone(input)); if (delayEvaluation) { delayEvaluation = false; await new Promise(resolve => { releaseEvaluation = resolve; }); } if (failEvaluator) throw new Error('Fictional evaluator unavailable'); return fakeMorningEvaluator(input); }, beforeCompose: async signal => { if (delayComposition) { delayComposition = false; heldSignal = signal; await new Promise(resolve => { releaseComposition = resolve; }); } } });
   const transport = async request => {
     requests.push(new URL(request.url).pathname);
     const headers = new Headers(request.headers); headers.set('authorization', denyLookup && new URL(request.url).pathname === '/todo/lookup' ? 'Bearer foreign' : 'Bearer fictional-morning'); headers.set('origin', 'https://fictional.invalid');
@@ -70,11 +70,12 @@ test('fictional morning real native/SQLite owner actions and stable experience D
   const captured = JSON.stringify(evaluated), descriptor = session.experience.getSnapshot().text;
   for (const marker of [...Object.values(privateCanaries), 'Private local reply draft']) { assert.ok(!captured.includes(marker)); assert.ok(!descriptor.includes(marker)); }
   const noLocalWrites = structuredClone(runtime.local.publicationCounts), beforeLocalRequests = requests.length; await click('Expand email'); await click('Focus reply'); assert.deepEqual(runtime.local.publicationCounts, noLocalWrites); assert.equal(requests.length, beforeLocalRequests);
-  failEvaluator = true; const beforeFailure = session.experience.getSnapshot().text; await click('Regenerate decisions'); await wait(() => session.inspect().compositionStatus.includes('retained')); assert.equal(session.experience.getSnapshot().text, beforeFailure); assert.equal(draftNode.value, 'Private local reply draft'); failEvaluator = false;
+  failEvaluator = true; const evaluationsBeforeFailure = evaluated.length; const beforeFailure = session.experience.getSnapshot().text; await click('Regenerate decisions'); await wait(() => evaluated.length > evaluationsBeforeFailure && session.inspect().compositionStatus.includes('retained') && !session.inspect().compositionStatus.startsWith('Composing')); assert.equal(session.experience.getSnapshot().proposal, null); assert.equal(session.experience.getSnapshot().text, beforeFailure); assert.equal(draftNode.value, 'Private local reply draft'); failEvaluator = false;
   delayComposition = true; releaseComposition = undefined; session.compositionAbort = new AbortController();
   const beforeCancel = session.experience.getSnapshot().text, evaluationCount = evaluated.length;
   await click('Regenerate decisions'); await wait(() => typeof releaseComposition === 'function');
-  await act(async () => { session.compositionAbort.abort(); releaseComposition(); await new Promise(resolve => setTimeout(resolve, 10)); });
+  const cancelledSignal = heldSignal; await act(async () => { session.compositionAbort.abort(); }); await wait(() => cancelledSignal.aborted);
+  await act(async () => { releaseComposition(); await new Promise(resolve => setTimeout(resolve, 10)); });
   await wait(() => session.inspect().compositionStatus.includes('cancelled')); assert.equal(session.experience.getSnapshot().text, beforeCancel); assert.equal(evaluated.length, evaluationCount); session.compositionAbort = undefined;
   await act(async () => { await session.reply.flush(session.reply.actions.selection()); }); assert.equal(session.reply.getSnapshot().dirty, false);
   revoked = true; const beforeDenied = structuredClone(runtime.local.publicationCounts); await click('Send saved reply'); await wait(() => session.inspect().outcomes.email?.result.kind === 'denied'); assert.deepEqual(runtime.local.publicationCounts, beforeDenied); revoked = false;

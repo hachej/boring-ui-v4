@@ -13,7 +13,7 @@ import { startMorningServer } from '../examples/morning/server.mjs';
 
 const evidence = resolve(process.env.MORNING_EVIDENCE ?? '.cache/evidence/morning-browser'); mkdirSync(evidence, { recursive: true });
 const directory = mkdtempSync(join(tmpdir(), 'boring-morning-browser-')), report = { status: 'running', steps: [], native: [] }, evaluated = [];
-let runtime, server, browser, revoked = false, calendarFailed = false, delay = false, release, fail = false, holdEvaluation = false, releaseEvaluation;
+let runtime, server, browser, revoked = false, calendarFailed = false, delay = false, release, heldSignal, fail = false, holdEvaluation = false, releaseEvaluation;
 const held = async getter => { const deadline = Date.now() + 15000; while (!getter()) { assert.ok(Date.now() < deadline, 'Host gate reached'); await delayMs(10); } };
 const counts = () => structuredClone(runtime.local.publicationCounts);
 const step = async (name, action) => { const item = { name, status: 'running' }; report.steps.push(item); try { await action(); item.status = 'passed'; } catch (error) { item.status = 'failed'; item.error = String(error); throw error; } };
@@ -37,7 +37,7 @@ try {
   });
   await step('actual authenticated host and Chromium mount without publications', async () => {
     server = await startMorningServer({ runtime, evaluate: async input => { evaluated.push(structuredClone(input)); if (holdEvaluation) { holdEvaluation = false; await new Promise(resolve => { releaseEvaluation = resolve; }); } if (fail) throw new Error('Fictional evaluator failed'); return fakeMorningEvaluator(input); },
-      beforeCompose: async () => { if (delay) { delay = false; await new Promise(resolve => { release = resolve; }); } } });
+      beforeCompose: async signal => { if (delay) { delay = false; heldSignal = signal; await new Promise(resolve => { release = resolve; }); } } });
     const before = counts(); browser = await launch(server.origin, { evidence }); await browser.until('morning fixture ready', '!!window.morning?.session'); assert.deepEqual(counts(), before);
   });
   await step('dirty reply focus and selection survive delayed proposal and explicit region adoption', async () => {
@@ -63,12 +63,13 @@ try {
     await run('const request=j.session.experience.actions.beginRegion(j.session.experience.actions.selection(),"decisions","phase"); if(request.kind!=="applied")throw new Error(request.kind); await j.session.regenerate(request.value);');
     assert.equal(await run('return !!j.session.experience.getSnapshot().proposal;'), true); assert.equal(await run('return j.session.experience.getSnapshot().text;'), before); await browser.click(button('Dismiss proposed region'));
     delay = true; await run('j.session.compositionAbort = new AbortController();'); await browser.click(button('Regenerate decisions')); await browser.until('cancel request waiting', 'window.morning.inspect().compositionStatus.includes("Composing")');
-    await held(() => release); const priorEvaluations = evaluated.length; await run('j.session.compositionAbort.abort();'); release?.(); release = undefined;
+    await held(() => release); const cancelledSignal = heldSignal, priorEvaluations = evaluated.length; await run('j.session.compositionAbort.abort();'); await held(() => cancelledSignal.aborted); release?.(); release = undefined;
     await browser.until('cancelled view retained', 'window.morning.inspect().compositionStatus.includes("cancelled")'); assert.equal(evaluated.length, priorEvaluations); assert.equal(await run('return j.session.experience.getSnapshot().text;'), before); await run('j.session.compositionAbort = undefined;');
   });
   await step('failed composition preserves default/current view and dirty editor', async () => {
-    fail = true; const before = await run('return {text:j.session.experience.getSnapshot().text,draft:j.session.reply.getSnapshot().text};');
-    await browser.click(button('Regenerate decisions')); await browser.until('failure retained view', 'window.morning.inspect().compositionStatus.includes("retained")');
+    fail = true; const priorEvaluations = evaluated.length; const before = await run('return {text:j.session.experience.getSnapshot().text,draft:j.session.reply.getSnapshot().text};');
+    await browser.click(button('Regenerate decisions')); await held(() => evaluated.length > priorEvaluations); await browser.until('failure retained view', 'window.morning.inspect().compositionStatus.includes("retained") && !window.morning.inspect().compositionStatus.startsWith("Composing")');
+    assert.equal(await run('return j.session.experience.getSnapshot().proposal;'), null);
     assert.deepEqual(await run('return {text:j.session.experience.getSnapshot().text,draft:j.session.reply.getSnapshot().text};'), before); fail = false;
   });
   await step('local Expand and Focus never write or admit native work', async () => {
