@@ -14,7 +14,13 @@ const directory = mkdtempSync(join(tmpdir(), 'boring-draft-browser-'));
 const report = { status: 'running', steps: [] };
 let host, server, browser, holdPublish = false, publishHeld = false, releasePublish;
 const held = async predicate => { const until = Date.now() + 10000; while (!predicate()) { assert.ok(Date.now() < until, 'Host barrier arrived'); await delay(10); } };
-const step = async (name, action) => { const item = { name, status: 'running' }; report.steps.push(item); try { await action(); item.status = 'passed'; } catch (error) { item.status = 'failed'; throw error; } };
+const record = () => { writeFileSync(join(evidence, 'journey.json'), JSON.stringify(report, null, 2)); };
+const step = async (name, action) => {
+  const item = { name, status: 'running' }; report.steps.push(item); record(); console.log(JSON.stringify(item));
+  try { await action(); item.status = 'passed'; }
+  catch (error) { item.status = 'failed'; throw error; }
+  finally { record(); console.log(JSON.stringify(item)); }
+};
 const ready = () => browser.until('four concrete viewers ready', '!!(window.drafts?.ready && window.drafts.editor)');
 const reload = async () => {
   const previous = await browser.evaluate("window.drafts.controllers.get('markdown').actions.selection().target.instanceId");
@@ -84,7 +90,18 @@ try {
     try { await tab.until('second tab ready', 'window.drafts?.ready'); await tab.evaluate("window.drafts.controllers.get('html').actions.edit('<p>Second tab unsaved</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await tab.until('second tab stored', `${state('html')}.recovery.checkpoint.kind==='stored'`); await reload(); await browser.click(button('html', 'Check stored drafts')); await browser.until('two writer choices', `${state('html')}.recovery.discovery.choices?.length===2`); await browser.click(button('html', 'Discard stored draft')); await browser.click(button('html', 'Check stored drafts')); await browser.until('one writer remains', `${state('html')}.recovery.discovery.choices?.length===1`); } finally { await tab.close(); }
   });
   await step('delayed storage write cannot cross durable logout', async () => {
-    await browser.evaluate("window.drafts.holdWrite=true; window.drafts.controllers.get('html').actions.edit('<p>Logout race</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await browser.until('storage write held before transaction', 'window.drafts.writeHeld'); await browser.evaluate('window.drafts.logout()'); await browser.evaluate('window.drafts.releaseWrite();'); await browser.until('revocation visible', `${state('html')}.recovery.kind==='revoked'`); const oldEpoch = await browser.evaluate('window.drafts.session.epoch'); await reload(); assert.notEqual(await browser.evaluate('window.drafts.session.epoch'), oldEpoch); await browser.click(button('html', 'Check stored drafts')); await browser.until('logout purged old payloads', `${state('html')}.recovery.discovery.kind==='empty'`); assert.equal(host.publications(), 6);
+    await browser.evaluate("window.drafts.holdWrite=true; window.drafts.controllers.get('html').actions.edit('<p>Logout race</p>'); window.drafts.pendingCheckpoint=window.drafts.controllers.get('html').actions.checkpointDraft(); void 0;");
+    await browser.until('storage write held before transaction', 'window.drafts.writeHeld');
+    await browser.evaluate('window.drafts.logout()');
+    await browser.evaluate('window.drafts.releaseWrite();');
+    assert.equal((await browser.evaluate('window.drafts.pendingCheckpoint')).kind, 'denied');
+    await browser.until('revocation visible', `${state('html')}.recovery.kind==='revoked'`);
+    const oldEpoch = await browser.evaluate('window.drafts.session.epoch');
+    await reload();
+    assert.notEqual(await browser.evaluate('window.drafts.session.epoch'), oldEpoch);
+    await browser.click(button('html', 'Check stored drafts'));
+    await browser.until('logout purged old payloads', `${state('html')}.recovery.discovery.kind==='empty'`);
+    assert.equal(host.publications(), 6);
   });
   report.status = 'passed';
 } catch (error) {
