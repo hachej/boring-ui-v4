@@ -83,6 +83,10 @@
     "./experience/regions": {
       "types": "./dist/experience-regions.d.ts",
       "import": "./dist/experience-regions.js"
+    },
+    "./canvas-document": {
+      "types": "./dist/canvas-document.d.ts",
+      "import": "./dist/canvas-document.js"
     }
   },
   "peerDependencies": {
@@ -110,7 +114,8 @@
     "@tldraw/store": "5.5.2",
     "@json-render/core": "0.21.0",
     "@json-render/react": "0.21.0",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "@tldraw/tlschema": "5.5.2"
   },
   "peerDependenciesMeta": {
     "@boring/files": {
@@ -186,6 +191,9 @@
       "optional": true
     },
     "zod": {
+      "optional": true
+    },
+    "@tldraw/tlschema": {
       "optional": true
     }
   },

@@ -86,6 +86,22 @@ Without a custom `source`, history defaults to the borrowed conversation. Set `h
 
 `test/packages/ui-native-chat-history.test.mjs` uses real native reset/head/fork records. `node examples/chat-history.mjs` demonstrates three native pages across a reset without model calls.
 
+## Headless canvas document edits
+
+Import `parseCanvasDocument`, `applyCanvasEdits`, `CanvasEdit` and `canvasMediaType` from `@boring/ui/canvas-document`. Pass the host's native `TLStoreSchema`. This entry needs neither a mounted editor nor a resource client. It preserves the selected schema and refuses migrations, unsupported shapes, assets and session records.
+
+`parseCanvasDocument(value, schema)` returns a detached, complete native document or throws. It validates native records, document/page presence, parent chains, arrow endpoints, page membership and unique arrow terminals. It performs no normalization or repair.
+
+`applyCanvasEdits(document, edits, schema)` returns `{ kind: 'applied', document }` or `{ kind: 'rejected', reason }`. Each edit is one of:
+
+- `{ kind: 'create', record }`: create an absent native shape or arrow binding.
+- `{ kind: 'update', record }`: replace an existing record of the same native type. Supply the complete record, including `props` and `meta`. Coordinates are local to its supplied parent.
+- `{ kind: 'remove', id }`: remove an existing shape or binding. Shape removal also deletes descendants, arrows attached to removed shapes, and their bindings. Removing a binding alone preserves both endpoint shapes.
+
+A batch may refer to records created later in that batch. Duplicate edits to one ID, missing targets, invalid final graphs and writes removed by the batch's deletion cascade reject the whole batch. Inputs are unchanged. Returned records are detached from the caller's inputs.
+
+The caller publishes the candidate through its existing conditional resource operation against the original revision. These functions grant no authority, publish no bytes and promise no native Editor side-effect or geometry equivalence. Local proposal review/adoption remains separate work.
+
 ## Optional canvas document controller
 
 Import `createCanvasController` from `@boring/ui/canvas`. Supply a borrowed native `TLStore`, an authenticated resource client, a saved snapshot or new target, expected identity and viewer instance/epoch. Install the pinned `@tldraw/editor` and `@tldraw/store` peers and their React peers. The SDK itself depends on Tiptap; selecting canvas does not import Boring's Markdown renderer. Plain Markdown/chat imports remain independent of canvas.

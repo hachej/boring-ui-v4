@@ -21,8 +21,8 @@ async function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'boring-canvas-publication-'));
   const owner = openSqliteWorkspaces({ filename: join(directory, 'files.sqlite'), providerId: target.resource.providerId, authorize: () => true });
   const actual = owner.workspace(access.scopeId);
-  const control = { publish: (request, granted) => actual.publication.publish(request, granted) };
-  const files = { ...actual, publication: { ...actual.publication, publish: (request, granted) => control.publish(request, granted) } };
+  const control = { read: (request, granted) => actual.read(request, granted), publish: (request, granted) => actual.publication.publish(request, granted) };
+  const files = { ...actual, read: (request, granted) => control.read(request, granted), publication: { ...actual.publication, publish: (request, granted) => control.publish(request, granted) } };
   const registry = createRegistry();
   const tools = createCanvasTools({ workspace: { files, root: '/workspace', access } });
   assert.equal(tools.find(tool => tool.name === 'add_canvas_shapes').replay, 'unsafe');
@@ -223,4 +223,24 @@ test('removing an arrow removes both bindings and preserves its endpoints and un
   const removed = new Set(['shape:arrow-leaf-outside-a', 'binding:arrow-leaf-outside-a-start', 'binding:arrow-leaf-outside-a-end']);
   assert.deepEqual(after.store, Object.fromEntries(Object.entries(before.store).filter(([id]) => !removed.has(id))));
   assert.ok(after.store['shape:leaf']); assert.ok(after.store['shape:outside-a']);
+});
+
+for (const invalid of ['parent', 'schema', 'media']) test(`canvas tools refuse invalid saved ${invalid} before recording or publishing a baseline`, async t => {
+  const f = await fixture(t);
+  const before = await f.run('add_canvas_shapes', { shapes: [shape('first')] });
+  const read = await f.read(), document = JSON.parse(new TextDecoder().decode(read.snapshot.bytes));
+  if (invalid === 'parent') document.store['shape:first'].parentId = 'page:missing';
+  if (invalid === 'schema') document.schema.sequences = {};
+  if (invalid === 'media') f.control.read = async (request, granted) => {
+    const result = await f.actual.read(request, granted);
+    return result.kind === 'available' ? { ...result, snapshot: { ...result.snapshot, mediaType: 'application/json' } } : result;
+  };
+  const corrupted = await f.actual.publication.publish({ operationId: `fictional-invalid-${invalid}`, atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: read.snapshot.ref,
+    mediaType: read.snapshot.mediaType, bytes: new TextEncoder().encode(JSON.stringify(document)) }] }, access);
+  assert.equal(corrupted.kind, 'committed');
+  assert.equal((await f.run('read_canvas')).kind, 'unavailable');
+  assert.equal(await f.baseline(), before.revision);
+  assert.equal((await f.run('add_canvas_shapes', { shapes: [shape('second')] })).kind, 'unavailable');
+  assert.equal((await f.run('remove_canvas_shapes', { ids: ['first'] })).kind, 'unavailable');
+  assert.equal((await f.read()).snapshot.ref.revision, corrupted.receipt.changes[0].after.revision);
 });

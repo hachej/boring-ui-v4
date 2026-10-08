@@ -48,7 +48,8 @@
     "tailwind-merge": "3.7.0",
     "use-stick-to-bottom": "1.1.6",
     "@sqlite.org/sqlite-wasm": "3.53.4-build2",
-    "buffer": "6.0.3"
+    "buffer": "6.0.3",
+    "@tldraw/tlschema": "5.5.2"
   },
   "packages": {
     "files": {
@@ -169,7 +170,8 @@
         "@tldraw/editor",
         "@tldraw/store",
         "@json-render/react/schema",
-        "@earendil-works/chord/delta"
+        "@earendil-works/chord/delta",
+        "@tldraw/tlschema"
       ],
       "typeOnlyExternal": [
         "@earendil-works/pi-durable",

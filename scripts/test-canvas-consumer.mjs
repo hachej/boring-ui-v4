@@ -61,6 +61,14 @@ try {
   run('npm', ['ci', ...npmInstallFlags(cache)]);
   for (const name of ['@earendil-works/pi-durable', '@earendil-works/chord', '@earendil-works/pi-ai', '@boring/agent', '@boring/execution', 'marked', ...(editor ? [] : ['tldraw'])]) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createCanvasController, type CanvasController, type CanvasOptions } from '@boring/ui/canvas';
+import { applyCanvasEdits, parseCanvasDocument, type CanvasEdit } from '@boring/ui/canvas-document';
+import type { TLStoreSchema, TLShape } from '@tldraw/tlschema';
+declare const schema: TLStoreSchema;
+declare const shape: TLShape;
+const edit: CanvasEdit = { kind: 'update', record: shape };
+const candidate = applyCanvasEdits(parseCanvasDocument({}, schema), [edit], schema);
+// @ts-expect-error document edits cannot replace the document record
+const invalid: CanvasEdit = { kind: 'update', record: { typeName: 'document' } };
 import type { TLStore, TLStoreSnapshot } from '@tldraw/editor';
 declare const options: CanvasOptions;
 const controller: CanvasController = createCanvasController(options);
@@ -114,7 +122,22 @@ createElement(CanvasEditor, withTools);` : ''}
   assert.deepEqual(ours, [], 'Strict library check reports errors outside the upstream tldraw declarations');
   assert.ok(strict.status === 0 || located.length > 0, `Strict library check failed without located diagnostics:\n${strict.stdout}${strict.stderr}`);
   if (located.length) console.log(`Upstream tldraw declaration diagnostics (skipLibCheck in the consumer recipe):\n${located.join('\n')}`);
-  const tests = ['ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
+  writeFileSync(join(directory, 'server-entry.js'), `import { parseCanvasDocument, applyCanvasEdits } from '@boring/ui/canvas-document';
+import { createTLSchema, DocumentRecordType, PageRecordType, TLDOCUMENT_ID } from '@tldraw/tlschema';
+const schema = createTLSchema();
+const records = [DocumentRecordType.create({ id: TLDOCUMENT_ID }), PageRecordType.create({ id: PageRecordType.createId('server'), name: 'Server', index: 'a1' })];
+const document = parseCanvasDocument({ schema: schema.serialize(), store: Object.fromEntries(records.map(record => [record.id, record])) }, schema);
+const shape = schema.types.shape.create({ id: 'shape:server', type: 'group', parentId: records[1].id, index: 'a1', props: {} });
+if (applyCanvasEdits(document, [{ kind: 'create', record: shape }], schema).kind !== 'applied') throw new Error('Server edit failed');
+console.log('server document import and validation completed without DOM or editor');
+`);
+  const server = runCaptured(process.execPath, ['server-entry.js'], { cwd: directory, timeout: 10000, env: isolated });
+  assert.equal(server.status, 0, server.stderr || server.error?.message);
+  assert.match(server.stdout, /validation completed/);
+  run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'server-entry.js', '--bundle', '--platform=node', '--format=esm', '--outfile=server-bundle.mjs', '--metafile=server-meta.json'], isolated);
+  const serverInputs = Object.keys(JSON.parse(readFileSync(join(directory, 'server-meta.json'), 'utf8')).inputs);
+  assert.ok(serverInputs.every(path => !/\/(?:@tldraw\/editor|react|react-dom|@boring\/(?:agent|files))\//.test(path)), 'Document edits must not load an editor, React, agent or resource implementation');
+  const tests = ['ui-canvas-document.test.mjs', 'ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
   // Tests are copied flat; their host (one SQLite workspace per scope, public @boring/files entries only) sits beside them.
   copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'sqlite-workspaces.mjs'));
   for (const name of tests) writeFileSync(join(directory, name), readFileSync(join(root, 'test/packages', name), 'utf8').replace("'../../examples/shared/sqlite-workspaces.mjs'", "'./sqlite-workspaces.mjs'"));

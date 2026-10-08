@@ -1,11 +1,13 @@
+import { canvasMediaType, parseCanvasDocument } from './canvas-document.js';
+import { parseCanvasRecords } from './canvas-records.js';
 import { loadSnapshot } from '@tldraw/editor';
-import type { TLRecord, TLStore, TLStoreSnapshot } from '@tldraw/editor';
+import type { TLStore, TLStoreSnapshot } from '@tldraw/editor';
 import { Store } from '@tldraw/store';
 import type { ResourceAccess, ResourceClient, ResourceLocator, ResourceSnapshot } from '@boring/files';
 import type { SaveSelection } from './resources.js';
 import { createTextBuffer, freeze, type TextBufferState } from './text-buffer.js';
 
-export const canvasMediaType = 'application/vnd.tldraw+json';
+export { canvasMediaType } from './canvas-document.js';
 export type CanvasSource = { readonly kind: 'saved'; readonly snapshot: ResourceSnapshot }
   | { readonly kind: 'new'; readonly target: ResourceLocator };
 export interface CanvasOptions {
@@ -20,38 +22,12 @@ export interface CanvasOptions {
   readonly onListenerError?: (error: unknown) => void;
 }
 export type CanvasState = Omit<TextBufferState, 'text'> & { readonly document: TLStoreSnapshot; readonly problem: string | null };
-const shapeTypes = new Set(['arrow', 'draw', 'frame', 'geo', 'group', 'highlight', 'line', 'note', 'text']);
-function object(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-function allowed(record: TLRecord): void {
-  if (record.typeName === 'asset') throw new TypeError('Canvas assets require a separately qualified asset adapter');
-  if (record.typeName === 'shape' && !shapeTypes.has(record.type)) throw new TypeError('Unsupported canvas shape');
-  if (record.typeName === 'binding' && record.type !== 'arrow') throw new TypeError('Unsupported canvas binding');
-  if (record.typeName === 'user' && record.imageUrl !== '') throw new TypeError('Canvas author images require a separately qualified asset adapter');
-  if (!['document', 'page', 'shape', 'binding', 'user'].includes(record.typeName)) throw new TypeError('Only canvas document records may be published');
-}
 function documentFrom(value: unknown, owner: TLStore): TLStoreSnapshot {
-  if (!object(value) || Object.keys(value).some(key => key !== 'schema' && key !== 'store') || !object(value['schema']) || !object(value['store'])) throw new TypeError('Expected a canvas document snapshot');
-  const schema = owner.schema.serialize(), supplied = value['schema'], sequences = supplied['sequences'];
-  if (supplied['schemaVersion'] !== schema.schemaVersion || !object(sequences)
-    || Object.keys(sequences).length !== Object.keys(schema.sequences).length
-    || Object.entries(schema.sequences).some(([key, version]) => sequences[key] !== version)) throw new TypeError('Canvas schema migration is not qualified');
-  const records: TLRecord[] = [];
-  for (const [id, item] of Object.entries(value['store'])) {
-    if (!object(item)) throw new TypeError('Invalid canvas record');
-    const type = Object.values(owner.schema.types).find(candidate => candidate.typeName === item['typeName']);
-    if (!type || type.scope !== 'document') throw new TypeError('Canvas snapshots cannot contain unknown or session records');
-    const record = type.validate(item);
-    if (record.id !== id) throw new TypeError('Canvas record key and identity differ');
-    allowed(record); records.push(record);
-  }
+  const records = parseCanvasRecords(value, owner.schema);
   const scratch = new Store({ schema: owner.schema, props: owner.props });
   try {
-    scratch.loadStoreSnapshot({ schema, store: Object.fromEntries(records.map(record => [record.id, record])) });
-    const document = scratch.getStoreSnapshot('document');
-    for (const record of Object.values(document.store)) allowed(record);
-    return structuredClone(document);
+    scratch.loadStoreSnapshot(records);
+    return parseCanvasDocument(scratch.getStoreSnapshot('document'), owner.schema);
   } finally { scratch.dispose(); }
 }
 
@@ -63,7 +39,7 @@ export function createCanvasController(options: CanvasOptions) {
   const readText = (snapshot: ResourceSnapshot): string => {
     if (snapshot.mediaType !== canvasMediaType) throw new TypeError('Expected a tldraw document media type');
     const input: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(snapshot.bytes));
-    return JSON.stringify(documentFrom(input, store));
+    return JSON.stringify(documentFrom(parseCanvasDocument(input, store.schema), store));
   };
   const emptyText = JSON.stringify(documentFrom({ schema: store.schema.serialize(), store: {} }, store));
   const initialText = options.source.kind === 'saved' ? readText(options.source.snapshot)
@@ -100,7 +76,7 @@ export function createCanvasController(options: CanvasOptions) {
     if (disposed || loading) return;
     const document = store.getStoreSnapshot('document'), text = JSON.stringify(document);
     if (text === captured) return;
-    try { documentFrom(document, store); problem = null; }
+    try { parseCanvasDocument(document, store.schema); problem = null; }
     catch (error) { problem = error instanceof Error ? error.message : 'Canvas document is invalid'; }
     captured = text;
     buffer.observe(text);

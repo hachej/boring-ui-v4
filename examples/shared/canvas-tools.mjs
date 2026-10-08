@@ -3,6 +3,7 @@
 // as Pi's own file tools behind the guard (@boring/agent/file-guard): a change needs the conversation to have read the saved revision
 // (`read_canvas` records it), is published conditionally on exactly that revision, and a stale one is refused instead of overwriting.
 // No Node-only imports.
+import { canvasMediaType, parseCanvasDocument, applyCanvasEdits } from '@boring/ui/canvas-document';
 import { defineTool } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
 import { parsePublicationResult, publicationDigest } from '@boring/files/publication';
@@ -11,12 +12,8 @@ import { asWorkspaceResolver, workspaceFor } from '@boring/agent/workspaces';
 import { DocumentRecordType, PageRecordType, TLDOCUMENT_ID, createBindingId, createShapeId, createTLSchema, toRichText } from '@tldraw/tlschema';
 import { getIndexAbove } from '@tldraw/utils';
 
-// The value of `canvasMediaType` in @boring/ui/canvas. That module loads the browser editor runtime (@tldraw/editor), which
-// keeps a Node process alive, so the server names the media type here and the panel uses the library constant.
-export const canvasMediaType = 'application/vnd.tldraw+json';
+export { canvasMediaType } from '@boring/ui/canvas-document';
 const COLORS = ['black', 'grey', 'blue', 'light-blue', 'green', 'light-green', 'yellow', 'orange', 'red', 'light-red', 'violet', 'light-violet'];
-// The only shape and binding types the library canvas controller accepts for publication.
-const SUPPORTED = new Set(['arrow', 'draw', 'frame', 'geo', 'group', 'highlight', 'line', 'note', 'text']);
 const schema = createTLSchema();
 const reply = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
 const slug = id => String(id).replace(/^shape:/, '').trim();
@@ -74,7 +71,9 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
     if (read.kind === 'missing') return { kind: 'missing' };
     if (read.kind !== 'available') return { kind: 'failed', result: read };
     try {
-      return { kind: 'available', revision: read.snapshot.ref.revision, document: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(read.snapshot.bytes)) };
+      if (read.snapshot.mediaType !== canvasMediaType) throw new TypeError('Expected canvas media type');
+      const document = parseCanvasDocument(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(read.snapshot.bytes)), schema);
+      return { kind: 'available', revision: read.snapshot.ref.revision, document };
     } catch { return { kind: 'failed', result: { kind: 'unavailable', reason: 'The saved board is not a tldraw canvas' } }; }
   }
   /** Load for a change: the conversation must have read the saved canvas and it must be unchanged since; anything else is reported, never overwritten. */
@@ -89,8 +88,6 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
   }
   async function publish(ws, api, context, document, revision) {
     const { files, access, target } = ws;
-    const unsupported = [...shapesOf(document), ...bindingsOf(document)].find(record => !SUPPORTED.has(record.type));
-    if (unsupported) return { kind: 'denied', reason: `The canvas contains an unsupported ${unsupported.type} record` };
     const bytes = new TextEncoder().encode(JSON.stringify(document));
     const request = { operationId: JSON.stringify([namespace, api.taskId]), atomicity: 'all-or-nothing',
       changes: [revision === null ? { kind: 'create', target, expected: { kind: 'absent' }, bytes, mediaType: canvasMediaType }
@@ -150,11 +147,11 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
       if (ws.refused) return reply(ws.refused);
       const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
-      const { document } = current, page = pageOf(document);
+      const document = structuredClone(current.document), edits = [], page = pageOf(document);
       if (!page) return reply({ kind: 'denied', reason: 'The canvas has no page' });
       let index = shapesOf(document).filter(shape => shape.parentId === page.id).map(shape => shape.index).sort().at(-1);
       const next = () => (index = getIndexAbove(index));
-      const put = (type, record) => { const valid = validated(type, record); document.store[valid.id] = valid; return valid; };
+      const put = (type, record) => { const valid = validated(type, record); document.store[valid.id] = valid; edits.push({ kind: 'create', record: valid }); return valid; };
       try {
         for (const shape of shapes) {
           const id = createShapeId(shape.id);
@@ -179,7 +176,8 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
             props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false, snap: 'none' } }));
         }
       } catch (error) { return reply({ kind: 'denied', reason: `Invalid canvas record: ${error?.message ?? error}` }); }
-      return reply(await publish(ws, api, context, document, current.revision));
+      const candidate = applyCanvasEdits(current.document, edits, schema);
+      return reply(candidate.kind === 'rejected' ? { kind: 'denied', reason: candidate.reason } : await publish(ws, api, context, candidate.document, current.revision));
     },
   });
 
@@ -193,19 +191,9 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
       const current = await loadForChange(ws, api, context);
       if (current.refused) return reply(current.refused);
       if (current.revision === null) return reply({ kind: 'denied', reason: 'No canvas is saved' });
-      const { document } = current, doomed = new Set(args.ids.map(id => createShapeId(slug(id))));
-      const unknown = args.ids.find(id => document.store[createShapeId(slug(id))]?.typeName !== 'shape');
-      if (unknown !== undefined) return reply({ kind: 'denied', reason: `Shape "${unknown}" is not on the canvas` });
-      const shapes = shapesOf(document), bindings = bindingsOf(document);
-      let previousSize = -1;
-      while (doomed.size !== previousSize) {
-        previousSize = doomed.size;
-        for (const shape of shapes) if (doomed.has(shape.parentId)) doomed.add(shape.id);
-        for (const binding of bindings) if (doomed.has(binding.toId)) doomed.add(binding.fromId);
-      }
-      for (const binding of bindings) if (doomed.has(binding.fromId) || doomed.has(binding.toId)) delete document.store[binding.id];
-      for (const id of doomed) delete document.store[id];
-      return reply(await publish(ws, api, context, document, current.revision));
+      const edits = [...new Set(args.ids.map(id => createShapeId(slug(id))))].map(id => ({ kind: 'remove', id }));
+      const candidate = applyCanvasEdits(current.document, edits, schema);
+      return reply(candidate.kind === 'rejected' ? { kind: 'denied', reason: candidate.reason } : await publish(ws, api, context, candidate.document, current.revision));
     },
   });
 

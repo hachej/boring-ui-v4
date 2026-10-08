@@ -447,4 +447,52 @@ await t.test('native document author records persist without granting access or 
   assert.equal(Object.keys(empty.getStoreSnapshot('document').store).length, 0);
 });
 
+await t.test('invalid remote parent graph preserves the local document and publication base', async t => {
+  const { store, controller, client } = await fixture(t);
+  const saved = await savedDocument(client), before = controller.getSnapshot();
+  const invalid = structuredClone(saved.document);
+  invalid.store[shapeId].parentId = PageRecordType.createId('missing');
+  const remote = await client.publish({ operationId: 'fictional-invalid-parent', atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: saved.snapshot.ref,
+    bytes: new TextEncoder().encode(JSON.stringify(invalid)), mediaType: 'application/vnd.tldraw+json' }] });
+  assert.equal(remote.kind, 'committed');
+  assert.equal((await controller.actions.refresh()).kind, 'unavailable');
+  assert.deepEqual(controller.getSnapshot().base, before.base);
+  assert.deepEqual(store.getStoreSnapshot('document'), before.document);
+  const empty = createTLStore();
+  t.after(() => empty.dispose());
+  assert.throws(() => createCanvasController({ store: empty, client, source: { kind: 'saved', snapshot: { ...saved.snapshot, bytes: new TextEncoder().encode(JSON.stringify(invalid)) } },
+    identity, instanceId: 'invalid-parent', epoch: 'one' }), /parent/);
+  assert.equal(Object.keys(empty.getStoreSnapshot('document').store).length, 0);
+});
+
+await t.test('local invalid parent graph refuses publication and becomes saveable after repair', async t => {
+  const { store, controller, client } = await fixture(t);
+  const selected = controller.actions.selection(), saved = await savedDocument(client);
+  const original = store.get(shapeId);
+  let publications = 0;
+  const publish = client.publish;
+  client.publish = request => { publications++; return publish(request); };
+  store.put([{ ...original, parentId: PageRecordType.createId('missing') }]);
+  const invalidSelection = { target: { ...selected.target, subject: { ...selected.target.subject, bufferVersion: controller.getSnapshot().bufferVersion } } };
+  assert.equal((await controller.flush(invalidSelection)).kind, 'denied');
+  assert.match(controller.getSnapshot().problem, /parent/);
+  assert.equal(publications, 0);
+  assert.equal((await savedDocument(client)).snapshot.ref.revision, saved.snapshot.ref.revision);
+  store.put([{ ...original, x: 70 }]);
+  assert.equal(controller.getSnapshot().problem, null);
+  assert.equal((await controller.flush(controller.actions.selection())).kind, 'saved');
+  assert.equal(publications, 1);
+  assert.equal((await savedDocument(client)).document.store[shapeId].x, 70);
+});
+
+await t.test('local document-record deletion cannot be hidden by native scratch normalization', async t => {
+  const { store, controller, client } = await fixture(t);
+  const selected = controller.actions.selection(), before = await savedDocument(client);
+  store.remove([TLDOCUMENT_ID]);
+  const invalidSelection = { target: { ...selected.target, subject: { ...selected.target.subject, bufferVersion: controller.getSnapshot().bufferVersion } } };
+  assert.equal((await controller.flush(invalidSelection)).kind, 'denied');
+  assert.match(controller.getSnapshot().problem, /document record/);
+  assert.equal((await savedDocument(client)).snapshot.ref.revision, before.snapshot.ref.revision);
+});
+
 });
