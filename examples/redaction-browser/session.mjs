@@ -1,4 +1,5 @@
 import { createMarkdownController } from '@boring/ui/markdown';
+import { textValue } from '../redaction/adoption-bindings.mjs';
 import { createActionRequestId } from './action-binding.mjs';
 import { randomUUID } from '@boring/files/platform';
 
@@ -87,9 +88,13 @@ export async function createRedactionBrowserSession(client) {
     const value = entry(active), block = value.blocks[subject], slot = block.proposal?.corrections.find(slot => slot.itemId === itemId);
     if (!slot || !block.ref) return { kind: 'denied' };
     if (block.correction?.result === null || block.correction?.result?.kind === 'unknown') return { kind: 'unknown', reason: 'Reconcile the original correction first' };
+    try { textValue(text); }
+    catch { const result = { kind: 'denied', reason: 'Correction must be valid Unicode text within 4096 UTF-8 bytes' }; block.correction = { input: null, result }; emit(); return result; }
     const payload = structuredClone({ ref: block.ref, options: { itemId, expected: slot.expected, text } });
     const generation = block.generation, correction = { input: null, result: null }; block.correction = correction; emit();
-    const requestId = await createActionRequestId('correct', value.config.id, configuration.identity, payload);
+    let requestId;
+    try { requestId = await createActionRequestId('correct', value.config.id, configuration.identity, payload); }
+    catch { const result = { kind: 'denied', reason: 'Correction could not be prepared; no request was dispatched' }; if (alive && generation === block.generation && block.correction === correction) { correction.result = result; emit(); } return result; }
     const input = { ref: payload.ref, options: { ...payload.options, requestId } }; correction.input = input;
     if (!alive || generation !== block.generation || block.correction !== correction) return { kind: 'stale' };
     const result = await value.api.correct(input);
@@ -106,7 +111,9 @@ export async function createRedactionBrowserSession(client) {
     if (block.adopting || block.adoption?.result === null || ['unknown', 'admitted', 'pending'].includes(block.adoption?.result?.kind)) return { kind: 'unknown', reason: 'Review the original adoption outcome first' };
     const payload = structuredClone({ ref: block.ref, choices, letter: letter.base, record: expected(block.record, value.config.records[subject]), corrections: choices.map(choice => ({ itemId: choice.itemId, expected: block.proposal.corrections.find(slot => slot.itemId === choice.itemId).expected })) });
     const generation = block.generation, letterSelection = block.letter.actions.selection(), attempt = {}; block.adopting = attempt; emit();
-    const requestId = await createActionRequestId('adopt', value.config.id, configuration.identity, payload);
+    let requestId;
+    try { requestId = await createActionRequestId('adopt', value.config.id, configuration.identity, payload); }
+    catch { const result = { kind: 'denied', reason: 'Adoption could not be prepared; no request was dispatched' }; if (block.adopting === attempt) block.adopting = null; if (alive && generation === block.generation) { block.outcome = result; emit(); } return result; }
     if (!alive || generation !== block.generation) { if (block.adopting === attempt) block.adopting = null; return { kind: 'stale' }; }
     const input = { ...payload, requestId };
     const captured = await value.api.captureAdoption(input); if (block.adopting === attempt) block.adopting = null;

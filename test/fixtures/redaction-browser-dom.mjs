@@ -17,7 +17,7 @@ test('fictional redaction concrete controllers, mounted dictation and native pub
   let holdPublication = false, releasePublication;
   let transcript = fictionalTranscript, heldView = false, releaseView, holdCaptureAdoption = false, releaseCaptureAdoption, heldLatest = false, releaseLatest, mutateRequest;
   let runtime, session, root, act, revoked = false, failTranscribe = false, holdTranscribe = false, releaseTranscribe, denySave = false, loseSave = false, holdSave = false, releaseSave, loseAdmit = false, loseAdopt = false, denyRetry = false, mutateResult;
-  const transmissions = [], admissions = [];
+  const transmissions = [], admissions = [], correctionRequests = [];
   for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'Node', 'Text', 'DOMParser', 'MutationObserver', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
     globals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: name === 'window' ? window : typeof window[name] === 'function' && /^[a-z]/.test(name) ? window[name].bind(window) : window[name] });
@@ -32,6 +32,7 @@ test('fictional redaction concrete controllers, mounted dictation and native pub
   const transport = async request => {
     const pathname = new URL(request.url).pathname, input = await request.clone().json();
     if (pathname.endsWith('/admit')) admissions.push(structuredClone(input));
+    if (pathname.endsWith('/correct')) correctionRequests.push(structuredClone(input));
     if (holdSave && pathname.endsWith('/notes') && input.kind === 'publish') { holdSave = false; await new Promise(resolve => { releaseSave = resolve; }); }
     const headers = new Headers(request.headers); headers.set('authorization', denyRetry && (pathname.endsWith('/admit') || pathname.endsWith('/adopt')) ? 'Bearer foreign' : 'Bearer fictional-redaction'); headers.set('origin', 'https://fictional.invalid');
     if (holdCaptureAdoption && pathname.endsWith('/capture-adoption')) { holdCaptureAdoption = false; await new Promise(resolve => { releaseCaptureAdoption = resolve; }); }
@@ -76,6 +77,9 @@ test('fictional redaction concrete controllers, mounted dictation and native pub
   await ready('A'); await ready('B'); await ready('C');
   for (const subject of ['A', 'B', 'C']) { const produced = await runtime.local.apps.first.local.harness.getTask(generation(subject).ref.producer, context); assert.equal(produced.input.text, 'Acknowledged old selection'); }
   const proposal = generation('A').proposal, item = proposal.value.items[0];
+  const beforeInvalidCorrection = correctionRequests.length;
+  for (const invalid of ['x'.repeat(40000), '\uD800']) { let result; await act(async () => { result = await session.correct('A', item.itemId, invalid); }); assert.equal(result.kind, 'denied'); assert.equal(generation('A').correction.result.kind, 'denied'); assert.equal(correctionRequests.length, beforeInvalidCorrection); assert.ok(container.querySelector('[data-block=A]').textContent.includes('denied')); }
+  await act(async () => session.choose('A', item.itemId, '\uD800')); let unpreparedAdoption; await act(async () => { unpreparedAdoption = await session.adopt('A'); }); assert.equal(unpreparedAdoption.kind, 'denied'); assert.equal(generation('A').adopting, null); assert.equal(generation('A').adoption, null); await act(async () => session.choose('A', item.itemId, 'proposed'));
   await act(async () => session.correct('A', item.itemId, 'Fictional human correction')); assert.equal(generation('A').correction.result.kind, 'committed');
   await act(async () => session.choose('A', item.itemId, 'corrected'));
   await click('Adopt selected A'); await wait(() => !!generation('A').adoption?.ref);
@@ -89,7 +93,7 @@ test('fictional redaction concrete controllers, mounted dictation and native pub
   await click('Adopt selected A'); await wait(() => generation('A').outcome.kind === 'conflict'); assert.equal(generation('A').record.snapshot.ref.revision, savedRecord.revision);
   await act(async () => session.refreshProposal('first', 'A'));
   loseAdmit = true; await click('Generate B'); await wait(() => generation('B').outcome.kind === 'unknown'); const retained = structuredClone(generation('B').request); denyRetry = true; await click('Retry original B'); assert.equal(generation('B').outcome.kind, 'unknown'); denyRetry = false; await click('Retry original B'); await wait(() => generation('B').outcome.kind === 'admitted'); assert.equal(generation('B').outcome.kind, 'admitted'); assert.deepEqual(generation('B').request, retained); await ready('B');
-  loseAdopt = true; await click('Adopt selected B'); await wait(() => generation('B').adoption?.result.kind === 'unknown'); const retainedAdoption = structuredClone(generation('B').adoption.request); denyRetry = true; await click('Retry adoption B'); assert.equal(generation('B').adoption.result.kind, 'unknown'); denyRetry = false; await click('Retry adoption B'); await wait(() => generation('B').adoption.result.kind === 'admitted'); assert.deepEqual(generation('B').adoption.request, retainedAdoption); assert.equal(generation('B').adoption.result.kind, 'admitted');
+  loseAdopt = true; await click('Adopt selected B'); await wait(() => generation('B').adoption?.result?.kind === 'unknown'); const retainedAdoption = structuredClone(generation('B').adoption.request); denyRetry = true; await click('Retry adoption B'); assert.equal(generation('B').adoption.result.kind, 'unknown'); denyRetry = false; await click('Retry adoption B'); await wait(() => generation('B').adoption.result.kind === 'admitted'); assert.deepEqual(generation('B').adoption.request, retainedAdoption); assert.equal(generation('B').adoption.result.kind, 'admitted');
   for (let i = 0; i < 100 && generation('B').adoption.result.kind !== 'committed'; i++) { await act(async () => session.adoptionResult('first', 'B')); await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); }); }
   mutateResult = { path: '/consultations/first/adoption-result', change: value => { value.receipt.principalId = 'foreign-owner'; } }; await act(async () => session.adoptionResult('first', 'B')); assert.equal(generation('B').adoption.result.kind, 'unknown'); await act(async () => session.adoptionResult('first', 'B')); assert.equal(generation('B').adoption.result.kind, 'committed');
   const admissionsBeforeReload = admissions.length; await click('Observe latest'); assert.equal(admissions.length, admissionsBeforeReload); assert.equal(generation('A').record.snapshot.ref.revision, savedRecord.revision); assert.equal(new TextDecoder().decode(generation('A').record.snapshot.bytes), savedRecordText);
