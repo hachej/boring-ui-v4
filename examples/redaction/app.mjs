@@ -6,12 +6,13 @@ import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context';
 import { createDocumentDelivery } from '@boring/agent/delivery';
 import { openSqliteWorkspaces } from '../shared/sqlite-workspaces.mjs';
-import { actorSnapshot, decode, equal, paths, requestSnapshot } from './bindings.mjs';
+import { actorSnapshot, decode, equal, paths, requestSnapshot, reservationTarget, reservationOperation, reservationPublication } from './bindings.mjs';
 import { createReservations } from './reservation.mjs';
 import { createRedactionProposals } from './proposals.mjs';
 import { createCorrections } from './corrections.mjs';
 import { createAdoption } from './adoption.mjs';
 import { domainPaths } from './adoption-bindings.mjs';
+import { publicationDigest, parsePublicationResult } from '@boring/files/publication';
 export { redactionActor } from './bindings.mjs';
 
 const installation = defineDoc({ kind: 'fixture.redaction.instance', version: 1, scope: 'session', initial: () => ({ instanceId: randomUUID() }) });
@@ -170,11 +171,48 @@ export async function openRedactionFixture({ directory, policy = () => true, bef
       if (result?.kind !== 'valid') return { kind: 'invalid' };
       return { kind: 'ready', request, value: structuredClone(result.value), catalog: structuredClone(produced.input.catalog) };
     };
+    const latest = async (subject, identity) => {
+      let actor, selected;
+      try { actor = actorSnapshot(identity); selected = paths(instanceId, subject); } catch { return { kind: 'denied' }; }
+      const permitted = targets => targets.every(target => allowed(actor, 'read', target));
+      if (!permitted([selected.generation])) return { kind: 'denied' };
+      try {
+        const generation = await provider.read({ target: selected.generation, revision: { kind: 'latest' } }, actor);
+        if (!permitted([selected.generation])) return { kind: 'denied' };
+        if (generation.kind !== 'available') return { kind: generation.kind };
+        const guard = JSON.parse(decode(generation.snapshot, 'application/json', 4096));
+        if (guard.format !== 'fictional.redaction.generation' || guard.version !== 1 || typeof guard.requestId !== 'string' || !/^[a-z0-9-]{1,80}$/.test(guard.requestId)) return { kind: 'unavailable' };
+        const target = reservationTarget({ instanceId, subject, requestId: guard.requestId });
+        const saved = await provider.read({ target, revision: { kind: 'latest' } }, actor);
+        if (saved.kind !== 'available') return { kind: 'unavailable' };
+        const record = JSON.parse(decode(saved.snapshot, 'application/json', 16384));
+        const request = requestSnapshot(record.request, instanceId), originalActor = actorSnapshot(record.actor);
+        if (!equal(originalActor, actor)) return { kind: 'denied' };
+        if (request.subject !== subject || request.requestId !== guard.requestId || record.generationId !== guard.generationId
+          || !equal(record, { format: 'fictional.redaction.request', version: 1, generationId: guard.generationId, actor, request })) return { kind: 'unavailable' };
+        const visible = [target, selected.generation, request.source, request.config, request.edit.target, request.output.target];
+        const observed = await provider.reconciliation.lookup(reservationOperation(request), actor);
+        if (!permitted(visible)) return { kind: 'denied' };
+        if (observed.kind !== 'committed') return { kind: 'unknown' };
+        const found = parsePublicationResult(observed);
+        const receipt = found.receipt, publication = reservationPublication(record);
+        if (receipt.operationId !== publication.operationId || receipt.argumentDigest !== await publicationDigest(publication)
+          || receipt.principalId !== actor.principalId || receipt.initiatorId !== actor.initiatorId || receipt.scopeId !== actor.scopeId
+          || receipt.changes.length !== 2 || !equal(receipt.changes[0].after, saved.snapshot.ref) || !equal(receipt.changes[1].after, generation.snapshot.ref)) return { kind: 'unavailable' };
+        const stored = await harness.snapshot(requests, JSON.stringify([instanceId, subject, request.requestId]), context);
+        if (!permitted(visible)) return { kind: 'denied' };
+        if (!stored?.binding) return { kind: 'reserved', request };
+        const binding = stored.binding;
+        if (binding.mode !== 'proposal' || !equal(binding.request, request) || !equal(binding.ref.actor, actor)
+          || !equal(binding.ref.reservation, saved.snapshot.ref) || !equal(binding.ref.guard, generation.snapshot.ref)) return { kind: 'unavailable' };
+        return { kind: 'admitted', request, ref: structuredClone(binding.ref) };
+      } catch { return { kind: 'unavailable' }; }
+    };
     const corrections = createCorrections({ provider, allowed, getProposal, instanceId });
     const adoption = createAdoption({ provider, harness, conversation, instanceId, allowed, getProposal,
       readCorrection: corrections.readCorrection, beforeAdoptionPublish, afterAdoptionCommit });
     registry.install(adoption.extension);
-    return { instanceId, paths: subject => paths(instanceId, subject), capture,
+    return { instanceId, paths: subject => paths(instanceId, subject), capture, latest,
       admit: (value, actor) => admitNative(value, actor, 'text'), admitProposal: (value, actor) => admitNative(value, actor, 'proposal'),
       domainPaths: (subject, itemId) => domainPaths(instanceId, subject, itemId),
       viewProposal: corrections.viewProposal, correctItem: corrections.correctItem,
