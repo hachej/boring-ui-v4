@@ -16,6 +16,11 @@ let host, server, browser, holdPublish = false, publishHeld = false, releasePubl
 const held = async predicate => { const until = Date.now() + 10000; while (!predicate()) { assert.ok(Date.now() < until, 'Host barrier arrived'); await delay(10); } };
 const step = async (name, action) => { const item = { name, status: 'running' }; report.steps.push(item); try { await action(); item.status = 'passed'; } catch (error) { item.status = 'failed'; throw error; } };
 const ready = () => browser.until('four concrete viewers ready', '!!(window.drafts?.ready && window.drafts.editor)');
+const reload = async () => {
+  const previous = await browser.evaluate("window.drafts.controllers.get('markdown').actions.selection().target.instanceId");
+  await browser.reload();
+  await browser.until('new page owns all four concrete viewers', `!!(window.drafts?.ready && window.drafts.editor && window.drafts.controllers.get('markdown').actions.selection().target.instanceId !== ${JSON.stringify(previous)})`);
+};
 const button = (format, label) => `[...document.querySelectorAll('[data-format="${format}"] button')].find(button=>button.textContent.trim()===${JSON.stringify(label)})`;
 const state = format => `window.drafts.controllers.get('${format}').getSnapshot()`;
 const type = async (format, text) => { const selector = q(`[data-format="${format}"] textarea`); await browser.click(selector); await browser.evaluate(`(${selector}).select()`); await browser.send('Input.insertText', { text }); };
@@ -47,7 +52,7 @@ try {
     await type('html', '\uFEFF<p>Recovered fictional HTML 🌞</p>');
     await browser.evaluate('window.drafts.addCanvas(); window.drafts.changeLayout();');
     for (const format of ['markdown', 'html', 'canvas', 'experience']) { await browser.click(button(format, 'Store draft for recovery')); await browser.until(`${format} checkpoint`, `${state(format)}.recovery.checkpoint.kind==='stored'`); }
-    const epoch = await browser.evaluate('window.drafts.session.epoch'); await browser.reload(); await ready(); assert.equal(await browser.evaluate('window.drafts.session.epoch'), epoch); assert.equal(host.publications(), 0);
+    const epoch = await browser.evaluate('window.drafts.session.epoch'); await reload(); assert.equal(await browser.evaluate('window.drafts.session.epoch'), epoch); assert.equal(host.publications(), 0);
     for (const format of ['markdown', 'html', 'canvas', 'experience']) { await browser.click(button(format, 'Check stored drafts')); await browser.until(`${format} recovery offer`, `${state(format)}.recovery.discovery.kind==='offered'`); await browser.click(button(format, 'Restore draft')); await browser.until(`${format} restored locally`, `${state(format)}.dirty`); }
     assert.equal(host.publications(), 0); assert.equal(await browser.evaluate(`${state('html')}.text`), '\uFEFF<p>Recovered fictional HTML 🌞</p>');
     assert.ok(await browser.evaluate(`Object.values(${state('canvas')}.document.store).some(record=>record.typeName==='shape')`)); assert.equal(await browser.evaluate(`${state('experience')}.pin`), null);
@@ -61,23 +66,23 @@ try {
     holdPublish = false; releasePublish(); releasePublish = undefined;
     await browser.until('V1 saved preserves V2', `${state('html')}.save.result?.kind==='saved'&&${state('html')}.dirty`);
     await browser.evaluate("window.drafts.controllers.get('html').actions.checkpointDraft()");
-    await browser.reload(); await ready(); await browser.click(button('html', 'Check stored drafts')); await browser.until('V2 recovered choice', `${state('html')}.recovery.discovery.choices?.some(choice=>choice.text==='<p>Newer V2 🌞</p>')`); await browser.click(button('html', 'Restore draft')); assert.equal(await browser.evaluate(`${state('html')}.text`), '<p>Newer V2 🌞</p>');
+    await reload(); await browser.click(button('html', 'Check stored drafts')); await browser.until('V2 recovered choice', `${state('html')}.recovery.discovery.choices?.some(choice=>choice.text==='<p>Newer V2 🌞</p>')`); await browser.click(button('html', 'Restore draft')); assert.equal(await browser.evaluate(`${state('html')}.text`), '<p>Newer V2 🌞</p>');
     await browser.click(button('html', 'Save')); await browser.until('V2 saved', `${state('html')}.save.result?.kind==='saved'&&!${state('html')}.dirty`); assert.equal(host.publications(), 6);
   });
   await step('changed resource revision offers conflict without overwrite', async () => {
     await type('markdown', '# Draft on previous revision'); await browser.click(button('markdown', 'Store draft for recovery')); await browser.until('conflict candidate persisted', `${state('markdown')}.recovery.checkpoint.kind==='stored'`);
     const read = await host.provider.read({ target: draftTarget('markdown'), revision: { kind: 'latest' } }, draftIdentity);
     const human = await host.provider.publication.publish({ operationId: 'fictional-other-human', atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: read.snapshot.ref, bytes: new TextEncoder().encode('# Actual newer fictional saved document'), mediaType: 'text/markdown' }] }, draftIdentity); assert.equal(human.kind, 'committed');
-    await browser.reload(); await ready(); await browser.click(button('markdown', 'Check stored drafts')); await browser.until('changed revision conflict', `${state('markdown')}.recovery.discovery.choices?.[0]?.compatibility==='conflict'`);
+    await reload(); await browser.click(button('markdown', 'Check stored drafts')); await browser.until('changed revision conflict', `${state('markdown')}.recovery.discovery.choices?.[0]?.compatibility==='conflict'`);
     assert.equal(await browser.evaluate(`(${button('markdown', 'Restore draft')}).disabled`), true); assert.equal(await browser.evaluate(`${state('markdown')}.text`), '# Actual newer fictional saved document'); assert.equal(host.publications(), 6);
   });
   await step('two tabs and exact discard preserve independent writer', async () => {
     await type('html', '<p>First tab unsaved</p>'); await browser.click(button('html', 'Store draft for recovery')); await browser.until('first tab stored', `${state('html')}.recovery.checkpoint.kind==='stored'`);
     const tab = await browser.openTab(origin);
-    try { await tab.until('second tab ready', 'window.drafts?.ready'); await tab.evaluate("window.drafts.controllers.get('html').actions.edit('<p>Second tab unsaved</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await tab.until('second tab stored', `${state('html')}.recovery.checkpoint.kind==='stored'`); await browser.reload(); await ready(); await browser.click(button('html', 'Check stored drafts')); await browser.until('two writer choices', `${state('html')}.recovery.discovery.choices?.length===2`); await browser.click(button('html', 'Discard stored draft')); await browser.click(button('html', 'Check stored drafts')); await browser.until('one writer remains', `${state('html')}.recovery.discovery.choices?.length===1`); } finally { await tab.close(); }
+    try { await tab.until('second tab ready', 'window.drafts?.ready'); await tab.evaluate("window.drafts.controllers.get('html').actions.edit('<p>Second tab unsaved</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await tab.until('second tab stored', `${state('html')}.recovery.checkpoint.kind==='stored'`); await reload(); await browser.click(button('html', 'Check stored drafts')); await browser.until('two writer choices', `${state('html')}.recovery.discovery.choices?.length===2`); await browser.click(button('html', 'Discard stored draft')); await browser.click(button('html', 'Check stored drafts')); await browser.until('one writer remains', `${state('html')}.recovery.discovery.choices?.length===1`); } finally { await tab.close(); }
   });
   await step('delayed storage write cannot cross durable logout', async () => {
-    await browser.evaluate("window.drafts.holdWrite=true; window.drafts.controllers.get('html').actions.edit('<p>Logout race</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await browser.until('storage write held before transaction', 'window.drafts.writeHeld'); await browser.evaluate('window.drafts.logout()'); await browser.evaluate('window.drafts.releaseWrite();'); await browser.until('revocation visible', `${state('html')}.recovery.kind==='revoked'`); const oldEpoch = await browser.evaluate('window.drafts.session.epoch'); await browser.reload(); await ready(); assert.notEqual(await browser.evaluate('window.drafts.session.epoch'), oldEpoch); await browser.click(button('html', 'Check stored drafts')); await browser.until('logout purged old payloads', `${state('html')}.recovery.discovery.kind==='empty'`); assert.equal(host.publications(), 6);
+    await browser.evaluate("window.drafts.holdWrite=true; window.drafts.controllers.get('html').actions.edit('<p>Logout race</p>'); window.drafts.controllers.get('html').actions.checkpointDraft();"); await browser.until('storage write held before transaction', 'window.drafts.writeHeld'); await browser.evaluate('window.drafts.logout()'); await browser.evaluate('window.drafts.releaseWrite();'); await browser.until('revocation visible', `${state('html')}.recovery.kind==='revoked'`); const oldEpoch = await browser.evaluate('window.drafts.session.epoch'); await reload(); assert.notEqual(await browser.evaluate('window.drafts.session.epoch'), oldEpoch); await browser.click(button('html', 'Check stored drafts')); await browser.until('logout purged old payloads', `${state('html')}.recovery.discovery.kind==='empty'`); assert.equal(host.publications(), 6);
   });
   report.status = 'passed';
 } catch (error) { report.status = 'failed'; report.error = String(error); process.exitCode = 1; }
