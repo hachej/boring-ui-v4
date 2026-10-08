@@ -36,12 +36,14 @@ for (const lost of [false, true]) test(`native Harness and transport with simula
     prepareInput: args => ({ ...args, expiresAt: Date.now() + 1000 }), authorize: () => true,
     formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
   });
-  registry.install(defineExtension({ name: 'fixture.remote', tools: [tool] }));
+  const extension = defineExtension({ name: 'fixture.remote', tools: [tool] });
+  registry.install(extension);
   const harness = await Harness.open(new MemoryStorage(), { registry, models: createModels() }, context);
   t.after(async () => { await client.close(); bridge.close(); await harness.close(context); });
   await new Promise(resolve => setTimeout(resolve, 10));
   assert.ok(polls > 0);
   const conversation = await harness.root(context);
+  await conversation.configure({ extensions: [extension] }, context);
   const task = await admitDocumentTool(conversation, { shapeIds: ['shape:reviewed'] }, tool.name);
   const outcome = await toolResultText(harness, conversation, task);
   assert.equal(JSON.parse(outcome.text).kind, lost ? 'unknown' : 'applied');

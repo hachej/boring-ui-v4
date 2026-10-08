@@ -65,8 +65,8 @@ async function attach() {
       formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
     });
   });
-  const extension = `fixture.remote.${connection.id}`;
-  registry.install(defineExtension({ name: extension, tools }));
+  const extension = defineExtension({ name: `fixture.remote.${connection.id}`, tools });
+  registry.install(extension);
   bindings.set(connection.id, { connection, names, extension });
   await conversation.configure({ extensions: [...bindings.values()].map(binding => binding.extension) }, context);
   await pollReady(connection.id);
