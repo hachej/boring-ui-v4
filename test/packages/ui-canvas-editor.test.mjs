@@ -138,7 +138,7 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     let tools;
     await f.render(f.controller, undefined, assets, { onMountedTools: value => { tools = value; } });
     assert.ok(tools);
-    return { ...f, f, get tools() { return tools; } };
+    return { ...f, f, get writes() { return f.writes; }, get tools() { return tools; } };
   }
   function syntheticViewport(f) {
     f.editor.getContainer().getBoundingClientRect = () => new window.DOMRect(0, 0, 800, 600);
@@ -499,4 +499,104 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     assert.equal(result.kind, 'saved');
     assert.equal((await readDocument(f)).store[pageId].name, 'Edit after unmount');
   });
+  await t.test('mounted proposal review preserves dirty edits until human acceptance and publishes the reviewed candidate', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo', x: 10, props: { w: 80, h: 60 } }));
+    const before = f.store.getStoreSnapshot('document'), edited = { ...f.editor.getShape(shapeId), x: 25 };
+    const proposed = await invoke(f, 'propose', { ...expiry(), edits: [{ kind: 'update', record: edited }], summary: 'Move the fictional box' });
+    assert.equal(proposed.kind, 'proposed');
+    assert.deepEqual(f.store.getStoreSnapshot('document'), before);
+    assert.equal(f.writes, 0);
+    const card = f.container.querySelector('[data-boring="canvas-proposal"]');
+    assert.ok(card.textContent.includes('Move the fictional box'));
+    assert.ok(card.querySelector('table').textContent.includes('25'));
+    assert.equal(button(f.container, 'Accept and save').disabled, false);
+    await click(f.container, 'Accept and save');
+    await waitFor(() => f.controller.getSnapshot().save.kind === 'settled', 'Proposal save did not settle');
+    assert.equal(f.controller.getSnapshot().save.result.kind, 'saved');
+    assert.equal(f.writes, 1);
+    assert.equal((await readDocument(f)).store[shapeId].x, 25);
+    assert.equal(f.controller.getSnapshot().dirty, false);
+    assert.ok(f.container.textContent.includes('Applied locally'));
+  });
+
+  await t.test('proposal acceptance respects native readonly and stale local changes; dismiss never writes', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo', x: 10 }));
+    const input = { ...expiry(), edits: [{ kind: 'update', record: { ...f.editor.getShape(shapeId), x: 25 } }], summary: 'Review move' };
+    assert.equal((await invoke(f, 'propose', input)).kind, 'proposed');
+    await act(async () => f.editor.updateInstanceState({ isReadonly: true }));
+    assert.equal(button(f.container, 'Accept and save').disabled, true);
+    await click(f.container, 'Accept and save');
+    assert.equal(f.editor.getShape(shapeId).x, 10);
+    assert.equal(f.writes, 0);
+    assert.equal((await invoke(f, 'propose', input)).kind, 'denied');
+    await act(async () => { f.editor.updateInstanceState({ isReadonly: false }); f.editor.updateShape({ id: shapeId, type: 'geo', x: 45 }); });
+    assert.equal(button(f.container, 'Accept and save').disabled, true);
+    assert.ok(f.container.textContent.includes('Canvas changed since this proposal'));
+    await click(f.container, 'Dismiss');
+    assert.equal(f.container.querySelector('[data-boring="canvas-proposal"]'), null);
+    assert.equal(f.editor.getShape(shapeId).x, 45);
+    assert.equal(f.writes, 0);
+  });
+
+  await t.test('mounted proposals refuse old pages and unmounted handles without creating proposals', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => {
+      f.editor.createShape({ id: shapeId, type: 'geo' });
+      f.editor.createPage({ id: PageRecordType.createId('proposal-other'), name: 'Other', index: 'a2' });
+    });
+    const target = f.tools.getTarget(), tools = f.tools;
+    const input = { ...expiry(), edits: [{ kind: 'update', record: { ...f.editor.getShape(shapeId), x: 25 } }], summary: 'Old page' };
+    await act(async () => f.editor.setCurrentPage(PageRecordType.createId('proposal-other')));
+    assert.equal((await invoke(f, 'propose', input, target)).kind, 'stale');
+    assert.equal(f.controller.getSnapshot().proposals.length, 0);
+    await f.unmount();
+    assert.equal((await tools.propose.invoke(target, input)).kind, 'unavailable');
+    assert.equal(f.controller.getSnapshot().proposals.length, 0);
+    assert.equal(f.writes, 0);
+  });
+
+  await t.test('mounted proposal retention rechecks readonly and cancellation after synchronous host callbacks', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo' }));
+    for (const mode of ['readonly', 'cancelled']) {
+      const abort = new AbortController();
+      const unsubscribe = f.controller.subscribe(() => {
+        if (f.controller.getSnapshot().proposals.length) {
+          if (mode === 'readonly') f.editor.updateInstanceState({ isReadonly: true });
+          else abort.abort();
+        }
+      });
+      const result = await invoke(f, 'propose', { ...expiry(), edits: [{ kind: 'update', record: { ...f.editor.getShape(shapeId), x: 25 } }], summary: mode }, f.tools.getTarget(), abort.signal);
+      unsubscribe();
+      assert.equal(result.kind, 'denied');
+      assert.equal(f.controller.getSnapshot().proposals.length, 0);
+      assert.equal(f.editor.getShape(shapeId).x, 0);
+      assert.equal(f.writes, 0);
+      await act(async () => f.editor.updateInstanceState({ isReadonly: false }));
+    }
+  });
+
+  await t.test('proposal review includes newly added empty metadata objects', async t => {
+    const f = await mountedFixture(t);
+    await act(async () => f.editor.createShape({ id: shapeId, type: 'geo' }));
+    const record = f.editor.getShape(shapeId);
+    const proposed = await invoke(f, 'propose', { ...expiry(), edits: [{ kind: 'update', record: { ...record, meta: { ...record.meta, audit: {}, 'a.b': 1, a: { b: 2 }, 'a/b': 3, '~a': 4 } } }], summary: 'Add empty audit metadata' });
+    assert.equal(proposed.kind, 'proposed');
+    const review = f.container.querySelector('[data-boring="canvas-proposal"]');
+    assert.ok(review.querySelector('summary').textContent.includes('1 changed record'));
+    assert.ok(review.querySelector('table').textContent.includes('/meta/audit'));
+    assert.ok(review.querySelector('table').textContent.includes('{}'));
+    for (const field of ['/meta/a.b', '/meta/a/b', '/meta/a~1b', '/meta/~0a']) assert.ok(review.querySelector('table').textContent.includes(field));
+    assert.equal(f.writes, 0);
+    await click(f.container, 'Dismiss');
+    await act(async () => f.editor.updateShape({ id: shapeId, type: 'geo', meta: { ...record.meta, audit: {} } }));
+    assert.equal((await invoke(f, 'propose', { ...expiry(), edits: [{ kind: 'update', record: { ...f.editor.getShape(shapeId), meta: record.meta } }], summary: 'Remove empty audit metadata' })).kind, 'proposed');
+    const removed = f.container.querySelector('[data-boring="canvas-proposal"] table');
+    assert.ok(removed.textContent.includes('/meta/audit'));
+    assert.ok(removed.textContent.includes('Absent'));
+    assert.equal(f.writes, 0);
+  });
+
 });

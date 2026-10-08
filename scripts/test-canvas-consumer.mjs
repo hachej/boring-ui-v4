@@ -60,7 +60,7 @@ try {
   run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
   run('npm', ['ci', ...npmInstallFlags(cache)]);
   for (const name of ['@earendil-works/pi-durable', '@earendil-works/chord', '@earendil-works/pi-ai', '@boring/agent', '@boring/execution', 'marked', ...(editor ? [] : ['tldraw'])]) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
-  writeFileSync(join(directory, 'consumer.ts'), `import { createCanvasController, type CanvasController, type CanvasOptions } from '@boring/ui/canvas';
+  writeFileSync(join(directory, 'consumer.ts'), `import { createCanvasController, type CanvasController, type CanvasOptions, type CanvasProposal } from '@boring/ui/canvas';
 import { applyCanvasEdits, parseCanvasDocument, type CanvasEdit } from '@boring/ui/canvas-document';
 import type { TLStoreSchema, TLShape } from '@tldraw/tlschema';
 declare const schema: TLStoreSchema;
@@ -72,6 +72,11 @@ const invalid: CanvasEdit = { kind: 'update', record: { typeName: 'document' } }
 import type { TLStore, TLStoreSnapshot } from '@tldraw/editor';
 declare const options: CanvasOptions;
 const controller: CanvasController = createCanvasController(options);
+const proposals: readonly CanvasProposal[] = controller.getSnapshot().proposals;
+const proposed = controller.actions.propose(controller.actions.selection(), [edit], 'Fictional edit');
+void controller.tools.propose;
+void controller.actions.accept('fictional-proposal');
+controller.actions.reject('fictional-proposal');
 const nativeStore: TLStore = controller.store;
 const document: TLStoreSnapshot = controller.getSnapshot().document;
 nativeStore.loadStoreSnapshot(document);
@@ -137,7 +142,7 @@ console.log('server document import and validation completed without DOM or edit
   run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'server-entry.js', '--bundle', '--platform=node', '--format=esm', '--outfile=server-bundle.mjs', '--metafile=server-meta.json'], isolated);
   const serverInputs = Object.keys(JSON.parse(readFileSync(join(directory, 'server-meta.json'), 'utf8')).inputs);
   assert.ok(serverInputs.every(path => !/\/(?:@tldraw\/editor|react|react-dom|@boring\/(?:agent|files))\//.test(path)), 'Document edits must not load an editor, React, agent or resource implementation');
-  const tests = ['ui-canvas-document.test.mjs', 'ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
+  const tests = ['ui-canvas-document.test.mjs', 'ui-canvas-proposals.test.mjs', 'ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
   // Tests are copied flat; their host (one SQLite workspace per scope, public @boring/files entries only) sits beside them.
   copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'sqlite-workspaces.mjs'));
   for (const name of tests) writeFileSync(join(directory, name), readFileSync(join(root, 'test/packages', name), 'utf8').replace("'../../examples/shared/sqlite-workspaces.mjs'", "'./sqlite-workspaces.mjs'"));

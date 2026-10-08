@@ -102,7 +102,13 @@ test('native ToolTasks select a captured mounted canvas and refuse stale or clos
     },
     formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
   });
-  const registry = createRegistry(); registry.install(defineExtension({ name: 'fixture.canvas-mounted', tools: [definition] }));
+  const proposalDefinition = createPresentationTool({ name: 'propose_canvas', description: 'Propose a reviewed fictional move',
+    parameters: Type.Object({ x: Type.Number() }), command: tools.propose, target: captured,
+    prepareInput: args => ({ edits: [{ kind: 'update', record: { ...editor.getShape(shapeId), x: args.x } }], summary: 'Native proposed move', expiresAt: Date.now() + 10000 }),
+    authorize: async () => permit,
+    formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
+  });
+  const registry = createRegistry(); registry.install(defineExtension({ name: 'fixture.canvas-mounted', tools: [definition, proposalDefinition] }));
   harness = await Harness.open(new MemoryStorage(), { registry, models: createModels() }, context);
   const conversation = await harness.root(context);
   const run = async ids => {
@@ -115,7 +121,18 @@ test('native ToolTasks select a captured mounted canvas and refuse stale or clos
   assert.equal(controller.getSnapshot().bufferVersion, before.bufferVersion);
   assert.deepEqual(controller.getSnapshot().document, before.document);
   assert.equal(writes, 0);
+  let proposed;
+  await act(async () => { proposed = await documentToolResult(harness, conversation, await admitDocumentTool(conversation, { x: 80 }, 'propose_canvas')); });
+  assert.equal(proposed.result.kind, 'proposed');
+  assert.equal(controller.getSnapshot().proposals.length, 1);
+  assert.equal(editor.getShape(shapeId).x, 10);
+  assert.equal(writes, 0);
+  assert.equal(controller.getSnapshot().proposals[0].after.store[shapeId].x, 80);
+  await act(async () => controller.actions.reject(proposed.result.proposalId));
   permit = false;
+  await act(async () => { proposed = await documentToolResult(harness, conversation, await admitDocumentTool(conversation, { x: 90 }, 'propose_canvas')); });
+  assert.equal(proposed.result.kind, 'denied');
+  assert.equal(controller.getSnapshot().proposals.length, 0);
   assert.equal((await run([])).result.kind, 'denied');
   assert.deepEqual(editor.getSelectedShapeIds(), [shapeId]);
   permit = true;

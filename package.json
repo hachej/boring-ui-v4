@@ -67,7 +67,8 @@
     "test:remote-files-consumer": "node scripts/test-remote-files-consumer.mjs",
     "test:projection-consumer": "npm run build && node scripts/test-projection-consumer.mjs",
     "test:definitions-consumer": "node scripts/test-definitions-consumer.mjs",
-    "test:testing-consumer": "npm run build && node scripts/test-testing-consumer.mjs"
+    "test:testing-consumer": "npm run build && node scripts/test-testing-consumer.mjs",
+    "canvas:journey:proposals": "node scripts/test-canvas-proposals-browser.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1146.0",

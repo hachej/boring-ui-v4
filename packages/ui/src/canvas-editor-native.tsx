@@ -11,6 +11,7 @@ import type { SaveResult } from './resources.js';
 import type { CanvasController } from './canvas.js';
 import { createMountedCanvasTools } from './canvas-mounted.js';
 import type { CanvasMountedTools } from './canvas-mounted.js';
+import { CanvasProposals } from './canvas-proposals.js';
 
 export type CanvasFontUrls = Readonly<Record<`${keyof TLDefaultFonts}${'' | '_italic' | '_bold' | '_italic_bold'}`, string>>;
 export type CanvasAssetUrls = Omit<TLUiAssetUrls, 'fonts' | 'embedIcons'> & {
@@ -49,6 +50,7 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [nativeEditor, setNativeEditor] = useState<Editor | null>(null);
   const mounted = useRef(true);
   const revokeTools = useRef<(() => void) | null>(null);
   useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -64,7 +66,7 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
     setBusy(true); setError(null);
     try {
       const result = await action();
-      if (mounted.current && (result.kind === 'unavailable' || result.kind === 'denied')) setError(result.reason);
+      if (mounted.current && (result.kind === 'unavailable' || result.kind === 'denied' || result.kind === 'conflict' || result.kind === 'unknown')) setError(result.reason);
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : 'Canvas operation failed');
     } finally { if (mounted.current) setBusy(false); }
@@ -76,7 +78,8 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
     editor.registerExternalAssetHandler('url', null);
     for (const type of externalContentTypes) editor.registerExternalContentHandler(type, null);
     const cleanup = onMount?.(editor);
-    return () => { revokeTools.current?.(); cleanup?.(); };
+    setNativeEditor(editor);
+    return () => { revokeTools.current?.(); setNativeEditor(current => current === editor ? null : current); cleanup?.(); };
   };
   return <section className={className} data-boring="canvas-editor" data-dirty={state.dirty || undefined}
     onKeyDownCapture={event => {
@@ -99,6 +102,7 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
     {state.problem && <p role="alert">{state.problem}</p>}
     {(outcome?.kind === 'denied' || outcome?.kind === 'unavailable') && <p role="alert">{outcome.reason}</p>}
     {error && <p role="alert">{error}</p>}
+    <CanvasProposals controller={controller} state={state} editor={nativeEditor} busy={busy} run={run} />
     {state.lifecycle === 'active' && <div data-boring="canvas-stage" style={{ position: 'relative', height }}
       onClickCapture={event => { if (event.target instanceof Element && event.target.closest('a')) event.preventDefault(); }}
       onAuxClickCapture={event => { if (event.target instanceof Element && event.target.closest('a')) event.preventDefault(); }}>

@@ -1,7 +1,7 @@
 import type { BoxLike, Editor, TLCamera, TLPageId, TLShape, TLShapeId } from '@tldraw/editor';
 import { randomUUID } from '@boring/files/platform';
 import type { PresentationCommand, PresentationResult, ViewerTarget } from './contracts.js';
-import type { CanvasController } from './canvas.js';
+import type { CanvasController, CanvasProposalInput } from './canvas.js';
 import type { SaveSelection } from './resources.js';
 import { freeze, sameBase } from './text-buffer.js';
 
@@ -20,6 +20,7 @@ export interface CanvasMountedTools {
   readonly inspect: PresentationCommand<{ readonly expiresAt: number }, CanvasMountedInspection, CanvasMountedSubject>;
   readonly select: PresentationCommand<{ readonly expiresAt: number; readonly shapeIds: readonly string[] }, void, CanvasMountedSubject>;
   readonly frame: PresentationCommand<{ readonly expiresAt: number; readonly shapeIds: readonly string[] }, void, CanvasMountedSubject>;
+  readonly propose: PresentationCommand<CanvasProposalInput, void, CanvasMountedSubject>;
 }
 type Refusal = Extract<PresentationResult<never>, { readonly kind: 'stale' | 'conflict' | 'denied' | 'unavailable' }>;
 const expirySchema = { type: 'integer', minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER };
@@ -142,6 +143,22 @@ export function createMountedCanvasTools({ controller, editor }: { readonly cont
     },
     select: { name: 'select_mounted_canvas', input: { jsonSchema: shapesSchema, parse: shapesInput }, invoke: (target, input, signal) => operate(target, input, false, signal) },
     frame: { name: 'frame_mounted_canvas', input: { jsonSchema: shapesSchema, parse: shapesInput }, invoke: (target, input, signal) => operate(target, input, true, signal) },
+    propose: {
+      name: 'propose_mounted_canvas_edits', input: controller.tools.propose.input,
+      invoke: async (target, input, signal) => {
+        const captured = structuredClone(target), parsed = controller.tools.propose.input.parse(input);
+        const refused = check(captured, parsed.expiresAt, signal);
+        if (refused) return refused;
+        if (controller.getSnapshot().readOnly || editor.getIsReadonly()) return { kind: 'denied', reason: 'Canvas is read-only' };
+        const result = await controller.tools.propose.invoke(captured, parsed, signal);
+        if (result.kind === 'proposed') {
+          const lateRefusal = check(captured, parsed.expiresAt, signal)
+            ?? (editor.getIsReadonly() ? { kind: 'denied' as const, reason: 'Canvas is read-only' } : null);
+          if (lateRefusal) { controller.actions.reject(result.proposalId); return lateRefusal; }
+        }
+        return result.kind === 'proposed' ? { ...result, base: captured } : result;
+      },
+    },
   };
   return { tools, activate: () => { alive = true; }, dispose: () => { alive = false; } };
 }

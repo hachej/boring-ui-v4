@@ -126,6 +126,16 @@ The native toolbar and Save/Check saved version controls use the concrete contro
 
 Run `npm run test:canvas-editor-consumer` for the selected renderer's tarball recipe, actual native/SQLite DOM tests and browser bundle. It uses the same `skipLibCheck` recipe and library-checks Boring's declarations as above, so only the upstream lodash and `ArrowShapeUtil` declaration diagnostics are tolerated. Fictional font/network test boundaries do not qualify browser geometry, real fonts, CSS, egress or production licensing. See the [canvas owner](../../docs/architecture/CANVAS.md).
 
+## Canvas proposals
+
+`controller.actions.propose(selection, edits, summary)` validates complete native-record edits against the exact selected draft. It retains immutable `before` and `after` documents without changing the borrowed store or publishing. `state.proposals` exposes the review candidates. `actions.accept(id)` adopts a still-current candidate and flushes its actual buffer version. `actions.reject(id)` dismisses it without publication. Reentrant edits, stale bases, pending saves and unknown save outcomes prevent a second publication; later acknowledgements preserve newer drafts.
+
+`controller.tools.inspect` and `controller.tools.propose` are ordinary expiring presentation commands. The host supplies authorization when adapting them through `@boring/agent/presentation`. Browser hosts should use the mounted proposal command below to bind the native page and mount as well.
+
+`CanvasEditor` displays changed record fields, including deletion cascades, with escaped JSON Pointer paths. **Accept and save** is a human action. Native read-only mode disables acceptance. Dismiss never publishes. An adopted proposal remains labelled as applied locally; the save status reports publication separately. After an unknown result, reconcile the operation before retrying. The headless `actions.abandon()` escape retains the draft and is subject to the shared buffer's recovery rules.
+
+`npm run canvas:journey:proposals` drives desktop and phone review controls against authenticated fictional HTTP resources and SQLite, including reload, stale edits and delayed acknowledgements. Its native shape edits use the actual Editor API; it does not qualify pointer drawing, real fonts, licensed assets or production egress.
+
 ## Mounted canvas commands
 
 Pass `onMountedTools` to `CanvasEditor` to receive `CanvasMountedTools`, or `null` on detach. Capture `tools.getTarget()` before submitting a command. Its resource, revision, buffer version, viewer instance, mount and native page must still match at invocation. Callback replacement retains the live handle; unmount invalidates it. The controller and store remain borrowed.
@@ -134,9 +144,11 @@ Pass `onMountedTools` to `CanvasEditor` to receive `CanvasMountedTools`, or `nul
 - `select.invoke(target, { expiresAt, shapeIds })` selects existing shapes on the captured page. Duplicate IDs normalize; an empty list clears selection. Missing or other-page IDs refuse before changing selection.
 - `frame.invoke(target, { expiresAt, shapeIds })` immediately frames the shapes' combined native page bounds. It requires a nonempty list and visible geometry, respects camera locking and constraints, and verifies actual viewport containment before reporting applied.
 
-`expiresAt` is an absolute millisecond deadline; pass the native abort signal as the third argument when composing `@boring/agent/presentation`. These session commands work with read-only and dirty documents and never publish. A target change during a reentrant native callback refuses the result, but does not promise rollback of intermediate session effects. Saved-resource edits and remote browser delivery remain separate operations.
+`expiresAt` is an absolute millisecond deadline; pass the native abort signal as the third argument when composing `@boring/agent/presentation`. Inspect, select and frame work with read-only and dirty documents and never publish. A target change during a reentrant native callback refuses the result, but does not promise rollback of intermediate session effects. Saved-resource edits and remote browser delivery remain separate operations.
 
-`test/compatibility/canvas-mounted-native.test.mjs` composes selection with a real native ToolTask. `npm run canvas:journey:commands` requires `CHROMIUM` and permitted loopback sockets; it checks real desktop/phone viewport geometry with fictional assets. Production fonts, licensing, egress and CSS isolation remain separate qualifications.
+Mounted `tools.propose` accepts the same complete edits as the headless command and retains the selected page/mount target. It refuses native read-only mode and rechecks cancellation, expiry and targeting before returning a proposal. It never accepts or publishes on the agent's behalf.
+
+`test/compatibility/canvas-mounted-native.test.mjs` composes selection and proposals with real native ToolTasks. `npm run canvas:journey:commands` requires `CHROMIUM` and permitted loopback sockets; it checks real desktop/phone viewport geometry with fictional assets. Production fonts, licensing, egress and CSS isolation remain separate qualifications.
 
 ## Optional HTML source and preview
 

@@ -42,6 +42,8 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Mounted canvas command geometry
         run: npm run canvas:journey:commands
+      - name: Canvas proposal review and persistence
+        run: npm run canvas:journey:proposals
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model
@@ -58,6 +60,14 @@ jobs:
         with:
           name: canvas-command-evidence
           path: .cache/evidence/canvas-browser
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Canvas proposal evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canvas-proposal-evidence
+          path: .cache/evidence/canvas-proposals-browser
           if-no-files-found: ignore
           retention-days: 7
       - name: Evidence of a failed run
