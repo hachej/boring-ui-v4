@@ -5,6 +5,7 @@
 // No Node-only imports.
 import { defineTool } from '@earendil-works/pi-durable';
 import { Type } from '@earendil-works/pi-ai';
+import { parsePublicationResult, publicationDigest } from '@boring/files/publication';
 import { baselineKey, lastReadRevision, recordRevision } from '@boring/agent/file-guard';
 import { asWorkspaceResolver, workspaceFor } from '@boring/agent/workspaces';
 import { DocumentRecordType, PageRecordType, TLDOCUMENT_ID, createBindingId, createShapeId, createTLSchema, toRichText } from '@tldraw/tlschema';
@@ -91,13 +92,23 @@ export function createCanvasTools({ files, workspace = files ? { files, root: '/
     const unsupported = [...shapesOf(document), ...bindingsOf(document)].find(record => !SUPPORTED.has(record.type));
     if (unsupported) return { kind: 'denied', reason: `The canvas contains an unsupported ${unsupported.type} record` };
     const bytes = new TextEncoder().encode(JSON.stringify(document));
-    const result = await files.publication.publish({ operationId: JSON.stringify([namespace, api.taskId]), atomicity: 'all-or-nothing',
+    const request = { operationId: JSON.stringify([namespace, api.taskId]), atomicity: 'all-or-nothing',
       changes: [revision === null ? { kind: 'create', target, expected: { kind: 'absent' }, bytes, mediaType: canvasMediaType }
-        : { kind: 'replace', target: { ...target, revision }, bytes, mediaType: canvasMediaType }] }, access);
+        : { kind: 'replace', target: { ...target, revision }, bytes, mediaType: canvasMediaType }] };
+    const digest = await publicationDigest(request);
+    const acknowledgement = await files.publication.publish(request, access);
+    const unknown = () => ({ kind: 'unknown', operationId: request.operationId, reason: 'Canvas publication acknowledgement does not identify the requested change. Read the canvas before making another change.' });
+    let result;
+    try { result = parsePublicationResult(acknowledgement); } catch { return unknown(); }
     if (result.kind !== 'committed') return result;
-    const saved = await load(ws);
-    if (saved.kind === 'available') await recordRevision(api, ws.key, saved.revision, context);
-    return { kind: 'saved', revision: saved.kind === 'available' ? saved.revision : undefined, shapes: describe(document) };
+    const receipt = result.receipt, change = receipt.changes[0];
+    const sameTarget = ref => ref?.resource.providerId === target.resource.providerId && ref.resource.path === target.resource.path && ref.view.kind === 'published';
+    if (receipt.operationId !== request.operationId || receipt.argumentDigest !== digest || receipt.scopeId !== access.scopeId
+      || receipt.principalId !== access.principalId || receipt.initiatorId !== access.initiatorId || receipt.changes.length !== 1
+      || !sameTarget(change.after) || (revision === null ? change.kind !== 'create' || change.before !== null
+        : change.kind !== 'replace' || !sameTarget(change.before) || change.before.revision !== revision)) return unknown();
+    await recordRevision(api, ws.key, change.after.revision, context);
+    return { kind: 'saved', revision: change.after.revision, shapes: describe(document) };
   }
 
   const readCanvas = defineTool({
