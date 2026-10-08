@@ -70,7 +70,9 @@
     "test:testing-consumer": "npm run build && node scripts/test-testing-consumer.mjs",
     "canvas:journey:proposals": "node scripts/test-canvas-proposals-browser.mjs",
     "test:canvas-remote-consumer": "node scripts/test-canvas-consumer.mjs --remote",
-    "canvas:journey:remote": "node scripts/test-canvas-remote-browser.mjs"
+    "canvas:journey:remote": "node scripts/test-canvas-remote-browser.mjs",
+    "test:task-list-registry-consumer": "npm run registry:build && node scripts/test-registry-consumer.mjs --task-list",
+    "task-list:journey": "node scripts/test-task-list-browser.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1146.0",

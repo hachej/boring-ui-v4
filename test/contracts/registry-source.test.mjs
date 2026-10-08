@@ -128,7 +128,7 @@ test('registry dependency pins and scoped styles preserve the declared source di
       }
       continue;
     }
-    const prefix = { 'markdown-editor': '.boring-markdown-recipe[data-boring=\"markdown-editor\"]', chat: '.boring-chat-recipe[data-boring=\"chat\"]', 'html-viewer': '.boring-html-recipe[data-boring=\"html-viewer\"]' }[item.name];
+    const prefix = { 'markdown-editor': '.boring-markdown-recipe[data-boring=\"markdown-editor\"]', chat: '.boring-chat-recipe[data-boring=\"chat\"]', 'html-viewer': '.boring-html-recipe[data-boring=\"html-viewer\"]', 'task-list-viewer': '.boring-task-list-recipe[data-boring=\"task-list-viewer\"]' }[item.name];
     assert.ok(prefix);
     for (const selector of Object.keys(item.css)) {
       for (const part of selector.split(',')) assert.ok(part.trim().startsWith(prefix), selector);
@@ -137,7 +137,12 @@ test('registry dependency pins and scoped styles preserve the declared source di
       const source = readFileSync(join(root, file.path), 'utf8');
       const imports = [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map(match => match[1]);
       assert.ok(imports.length > 0);
-      for (const imported of imports) assert.ok(architecture.sourceDistribution.runtimeImports.includes(imported), imported);
+      for (const imported of imports) {
+        if (item.name !== 'task-list-viewer') { assert.ok(architecture.sourceDistribution.runtimeImports.includes(imported), imported); continue; }
+        if (imported.startsWith('./')) {
+          assert.ok(item.files.some(entry => entry.path.replace(/\.tsx?$/, '').endsWith('/' + imported.slice(2))), `${file.path} imports unshipped ${imported}`);
+        } else assert.ok(['react', 'zod', '@boring/ui', '@boring/ui/resources', '@boring/ui/contracts', '@boring/ui/text-buffer', '@boring/files', '@boring/files/platform'].includes(imported), imported);
+      }
       assert.doesNotMatch(source, /dangerouslySetInnerHTML|eval\s*\(|new Function|<script\b/);
     }
   }

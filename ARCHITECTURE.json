@@ -518,7 +518,8 @@
     "runtimeImports": [
       "@boring/ui/markdown-editor",
       "@boring/ui/native-chat",
-      "@boring/ui/html-viewer"
+      "@boring/ui/html-viewer",
+      "@boring/ui/text-buffer"
     ]
   }
 }

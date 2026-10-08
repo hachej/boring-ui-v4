@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,12 +8,13 @@ import { runCaptured } from './run-captured.mjs';
 import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-assert.ok(process.argv.length === 2 || process.argv.length === 3 && process.argv[2] === '--html', 'Expected no option or --html');
+assert.ok(process.argv.length === 2 || process.argv.length === 3 && ['--html', '--task-list'].includes(process.argv[2]), 'Expected no option, --html or --task-list');
 const html = process.argv[2] === '--html';
-const recipe = html ? { name: 'html-viewer', exportName: 'HtmlViewer', className: 'boring-html-recipe', hostClass: 'host-installed-html', radius: '--boring-html-radius', fixture: 'registry-html.mjs' }
+const taskList = process.argv[2] === '--task-list';
+const recipe = taskList ? { name: 'task-list-viewer', exportName: 'TaskListViewer', className: 'boring-task-list-recipe', hostClass: 'host-installed-task-list', radius: '--boring-task-list-radius', fixture: 'registry-task-list.mjs' } : html ? { name: 'html-viewer', exportName: 'HtmlViewer', className: 'boring-html-recipe', hostClass: 'host-installed-html', radius: '--boring-html-radius', fixture: 'registry-html.mjs' }
   : { name: 'markdown-editor', exportName: 'MarkdownEditor', className: 'boring-markdown-recipe', hostClass: 'host-installed-editor', radius: '--boring-editor-radius', fixture: 'registry-markdown.mjs' };
 const item = JSON.parse(readFileSync(join(root, 'public/r', recipe.name + '.json'), 'utf8'));
-const excludedPackages = ['@earendil-works/pi-durable', '@earendil-works/chord', '@boring/agent', 'tldraw', '@tldraw/editor', ...(html ? ['@tiptap/core', 'marked', '@boring/execution'] : [])];
+const excludedPackages = ['@earendil-works/pi-durable', '@earendil-works/chord', '@boring/agent', 'tldraw', '@tldraw/editor', ...((html || taskList) ? ['@tiptap/core', 'marked', '@boring/execution'] : [])];
 const temporary = mkdtempSync(join(tmpdir(), 'boring-registry-consumer-'));
 // The pinned native SDK probes ten ancestor node_modules paths even when local types exist.
 const directory = temporary;
@@ -101,7 +102,7 @@ try {
   for (const path of ['src', 'test/fixtures', 'dist']) mkdirSync(join(directory, path), { recursive: true });
   writeFileSync(join(directory, 'components.json'), JSON.stringify({ $schema: 'https://ui.shadcn.com/schema.json', style: 'new-york', rsc: false, tsx: true, tailwind: { config: '', css: 'src/index.css', baseColor: '', cssVariables: true, prefix: '' }, iconLibrary: 'lucide', aliases: { components: '@/components', utils: '@/lib/utils', ui: '@/components/ui', lib: '@/lib', hooks: '@/hooks' } }));
   writeFileSync(join(directory, 'src/index.css'), '');
-  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'ESNext', moduleResolution: 'Bundler', jsx: 'react-jsx', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: [], lib: ['ES2023', 'DOM'], baseUrl: '.', paths: { '@/*': ['./src/*'] } }, include: ['src/**/*.tsx', 'consumer.ts'] }));
+  writeFileSync(join(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2023', module: 'ESNext', moduleResolution: 'Bundler', jsx: 'react-jsx', strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, noEmit: true, types: [], lib: ['ES2023', 'DOM'], baseUrl: '.', paths: { '@/*': ['./src/*'] } }, include: ['src/**/*.tsx', 'src/**/*.ts', 'consumer.ts'] }));
   const installer = { ...process.env, npm_config_cache: cache, npm_config_offline: 'true', npm_config_ignore_scripts: 'true', npm_config_audit: 'false', npm_config_fund: 'false' };
   delete installer.NODE_OPTIONS;
   run(process.execPath, ['node_modules/shadcn/dist/index.js', 'add', join(directory, recipe.name + '.json'), '--cwd', directory, '--yes'], installer);
@@ -113,9 +114,20 @@ try {
   }
   const component = 'src/components/' + recipe.name + '/' + recipe.name + '.tsx';
   assert.ok(existsSync(join(directory, component)), 'Real CLI must create the wrapper');
-  assert.ok(readFileSync(join(directory, component), 'utf8').includes('@boring/ui/' + recipe.name));
+  assert.ok(readFileSync(join(directory, component), 'utf8').includes(taskList ? './task-list-controller' : '@boring/ui/' + recipe.name));
   assert.ok(readFileSync(join(directory, 'src/index.css'), 'utf8').includes(recipe.className));
-  writeFileSync(join(directory, 'consumer.ts'), html ? `import { HtmlViewer, type HtmlViewerProps } from './src/components/html-viewer/html-viewer';
+  writeFileSync(join(directory, 'consumer.ts'), taskList ? `import { TaskListViewer } from './src/components/task-list-viewer/task-list-viewer';
+import { createTaskListFeature, type TaskListOptions } from './src/components/task-list-viewer/task-list-controller';
+import { createElement } from 'react';
+declare const options: TaskListOptions;
+const feature = createTaskListFeature(options);
+const descriptor = feature.descriptor.parse({ kind: 'fictional.task-list', version: 1, source: options.source.kind === 'saved' ? options.source.snapshot.ref : options.source.target });
+const controller = feature.createController(descriptor);
+controller.actions.edit(controller.actions.selection(), [{kind:'set-completed', id:'fictional', completed:true}]);
+controller.flush(controller.actions.selection());
+controller.tools.inspect.invoke(controller.actions.selection().target, {expiresAt:Date.now()+1000});
+createElement(TaskListViewer, {controller});
+` : html ? `import { HtmlViewer, type HtmlViewerProps } from './src/components/html-viewer/html-viewer';
 import type { HtmlController } from '@boring/ui/html';
 import { createElement } from 'react';
 declare const controller: HtmlController;
@@ -143,13 +155,16 @@ controller.flush(controller.actions.selection());
 `);
   const compile = () => {
     assertConsumerTypeFiles(run(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.json', '--listFiles'], isolated), directory);
-    run(process.execPath, ['node_modules/esbuild/bin/esbuild', component, '--format=esm', '--jsx=automatic', '--outfile=dist/' + recipe.name + '.js'], isolated);
+    if (taskList) {
+      writeFileSync(join(directory, 'task-list-entry.ts'), "export { TaskListViewer } from './src/components/task-list-viewer/task-list-viewer';\nexport * from './src/components/task-list-viewer/task-list-controller';\nexport * from './src/components/task-list-viewer/task-list-document';\n");
+      run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'task-list-entry.ts', '--bundle', '--packages=external', '--platform=node', '--format=esm', '--jsx=automatic', '--outfile=dist/task-list-viewer.js'], isolated);
+    } else run(process.execPath, ['node_modules/esbuild/bin/esbuild', component, '--format=esm', '--jsx=automatic', '--outfile=dist/' + recipe.name + '.js'], isolated);
   };
   copyFileSync(join(root, 'test/fixtures', recipe.fixture), join(directory, 'test/fixtures', recipe.fixture));
   // The tests' host: one SQLite workspace per scope over the installed @boring/files (public entry points only).
   mkdirSync(join(directory, 'examples/shared'), { recursive: true });
   copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'examples/shared/sqlite-workspaces.mjs'));
-  if (!html) {
+  if (!html && !taskList) {
     const proposals = readFileSync(join(root, 'test/packages/ui-markdown-proposals.test.mjs'), 'utf8');
     assert.equal(proposals.split("'@boring/ui/markdown-editor'").length, 2);
     writeFileSync(join(directory, 'test/fixtures/registry-markdown-proposals-dom.mjs'), proposals.replace("'@boring/ui/markdown-editor'", "'../../dist/markdown-editor.js'"));
@@ -163,23 +178,44 @@ controller.flush(controller.actions.selection());
     writeFileSync(join(directory, 'test/fixtures/registry-html-dom.mjs'), tests.replace("'@boring/ui/html-viewer'", "'../../dist/html-viewer.js'"));
   }
   compile();
-  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/fixtures/' + recipe.fixture, ...(!html ? ['test/fixtures/registry-markdown-mounted-dom.mjs', 'test/fixtures/registry-markdown-proposals-dom.mjs'] : [])], isolated);
+  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/fixtures/' + recipe.fixture, ...(!html && !taskList ? ['test/fixtures/registry-markdown-mounted-dom.mjs', 'test/fixtures/registry-markdown-proposals-dom.mjs'] : [])], isolated);
   const copied = readFileSync(join(directory, component), 'utf8');
   assert.ok(copied.includes(recipe.className));
   writeFileSync(join(directory, component), copied.replace(recipe.className, recipe.className + ' ' + recipe.hostClass));
   writeFileSync(join(directory, 'src/index.css'), readFileSync(join(directory, 'src/index.css'), 'utf8') + `\n.${recipe.hostClass} { ${recipe.radius}: 1.25rem; }\n`);
   compile();
-  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/fixtures/' + recipe.fixture, ...(!html ? ['test/fixtures/registry-markdown-mounted-dom.mjs', 'test/fixtures/registry-markdown-proposals-dom.mjs'] : [])], { ...isolated, BORING_REGISTRY_RESTYLED: 'true' });
-  const controllerExport = html ? 'createHtmlController' : 'createMarkdownController';
-  const controllerEntry = html ? 'html' : 'markdown';
-  writeFileSync(join(directory, 'browser-entry.js'), `export { ${recipe.exportName} } from './${component}';\nexport { ${controllerExport} } from '@boring/ui/${controllerEntry}';\nimport './src/index.css';\n`);
+  run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/fixtures/' + recipe.fixture, ...(!html && !taskList ? ['test/fixtures/registry-markdown-mounted-dom.mjs', 'test/fixtures/registry-markdown-proposals-dom.mjs'] : [])], { ...isolated, BORING_REGISTRY_RESTYLED: 'true' });
+  const controllerExport = taskList ? 'createTaskListController' : html ? 'createHtmlController' : 'createMarkdownController';
+  const controllerEntry = taskList ? 'text-buffer' : html ? 'html' : 'markdown';
+  writeFileSync(join(directory, 'browser-entry.js'), `export { ${recipe.exportName} } from './${component}';\nexport { ${controllerExport} } from '${taskList ? './src/components/task-list-viewer/task-list-controller' : '@boring/ui/' + controllerEntry}';\nimport './src/index.css';\n`);
   run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'browser-entry.js', '--bundle', '--platform=browser', '--format=esm', '--outfile=browser.js', '--metafile=browser-meta.json'], isolated);
   const inputs = Object.keys(JSON.parse(readFileSync(join(directory, 'browser-meta.json'), 'utf8')).inputs);
   assertConsumerTypeFiles(inputs.map(path => resolve(directory, path)).join('\n'), directory);
   assert.ok(inputs.some(path => path.endsWith(component)), 'Bundle must use CLI-installed copied source');
-  assert.ok(inputs.some(path => path.endsWith('@boring/ui/dist/' + controllerEntry + '.js')), 'Bundle must include the selected public controller');
+  assert.ok(inputs.some(path => path.endsWith('@boring/ui/dist/' + (taskList ? 'public-text-buffer' : controllerEntry) + '.js')), 'Bundle must include the selected public controller');
   assert.ok(inputs.every(path => !/pi-durable|@earendil-works|@boring\/agent|sqlite|node:|tldraw/.test(path)), 'browser bundle must exclude kernel/server/canvas');
-  if (html) assert.ok(inputs.every(path => !/@tiptap|marked|entities|@boring\/execution/.test(path)), 'HTML bundle must exclude unrelated viewers and execution');
+  if (html || taskList) assert.ok(inputs.every(path => !/@tiptap|marked|entities|@boring\/execution/.test(path)), 'HTML bundle must exclude unrelated viewers and execution');
+  if (taskList) {
+    const installedManifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+    const installedLock = JSON.parse(readFileSync(join(directory, 'package-lock.json'), 'utf8'));
+    for (const name of ['@earendil-works/pi-durable', '@earendil-works/pi-ai', '@earendil-works/chord', '@modelcontextprotocol/sdk']) {
+      installedManifest.dependencies[name] = rootManifest.devDependencies[name];
+      include(name);
+    }
+    for (const [path, entry] of Object.entries(packages)) if (path && !installedLock.packages[path]) installedLock.packages[path] = entry;
+    installedLock.packages[''].dependencies = installedManifest.dependencies;
+    writeFileSync(join(directory, 'package.json'), JSON.stringify(installedManifest));
+    writeFileSync(join(directory, 'package-lock.json'), JSON.stringify(installedLock));
+    run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache)]);
+    run('npm', ['ci', ...npmInstallFlags(cache)]);
+    mkdirSync(join(directory, 'registry'), { recursive: true });
+    symlinkSync('../src/components/task-list-viewer', join(directory, 'registry/task-list-viewer'));
+    mkdirSync(join(directory, 'test/compatibility'), { recursive: true });
+    for (const path of ['examples/shared/task-list-tools.mjs', 'test/compatibility/task-list.test.mjs', 'test/fixtures/task-list-crash-child.mjs', 'test/fixtures/native-document.mjs']) {
+      copyFileSync(join(root, path), join(directory, path));
+    }
+    run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/compatibility/task-list.test.mjs'], isolated);
+  }
   console.log('PASS: real pinned shadcn local installation of ' + recipe.name + ', strict declarations, copied-source restyle and real controller operations; DOM and bundle evidence only');
   completed = true;
 } finally {

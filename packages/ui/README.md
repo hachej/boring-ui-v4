@@ -224,3 +224,11 @@ Call `controller.actions.beginRegion(selection, region, trigger)` before host co
 `ExperienceDocument` accepts `onRegenerate(request)` for its **Regenerate** controls. The host owns the evaluator and its abort signal. **Use proposed region**, **Dismiss proposed region** and **Pin this region** separate acceptance and publication. Fixed sibling renderer identities remain stable across region edits. Cell and grid minima inherit the strongest enclosing region minimum; narrow regions can scroll. Borrowed resource controllers survive unmount.
 
 Run `node examples/generated-region.mjs` after building for a fictional native composition, offer, adoption and SQLite Pin receipt. Public tests and `npm run test:experience-consumer` exercise strict tarball declarations, real native composition, exact source, request races, DOM identity/selection and unknown-save reconciliation. DOM results do not qualify browser focus, geometry, live model quality or atomic cross-resource authorization.
+
+## Consumer-defined text viewers
+
+`@boring/ui/text-buffer` exports the existing `createTextBuffer` and its concrete types for trusted consumer controllers. The root UI entry stays independent of resource providers. The buffer owns the draft, revision, exact flush selection and uncertain-save reconciliation; a custom controller can derive an immutable domain projection from its snapshot.
+
+Validate initial and remote content through `readText`, and validate edits before calling `edit`. `observe` is intended for trusted external-store synchronization and bypasses read-only edit checks. `sync` and `replaceText` are synchronous hooks. Refresh checks the buffer again after `replaceText`, so a callback edit or disposal cannot be overwritten by the pending refresh.
+
+The [task-list recipe](../../registry/README.md#task-list-viewer) implements a concrete consumer feature, domain operations and renderer. Its native tools share the domain transform and conditional publication provider. They edit saved resources; a mounted human draft keeps its own exact revision and conflict handling.

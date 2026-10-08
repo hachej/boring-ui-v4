@@ -485,3 +485,11 @@ Exact candidate gates, independent review and raw results are retained under ign
 The saved tools now retain exact publication intent in native task memos and reconcile a potentially committed operation without another write. Focused execution passes 59 tests, including 26 real SIGKILL cases. Later human edits and newer conversation reads survive recovery. See [feature evidence](FEATURES.md#saved-canvas-tool-publication-recovery) and [host requirements and limits](../architecture/CANVAS.md#saved-tool-publication-recovery).
 
 Exact candidate gates, baseline comparisons and independent review remain under ignored `.cache/evidence/canvas-recovery/`. Local network/process restrictions remain visible in full-gate results; no failing gate is relabelled as a pass. Production canvas requirements and all global release deferrals remain open. This checkpoint remains PARTIAL across W/P/A/H.
+
+## Consumer task-list candidate, 2026-10-08
+
+The branch based on PR 47 adds the optional public text-buffer entry, an actual consumer-defined task-list feature/controller/renderer and native saved-resource tools. It reuses the existing buffer state and conditional publication contract. There is no new plugin runtime or application file-type switch. Review reproduced and fixed refresh overwriting an edit made by its synchronous replacement callback; the same fence protects disposal.
+
+Fourteen focused task-list tests pass, including six real SQLite/SIGKILL recovery cases. Successful recovery returns the original receipt/document even after a newer human publication. Changed binding/actor, revoked authorization and missing receipts never republish. Public buffer and existing HTML/canvas regression checks pass. Registry installation/restyle/native tests and actual browser journeys are required integration gates, with final results retained under `.cache/evidence/custom-task-viewer/` in the implementation checkout. Loopback restrictions prevent local browser execution; CI must establish that claim.
+
+W10/A43/A46 remain partial. Full P01-P14/A01-A48/H01-H10 remain in scope; no VERIFY.json deferral is removed. Hosted recipes, live identity/provider/model behavior, human/expert review and tldraw production licensing/assets remain separate qualifications.
