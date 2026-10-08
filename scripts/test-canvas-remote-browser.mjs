@@ -27,7 +27,7 @@ const report = { status: 'running', steps: [], nativeResults: [] };
 const access = { scopeId: 'fictional', principalId: 'browser', initiatorId: 'journey' };
 const target = { resource: { providerId: 'fictional', path: 'board.canvas' }, view: { kind: 'published' } };
 const files = openSqliteWorkspaces({ filename: join(directory, 'canvas.sqlite'), providerId: 'fictional' });
-const registry = createRegistry(), activePolls = new Set(), bindings = new Map();
+const registry = createRegistry(), activePolls = new Map(), bindings = new Map();
 let browser, server, harness, conversation, bridge, origin, revocation = new AbortController(), publications = 0, lastPublication;
 const step = async (name, action) => {
   const item = { name, status: 'running' }; report.steps.push(item);
@@ -136,9 +136,11 @@ try {
           const id = url.searchParams.get('connectionId');
           const pending = (url.pathname === '/resources' ? resources : bridge.handle)(request);
           if (url.pathname === '/canvas' && url.searchParams.get('op') === 'poll') {
-            let ended = false; void pending.then(() => { ended = true; activePolls.delete(id); }, () => { ended = true; activePolls.delete(id); });
+            let ended = false;
+            const settled = () => { ended = true; if (activePolls.get(id) === request) activePolls.delete(id); };
+            void pending.then(settled, settled);
             await new Promise(resolve => setImmediate(resolve));
-            if (!ended) activePolls.add(id);
+            if (!ended) activePolls.set(id, request);
           }
           const response = await pending;
           if (!outgoing.destroyed) { outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(Buffer.from(await response.arrayBuffer())); }
