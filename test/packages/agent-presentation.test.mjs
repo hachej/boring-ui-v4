@@ -37,7 +37,7 @@ async function fixture(t, config) {
   return { harness, conversation, start, result, run: async args => result(await start(args)) };
 }
 
-for (const kind of ['applied', 'proposed', 'stale', 'conflict', 'denied', 'unavailable']) {
+for (const kind of ['applied', 'proposed', 'stale', 'conflict', 'denied', 'unavailable', 'unknown']) {
   test(`native presentation tool preserves ${kind} and formatter cannot mask a refusal`, async t => {
     let seen;
     const outcome = kind === 'applied' ? { kind, value: { secret: 'never-retained' } }

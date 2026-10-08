@@ -24,6 +24,10 @@ const tool: ToolRegistration<typeof parameters> = createPresentationTool({
     return index >= 0 && documentId === 'fictional' && api.conversationId > 0 && !context.abortSignal?.aborted;
   },
   formatResult: result => {
+    if (result.kind === 'unknown') {
+      const reason: string = result.reason;
+      return { content: [{ type: 'text', text: `Unconfirmed browser effect: ${reason}` }] };
+    }
     if (result.kind === 'applied') {
       const privateText: string = result.value.privateText;
       return { content: [{ type: 'text', text: JSON.stringify({ kind: result.kind, length: privateText.length }) }] };

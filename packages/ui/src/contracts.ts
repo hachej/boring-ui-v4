@@ -56,7 +56,8 @@ export interface ViewerTarget<Subject = unknown> {
 export type PresentationResult<Output, Subject = unknown> =
   | { readonly kind: 'applied'; readonly value: Output }
   | { readonly kind: 'proposed'; readonly proposalId: string; readonly base: ViewerTarget<Subject> }
-  | { readonly kind: 'stale' | 'conflict' | 'denied' | 'unavailable'; readonly reason: string };
+  | { readonly kind: 'stale' | 'conflict' | 'denied' | 'unavailable'; readonly reason: string }
+  | { readonly kind: 'unknown'; readonly reason: string };
 
 /** Function properties retain strict input/target variance. Native tool
  * adapters bind this metadata through Pi; this is not another tool engine.
