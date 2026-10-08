@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { createNativeChatController } from '@boring/ui/native-chat';
 import type { ChatIdentity, NativeChatController } from '@boring/ui/native-chat';
 import { createRemoteChat } from '@boring/ui/remote-chat';
@@ -25,7 +25,7 @@ export function useRemoteChat({ conversationId, endpoint, fetch, identity }: {
   const url = conversationId === undefined ? undefined : String(endpoint(conversationId));
   const key = JSON.stringify([conversationId, url, identity?.runtimeId, identity?.scopeId, identity?.principalId]);
   const binding = useMemo(() => ({ key, fetch }), [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  binding.fetch = fetch;
+  useLayoutEffect(() => { binding.fetch = fetch; }, [binding, fetch]);
   const [stored, setStored] = useState<{ readonly binding: typeof binding; readonly chat: RemoteChatState }>();
   useEffect(() => {
     if (conversationId === undefined || !identity || url === undefined) return;

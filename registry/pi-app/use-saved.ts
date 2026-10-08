@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import type { ResourceClient, ResourceLocator, ResourceSnapshot } from '@boring/files';
 
 const POLL_MS = 1500;
@@ -26,8 +26,8 @@ export function useSaved<C extends SavedController = SavedController>({ client, 
   readonly create?: ((snapshot: ResourceSnapshot) => C) | undefined;
 }): SavedState<C> {
   const key = JSON.stringify([target.resource.providerId, target.resource.path, target.view.kind, target.view.kind === 'working' ? target.view.viewId : null, revision]);
-  const binding = useMemo(() => ({ client, key }), [client, key]);
-  const factory = useRef(create); factory.current = create;
+  const binding = useMemo(() => ({ client, key, create }), [client, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { binding.create = create; }, [binding, create]);
   const [stored, setStored] = useState<{ readonly binding: typeof binding; readonly state: SavedState<C> }>();
   useEffect(() => {
     let cancelled = false, reading = false;
@@ -55,7 +55,7 @@ export function useSaved<C extends SavedController = SavedController>({ client, 
       const text = readText(read.snapshot.bytes);
       if (text === undefined) { update({ kind: 'invalid' }); return; }
       let controller: C | undefined;
-      try { controller = factory.current?.(read.snapshot); } catch { update({ kind: 'invalid' }); return; }
+      try { controller = binding.create?.(read.snapshot); } catch { update({ kind: 'invalid' }); return; }
       update({ kind: 'open', snapshot: read.snapshot, text, controller });
     };
     void follow();
