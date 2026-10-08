@@ -6,6 +6,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./presentation": { "types": "./dist/presentation.d.ts", "import": "./dist/presentation.js" },
     "./native": { "types": "./dist/native.d.ts", "import": "./dist/native.js" },
     "./contracts": { "types": "./dist/contracts.d.ts", "import": "./dist/contracts.js" },
     "./definitions": { "types": "./dist/definitions.d.ts", "import": "./dist/definitions.js" },
@@ -31,7 +32,7 @@
     "./gateway-provider": { "types": "./dist/gateway-provider.d.ts", "import": "./dist/gateway-provider.js" },
     "./metering": { "types": "./dist/metering.d.ts", "import": "./dist/metering.js" }
   },
-  "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0" },
-  "peerDependenciesMeta": { "@boring/files": { "optional": true } },
+  "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0", "@boring/ui": "0.0.0" },
+  "peerDependenciesMeta": { "@boring/files": { "optional": true }, "@boring/ui": { "optional": true } },
   "engines": { "node": ">=22.19.0" }
 }

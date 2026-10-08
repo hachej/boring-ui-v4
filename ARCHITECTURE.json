@@ -76,7 +76,9 @@
       "dependsOn": [
         "files"
       ],
-      "typeOnlyDependsOn": [],
+      "typeOnlyDependsOn": [
+        "ui"
+      ],
       "external": [
         "@earendil-works/pi-durable",
         "@earendil-works/pi-durable/*",
