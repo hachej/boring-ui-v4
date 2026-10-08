@@ -184,3 +184,37 @@ for (const mode of ['reservation', 'admission', 'output', 'missing', 'revoked'])
   }
   assert.equal(await readFile(join(directory, 'attempts'), 'utf8'), 'attempt\n');
 });
+
+
+test('new native instance cannot alias an earlier delivery operation in the retained resource store', async t => {
+  const f = await fixture(t), before = await complete(f, 'old-instance');
+  assert.equal(before.result.kind, 'committed');
+  await f.runtime.close();
+  for (const suffix of ['', '-wal', '-shm']) rmSync(join(f.directory, 'first', `native.sqlite${suffix}`), { force: true });
+  const runtime = await openRedactionBrowser({ directory: f.directory });
+  try {
+    const first = (await runtime.configuration(actor)).consultations[0], notes = runtime.resourceClient('first', 'notes', actor);
+    assert.notEqual(first.instanceId, f.first.instanceId);
+    const current = await notes.read({ target: first.notesTarget, revision: { kind: 'latest' } });
+    const saved = await notes.publish({ operationId: 'new-instance-notes', atomicity: 'all-or-nothing', changes: [{ kind: 'replace', target: current.snapshot.ref, bytes: bytes('Fictional new instance notes'), mediaType: 'text/markdown' }] });
+    assert.equal(saved.kind, 'committed');
+    const capture = await runtime.preparationCapture('first', { requestId: 'new-instance', source: saved.receipt.changes[0].after, saveOperationId: saved.receipt.operationId }, actor);
+    assert.equal(capture.kind, 'captured');
+    const admitted = await runtime.preparationAdmit('first', capture.request, actor);
+    assert.equal(admitted.kind, 'admitted');
+    assert.equal(admitted.ref.delivery, before.ref.delivery, 'Native task IDs can repeat across installations');
+    assert.notEqual(admitted.ref.operationId, before.ref.operationId);
+    await runtime.local.apps.first.local.harness.waitForTask(admitted.ref.delivery, context);
+    assert.equal((await runtime.preparationResult('first', admitted.ref, actor)).kind, 'committed');
+    assert.equal((await runtime.local.apps.first.preparation.read(actor)).kind, 'available');
+    assert.equal((await runtime.preparationResult('first', before.ref, actor)).kind, 'denied');
+  } finally { await runtime.close(); }
+});
+
+test('restricted layout reads refuse a privileged malformed shell without hiding independent notes', async t => {
+  const f = await fixture(t), bad = structuredClone(preparationLayout);
+  bad.elements.page.children.reverse();
+  assert.equal((await replace(f, 'layout', bad, 'privileged-malformed-layout')).kind, 'committed');
+  assert.equal((await f.runtime.resourceClient('first', 'preparation-layout', actor).read({ target: f.first.preparation.layoutTarget, revision: { kind: 'latest' } })).kind, 'unavailable');
+  assert.equal((await f.runtime.resourceClient('first', 'notes', actor).read({ target: f.first.notesTarget, revision: { kind: 'latest' } })).kind, 'available');
+});

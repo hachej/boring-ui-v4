@@ -89,6 +89,7 @@ export async function fakePreparationEvaluator({ questions }) {
   return { answers: Object.fromEntries(Object.entries(questions).map(([name, question]) => {
     const choices = Object.keys(question.criteria);
     const choice = name === 'root' && choices.includes('layout_stack') ? 'layout_stack'
+      : name.startsWith('order_node_') ? String(choices.length + 1 - Number(name.slice(11)))
       : choices.find(key => key.startsWith('use:')) ?? choices[0];
     if (!choice) throw new TypeError('No fictional composition choice');
     return [name, { choice }];

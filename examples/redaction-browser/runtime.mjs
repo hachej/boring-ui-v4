@@ -69,6 +69,9 @@ export async function openRedactionBrowser({ directory, policy = () => true, tra
           if (resource === 'preparation' && result.kind === 'available') {
             try { if (parsePreparation(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(result.snapshot.bytes))).instanceId !== app.instanceId) return unavailable(); } catch { return unavailable(); }
           }
+          if (resource === 'preparation-layout' && result.kind === 'available') {
+            try { validatePreparationLayout(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(result.snapshot.bytes))); } catch { return unavailable(); }
+          }
           return can('read', signal) ? result : denied();
         },
         publish: async (input, signal) => {
