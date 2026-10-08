@@ -10,8 +10,10 @@
     "./dist/shims/*.js"
   ],
   "files": [
-    "dist",
-    "README.md"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -39,5 +41,18 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/browser"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

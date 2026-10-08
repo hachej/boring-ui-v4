@@ -2,7 +2,12 @@
   "name": "@boring/agent", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
   "description": "Native Pi attachment, the read/write/edit guard, durable questions, conditional document delivery and metering.",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "types": "./dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
@@ -34,5 +39,18 @@
   },
   "peerDependencies": { "@earendil-works/pi-durable": "1.0.1", "@earendil-works/pi-ai": "1.0.1", "@earendil-works/chord": "1.0.1", "@boring/files": "0.0.0", "@boring/ui": "0.0.0" },
   "peerDependenciesMeta": { "@boring/files": { "optional": true }, "@boring/ui": { "optional": true } },
-  "engines": { "node": ">=22.19.0" }
+  "engines": { "node": ">=22.19.0" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/agent"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

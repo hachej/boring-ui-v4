@@ -6,7 +6,9 @@ Composable application capabilities around native Pi: chat, extensible viewers w
 
 ## Packages and runtime entries
 
-Five private npm workspaces expose compiled contracts and optional runtime entries under `packages/{files,agent,execution,ui,browser}`; `browser` is the opt-in agent worker for a browser tab (BORING-PI-5). Native FileSystem/Shell/ExecutionEnv and native execution/view types are aliases of the published Pi package, not copied interfaces. [SCAFFOLD.md](docs/contracts/SCAFFOLD.md) lists exports and pending work; [examples/native-compositions.ts](examples/native-compositions.ts) shows compile-checked host wiring.
+For npm artifact checks and remaining publication gates, see [Prepare an npm release](docs/implementation/NPM-RELEASE.md).
+
+Seven private npm workspaces expose compiled contracts and optional runtime entries under `packages/{files,agent,execution,ui,browser,feedback,testing}`; `browser` is the opt-in agent worker for a browser tab (BORING-PI-5). Native FileSystem/Shell/ExecutionEnv and native execution/view types are aliases of the published Pi package, not copied interfaces. [SCAFFOLD.md](docs/contracts/SCAFFOLD.md) lists exports and pending work; [examples/native-compositions.ts](examples/native-compositions.ts) shows compile-checked host wiring.
 
 ```bash
 npm ci

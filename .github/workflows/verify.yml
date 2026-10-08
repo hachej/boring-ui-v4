@@ -54,6 +54,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Audit actual npm tarballs
+        run: npm run check:pack
       - name: Consumers
         run: |
           for name in document editor html virtual remote-shell remote-files question presentation experience canvas canvas-editor canvas-remote task-list-registry morning redaction-browser; do

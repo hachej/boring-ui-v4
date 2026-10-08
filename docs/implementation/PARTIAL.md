@@ -1,5 +1,17 @@
 # Partial implementation checkpoint
 
+## npm release preparation
+
+The [npm release procedure](NPM-RELEASE.md) defines artifact checks and the remaining
+publication gates. All seven packages now include repository metadata and the MIT
+license. The UI package includes the embedded icon notices. The files package
+declares its existing optional native type peers. `npm run check:pack` inspects
+actual archives and all exports, including feedback and testing. CI and package
+tests run this audit. Packages remain private at `0.0.0`; `release:preflight`
+requires both release verification and publishable manifests. No global proof
+deferral is removed, and no registry availability, scope ownership, or production
+release is claimed. Evidence belongs under `.cache/evidence/npm-release/`.
+
 ## Remote canvas presentation, 2026-10-08
 
 Branch `feat/remote-presentation-20261008` stacks on PR46 at `c362157`. It adds the [authenticated canvas host recipe](../architecture/CANVAS.md#authenticated-remote-presentation-recipe), explicit unknown presentation outcomes, native recovery tests, an installed consumer and a real browser journey gate. Independent review also reproduced retained abort listeners in the shared request guard; successful and refused reads now release them.

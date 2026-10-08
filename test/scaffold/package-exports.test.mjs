@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { runCaptured as spawnSync } from '../../scripts/run-captured.mjs';
+import { checkPackages } from '../../scripts/check-npm-packages.mjs';
 import test from 'node:test';
 import { isContractOnly } from '../../scripts/is-contract-only.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 
-for (const name of ['files', 'agent', 'execution', 'ui', 'browser']) {
+for (const name of readdirSync(join(root, 'packages'))) {
   test(`${name}: public declarations exist and type-only exports stay runtime-free`, async () => {
     const dir = join(root, 'packages', name);
     const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
@@ -26,20 +25,12 @@ for (const name of ['files', 'agent', 'execution', 'ui', 'browser']) {
       // Real implementations can land with their required proofs. This test
       // must not permanently freeze packages into empty interface-only output.
     }
-    assert.ok(readdirSync(join(dir, 'dist')).some((file) => file.endsWith('.d.ts')));
+    assert.ok(Object.values(manifest.exports).some(entry => existsSync(join(dir, entry.types))));
   });
 }
 
-test('all five packages can be packed with declarations, without raw source or env files', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'boring-pack-'));
-  try {
-    for (const name of ['files', 'agent', 'execution', 'ui', 'browser']) {
-      const result = spawnSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', dir], { cwd: join(root, 'packages', name), encoding: 'utf8', timeout: 30000 });
-      assert.equal(result.status, 0, result.stderr);
-      const packed = JSON.parse(result.stdout)[0];
-      assert.ok(existsSync(join(dir, packed.filename)));
-      assert.ok(packed.files.some((file) => file.path === 'dist/index.d.ts'));
-      assert.ok(packed.files.every((file) => !file.path.startsWith('src/') && !file.path.includes('.env')));
-    }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+test('all workspace tarballs include every export, license and only distributable files', () => {
+  const result = checkPackages(root);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.packs.length, readdirSync(join(root, 'packages')).length);
 });

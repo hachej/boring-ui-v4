@@ -2,7 +2,12 @@
   "name": "@boring/files", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
   "description": "Versioned-resource contracts and the workspace provider over a Pi FileSystem (disk, virtual or SQLite).",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "types": "./dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
@@ -21,7 +26,34 @@
     "./git": { "types": "./dist/git.d.ts", "import": "./dist/git.js" },
     "./remote": { "types": "./dist/remote.d.ts", "import": "./dist/remote.js" }
   },
-  "peerDependencies": { "isomorphic-git": "1.42.6" },
-  "peerDependenciesMeta": { "isomorphic-git": { "optional": true } },
-  "engines": { "node": ">=22.19.0" }
+  "peerDependencies": {
+    "isomorphic-git": "1.42.6",
+    "@earendil-works/pi-durable": "1.0.1",
+    "@earendil-works/chord": "1.0.1"
+  },
+  "peerDependenciesMeta": {
+    "isomorphic-git": {
+      "optional": true
+    },
+    "@earendil-works/pi-durable": {
+      "optional": true
+    },
+    "@earendil-works/chord": {
+      "optional": true
+    }
+  },
+  "engines": { "node": ">=22.19.0" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/files"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

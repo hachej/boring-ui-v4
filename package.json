@@ -79,7 +79,9 @@
     "redaction:browser": "node examples/redaction-browser/server.mjs",
     "redaction:journey": "node scripts/test-redaction-browser.mjs",
     "redaction:preparation:journey": "node scripts/test-redaction-preparation.mjs",
-    "test:redaction-browser-consumer": "node scripts/test-editor-consumer.mjs --redaction"
+    "test:redaction-browser-consumer": "node scripts/test-editor-consumer.mjs --redaction",
+    "check:pack": "node scripts/check-npm-packages.mjs",
+    "release:preflight": "npm run verify:release && node scripts/check-npm-packages.mjs --release"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1146.0",

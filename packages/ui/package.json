@@ -7,8 +7,11 @@
   "description": "Independent headless viewer contracts with optional resource and native Pi subpaths.",
   "sideEffects": false,
   "files": [
-    "dist",
-    "README.md"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -203,5 +206,18 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

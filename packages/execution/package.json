@@ -7,8 +7,10 @@
   "description": "Native Pi working-environment types and independently composable workspace leases.",
   "sideEffects": false,
   "files": [
-    "dist",
-    "README.md"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -77,5 +79,18 @@
     "@aws-sdk/client-bedrock-agentcore": {
       "optional": true
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/execution"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

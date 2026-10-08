@@ -2,7 +2,12 @@
   "name": "@boring/testing", "version": "0.0.0", "license": "MIT", "private": true, "type": "module",
   "description": "Node-only test helpers: a scripted keyless model on pi-ai's faux builders, a headless-Chromium driver over the DevTools protocol, an idle-timeout proxy and submit faults.",
   "sideEffects": false,
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "types": "./dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
@@ -11,5 +16,18 @@
     "./network": { "types": "./dist/network.d.ts", "import": "./dist/network.js" }
   },
   "peerDependencies": { "@earendil-works/pi-ai": "1.0.1" },
-  "engines": { "node": ">=22.19.0" }
+  "engines": { "node": ">=22.19.0" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hachej/boring-ui-v4.git",
+    "directory": "packages/testing"
+  },
+  "homepage": "https://github.com/hachej/boring-ui-v4#readme",
+  "bugs": {
+    "url": "https://github.com/hachej/boring-ui-v4/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }
