@@ -17,10 +17,11 @@
 //    `list_artifacts`), the artifact `index.json` or the `/api/workspace-resources` route. Files live in a workspace behind
 //    `createWorkspaceProvider`; agents use Pi's native file tools and `present`. Exempt: this file, which lists them, and the
 //    history section of a README headed exactly "## Migrating from the removed resource store" (the old call to new call note).
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { walkProject } from './project-files.mjs';
 
 export const REMOVED_FILE_APIS = /\b(?:openSqliteResources|SqliteResourceProvider|SqliteResourceOptions|SqliteFileResourceOptions|SqliteConnectionResourceOptions|boring_documents|boring_versions|read_document|save_document|patch_document|create_artifact|update_artifact|read_artifact|list_artifacts)\b|workspace-resources|\bindex\.json\b/g;
 
@@ -80,12 +81,9 @@ export function checkHandlers(root) {
   }
   const reads = /function reads\([\s\S]*?\n}\n/.exec(transport)?.[0] ?? '';
   for (const needle of ['conversation.entries(', 'submissionByRequest(']) if (!reads.includes(needle)) errors.push(`BORING-HANDLER chat-transport.ts: ${needle} must be called inside reads()`);
-  const walk = directory => readdirSync(directory).flatMap(entry => {
-    if (entry === 'node_modules' || entry.startsWith('.')) return [];
-    const path = resolve(directory, entry);
-    return statSync(path).isDirectory() ? walk(path) : /\.(mjs|js|ts)$/.test(entry) ? [path] : [];
-  });
-  for (const path of walk(resolve(root, 'examples'))) {
+  const examples = [];
+  walkProject(root, 'examples', (entry, file) => { if (!entry.isDirectory() && /\.(mjs|js|ts)$/.test(entry.name)) examples.push(resolve(root, file)); });
+  for (const path of examples) {
     const text = readFileSync(path, 'utf8'), shown = path.slice(root.length + 1);
     if (text.includes('Readable.toWeb(')) errors.push(`BORING-HANDLER ${shown}: use webRequest from @boring/files/node-http instead of Readable.toWeb( on a live request`);
     if (INLINE_RESPONSE_COPY.test(text)) errors.push(`BORING-HANDLER ${shown}: use sendWebResponse from @boring/files/node-http instead of copying a web response into a Node response by hand`);

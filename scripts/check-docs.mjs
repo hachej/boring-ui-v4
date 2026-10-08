@@ -1,6 +1,7 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { walkProject } from './project-files.mjs';
 
 const required = [
   'README.md', 'AGENTS.md', 'INVARIANTS.md', 'ARCHITECTURE.json', 'VERIFY.json',
@@ -13,9 +14,6 @@ const required = [
   'docs/contracts/CONTRACTS.md', 'docs/acceptance/ACCEPTANCE.md',
   'docs/stress-tests/REDACTION.md', 'docs/stress-tests/BASELINE.md', 'docs/stress-tests/HUB-FACTORY.md',
 ];
-// `.claude/worktrees` holds other checkouts of this repository (agent worktrees), not documents of this one.
-const ignored = new Set(['.git', '.cache', 'node_modules']);
-const ignoredPaths = ['.claude/worktrees'];
 const outside = (root, target) => {
   const path = relative(root, target);
   return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
@@ -28,27 +26,24 @@ export function checkDocs(directory, expected = required) {
   for (const path of expected) {
     if (!existsSync(resolve(root, path))) problems.push(`missing required document: ${path}`);
   }
-  const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (ignored.has(entry.name) || entry.isSymbolicLink()) continue;
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) { if (!ignoredPaths.some(skip => path === resolve(root, skip))) walk(path); continue; }
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-      documents++;
-      const text = readFileSync(path, 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '');
-      for (const match of text.matchAll(/\[[^\]\n]+\]\(([^\s)]+)\)/g)) {
-        const link = match[1];
-        if (/^(?:https?:|mailto:|#)/i.test(link)) continue;
-        const target = resolve(directory, link.split('#')[0]);
-        if (outside(root, target) || (existsSync(target) && outside(root, realpathSync(target)))) {
-          problems.push(`${relative(root, path)}: link leaves repository: ${link}`);
-        } else if (!existsSync(target)) {
-          problems.push(`${relative(root, path)}: missing local link target: ${link}`);
-        }
+  // Files git ignores (dependencies, caches, other agent worktrees under `.claude/worktrees`) are not documents of this repository.
+  walkProject(root, '.', (entry, file) => {
+    if (entry.isSymbolicLink()) return false;
+    if (!entry.isFile() || !entry.name.endsWith('.md')) return;
+    const path = resolve(root, file), directory = dirname(path);
+    documents++;
+    const text = readFileSync(path, 'utf8').replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, '');
+    for (const match of text.matchAll(/\[[^\]\n]+\]\(([^\s)]+)\)/g)) {
+      const link = match[1];
+      if (/^(?:https?:|mailto:|#)/i.test(link)) continue;
+      const target = resolve(directory, link.split('#')[0]);
+      if (outside(root, target) || (existsSync(target) && outside(root, realpathSync(target)))) {
+        problems.push(`${relative(root, path)}: link leaves repository: ${link}`);
+      } else if (!existsSync(target)) {
+        problems.push(`${relative(root, path)}: missing local link target: ${link}`);
       }
     }
-  };
-  walk(root);
+  });
   return { documents, problems };
 }
 

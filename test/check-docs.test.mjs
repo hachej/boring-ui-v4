@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,13 +43,17 @@ test('symlink targets cannot disguise links outside the repository', (t) => {
   assert.match(checkDocs(root, []).problems[0], /leaves repository/);
 });
 
-test('cache artifacts and dependencies are not documents', (t) => {
+test('what git ignores (caches, dependencies, tool output) is not a document; the rest is', (t) => {
   const root = fixture(t);
-  for (const name of ['.cache', 'node_modules']) {
-    mkdirSync(join(root, name));
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  writeFileSync(join(root, '.gitignore'), '.cache/\nnode_modules/\n.wrangler/\n');
+  for (const name of ['.cache', 'node_modules', 'app/.wrangler/tmp']) {
+    mkdirSync(join(root, name), { recursive: true });
     writeFileSync(join(root, name, 'ignored.md'), '[Broken](absent.md)');
   }
   assert.deepEqual(checkDocs(root, []), { documents: 0, problems: [] });
+  writeFileSync(join(root, 'app', 'kept.md'), '[Broken](absent.md)');
+  assert.match(checkDocs(root, []).problems.join('\n'), /app\/kept\.md: missing local link target/, 'an untracked file git does not ignore is still checked');
 });
 
 test('fenced illustrative code is not treated as document navigation', (t) => {
