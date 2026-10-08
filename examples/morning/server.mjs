@@ -9,7 +9,7 @@ import { readJsonBody, RequestGuardError, guardStatus } from '@boring/files/requ
 import { createResourceHandler } from '@boring/files/remote';
 import { webRequest, sendWebResponse } from '@boring/files/node-http';
 import { openMorningRuntime } from './runtime.mjs';
-import { morningIdentity } from './documents.mjs';
+import { morningIdentity, morningActionDigest } from './documents.mjs';
 import { composeMorning, fakeMorningEvaluator, morningLayout, morningMetadata, morningCells } from './composition.mjs';
 
 const json = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -40,6 +40,12 @@ export function createMorningHandler({ runtime, identity = morningIdentity, getO
       }
       if (path.endsWith('/read')) { if (Object.keys(input).length) return denied(); }
       if (routes.has(path)) {
+        if (!path.endsWith('/read')) {
+          try {
+            const match = typeof input.operationId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:([0-9a-f]{64})$/.exec(input.operationId);
+            if (!match || match[1] !== await morningActionDigest(path, input)) return denied();
+          } catch { return denied(); }
+        }
         try { return json(await routes.get(path)(input)); }
         catch { return json(input.operationId ? { kind: 'unknown', operationId: input.operationId, reason: 'Application result unconfirmed; reconcile without replay' } : { kind: 'unavailable', reason: 'Morning read unavailable' }); }
       }

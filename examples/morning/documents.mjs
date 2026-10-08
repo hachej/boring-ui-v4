@@ -1,3 +1,4 @@
+import { sha256 } from '@boring/files/platform';
 import { z } from 'zod';
 export const morningIdentity = Object.freeze({ principalId: 'fictional-person', initiatorId: 'fictional-person', scopeId: 'fictional-morning' });
 const text = z.string().min(1).max(4096).refine(value => !/[\uD800-\uDFFF]/u.test(value));
@@ -11,3 +12,14 @@ export const actionSchemas = {
   accept_calendar_slot: z.object({ operationId: id, expected: id, optionId: id }).strict(),
   complete_todo: z.object({ operationId: id, expected: id, itemId: id, completed: z.boolean() }).strict(),
 };
+
+export async function morningActionDigest(route, input) {
+  const names = { '/email/send': 'send_email', '/email/snooze': 'snooze_email', '/calendar/slot': 'accept_calendar_slot', '/todo/tick': 'complete_todo' };
+  if (!Object.hasOwn(names, route)) throw new TypeError('Unknown morning action');
+  const parsed = actionSchemas[names[route]].parse(input);
+  const fields = route === '/email/send' ? [parsed.expected, parsed.draftRevision]
+    : route === '/email/snooze' ? [parsed.expected, parsed.option]
+    : route === '/calendar/slot' ? [parsed.expected, parsed.optionId]
+    : [parsed.expected, parsed.itemId, parsed.completed];
+  return Array.from(await sha256(new TextEncoder().encode(JSON.stringify([route, ...fields]))), byte => byte.toString(16).padStart(2, '0')).join('');
+}

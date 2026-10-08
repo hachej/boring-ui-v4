@@ -1,7 +1,7 @@
 import { createResourceClient } from '@boring/files/remote';
 import { readJsonBody } from '@boring/files/request-guard';
 import { parsePublicationResult } from '@boring/files/publication';
-import { emailSchema, calendarSchema, todoSchema } from './documents.mjs';
+import { emailSchema, calendarSchema, todoSchema, morningActionDigest } from './documents.mjs';
 import { randomUUID, sha256 } from '@boring/files/platform';
 
 export function createMorningClient({ origin, identity, fetch: transport }) {
@@ -44,12 +44,15 @@ export function createMorningClient({ origin, identity, fetch: transport }) {
     },
     lookup: async operationId => {
       const entry = retained.get(operationId); if (!entry || entry.app !== name) return uncertain(operationId);
-      try { const result = await call(`/${name}/lookup`, { operationId }); return result.kind === 'not-found' && Object.keys(result).length === 1 ? result : await evidence(result, entry); }
+      try { const result = await call(`/${name}/lookup`, { operationId }); return result.kind === 'committed' ? await evidence(result, entry) : uncertain(operationId); }
       catch { return uncertain(operationId); }
     },
   });
   async function action(path, args) {
-    const intent = Object.freeze({ ...structuredClone(args), operationId: randomUUID() });
+    const input = { ...structuredClone(args), operationId: randomUUID() };
+    let intent;
+    try { intent = Object.freeze({ ...input, operationId: `${input.operationId}:${await morningActionDigest(path, input)}` }); }
+    catch { return { intent: Object.freeze(input), result: { kind: 'denied', reason: 'Invalid morning action arguments' } }; }
     if (retained.size >= 128) return { intent, result: { kind: 'unavailable', reason: 'Open a new morning client after reviewing retained outcomes' } };
     const entry = { intent, app: path.split('/')[1], path }; retained.set(intent.operationId, entry);
     try { return { intent, result: await evidence(await call(path, intent), entry) }; }
