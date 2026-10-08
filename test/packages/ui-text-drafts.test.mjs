@@ -51,6 +51,7 @@ test('actual SQLite reopen restores exact bytes only after choice and publishes 
   assert.equal((await f.client.lookup(result.receipt.operationId)).kind, 'committed');
   assert.equal(decode((await f.read()).snapshot), f.text);
   assert.deepEqual((await next.store.list(f.draft.key, 20)).drafts, []);
+  assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'idle');
 });
 
 test('empty new document recovers absence while nonempty local work refuses', async t => {
@@ -104,6 +105,7 @@ test('deletion before the delayed checkpoint reaches SQLite prevents resurrectio
   buffer.edit('Save before checkpoint'); await started.promise; const checkpoint = buffer.checkpointDraft(); const ref = buffer.getSnapshot().recovery.checkpoint.ref;
   assert.equal((await buffer.flush(buffer.selection())).kind, 'saved'); gate.resolve(); assert.equal((await checkpoint).kind, 'superseded');
   assert.deepEqual((await f.first.store.list(ref.key, 20)).drafts, []);
+  assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'idle');
 });
 
 test('late acknowledgement rebases a dirty remainder without losing its latest checkpoint', async t => {
@@ -162,4 +164,58 @@ test('acknowledged SQLite checkpoint survives SIGKILL and explicit reopen', asyn
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const [message] = await once(child, 'message'); assert.equal(message.kind, 'stored'); const exited = once(child, 'exit'); child.kill('SIGKILL'); const [, signal] = await exited; assert.equal(signal, 'SIGKILL');
   const buffer = f.buffer(); assert.equal((await buffer.restoreDraft(await offer(buffer))).kind, 'restored'); assert.equal(buffer.getSnapshot().text, 'Fictional checkpoint before SIGKILL');
+});
+
+test('checkpoint result stays bound to its captured version during later typing', async t => {
+  const f = await fixture(t), gate = deferred(), started = deferred(); let held = true;
+  const buffer = f.buffer({ drafts: f.binding({ ...f.first.store, write: async draft => { if (held) { held = false; started.resolve(); await gate.promise; } return f.first.store.write(draft); } }) });
+  buffer.edit('Earlier'); const first = buffer.checkpointDraft(); await started.promise;
+  buffer.edit('Later'); const second = await buffer.checkpointDraft(); gate.resolve(); const result = await first;
+  assert.equal(result.kind, 'superseded'); assert.equal(second.kind, 'stored');
+  assert.equal((await f.first.store.list(second.ref.key, 20)).drafts[0].text, 'Later');
+});
+
+test('a pending clean save blocks restore even though its selection has not changed', async t => {
+  const f = await seeded(t), gate = deferred(), started = deferred();
+  const buffer = f.buffer({ client: { ...f.client, publish: async request => { started.resolve(); await gate.promise; return f.client.publish(request); } } });
+  const choice = await offer(buffer), selection = buffer.selection(); const saving = buffer.flush(selection); await started.promise;
+  assert.deepEqual(buffer.selection(), selection); assert.equal(buffer.getSnapshot().dirty, false);
+  assert.equal((await buffer.restoreDraft(choice)).kind, 'conflict');
+  gate.resolve(); assert.equal((await saving).kind, 'saved'); assert.equal(buffer.getSnapshot().text, 'Saved fictional note');
+});
+
+test('reentrant validator edit invalidates restoration before replaceText', async t => {
+  const f = await seeded(t); let buffer, replacements = 0;
+  buffer = f.buffer({ replaceText: () => { replacements++; }, drafts: f.binding(f.first.store, { validateText: () => buffer.edit('Intervening domain edit') }) });
+  assert.equal((await buffer.restoreDraft(await offer(buffer))).kind, 'conflict');
+  assert.equal(replacements, 0); assert.equal(buffer.getSnapshot().text, 'Intervening domain edit');
+});
+
+test('stale explicit discard and unavailable current read preserve stored work', async t => {
+  const f = await seeded(t); let unavailable = false;
+  const buffer = f.buffer({ client: { ...f.client, read: request => unavailable ? Promise.resolve({ kind: 'unavailable', reason: 'Offline' }) : f.client.read(request) } });
+  const choice = await offer(buffer); buffer.edit('Separate local draft'); assert.equal((await buffer.discardDraft(choice)).kind, 'conflict');
+  const next = f.buffer({ client: { ...f.client, read: request => unavailable ? Promise.resolve({ kind: 'unavailable', reason: 'Offline' }) : f.client.read(request) } });
+  const nextChoice = await offer(next); unavailable = true; assert.equal((await next.discardDraft(nextChoice)).kind, 'unavailable');
+  assert((await f.first.store.list(f.draft.key, 20)).drafts.some(draft => draft.ref.writerId === f.draft.writerId));
+});
+
+test('expired records are never offered, malformed publication keeps draft, lookup receipt clears exact draft', async t => {
+  const f = await fixture(t); let real;
+  const buffer = f.buffer({ client: { ...f.client, publish: async request => { real = await f.client.publish(request); return { kind: 'committed', receipt: { ...real.receipt, principalId: 'wrong' } }; } } });
+  buffer.edit('Actual committed text'); const checkpoint = await buffer.checkpointDraft(); assert.equal((await buffer.flush(buffer.selection())).kind, 'unknown');
+  assert.equal((await f.first.store.list(checkpoint.ref.key, 20)).drafts.length, 1); assert.equal((await buffer.reconcile()).kind, 'saved');
+  assert.deepEqual((await f.first.store.list(checkpoint.ref.key, 20)).drafts, []);
+  const expired = { version: 1, ref: checkpoint.ref, text: 'Expired fictional', createdAt: 1, expiresAt: 2 };
+  const viewer = f.buffer({ drafts: f.binding({ ...f.first.store, list: async () => ({ kind: 'available', drafts: [expired], truncated: false }) }) });
+  assert.equal((await viewer.checkDrafts()).kind, 'empty');
+});
+
+test('checkpoint expiry is visible and an explicit new checkpoint renews the version', async t => {
+  const f = await fixture(t); const buffer = f.buffer({ drafts: f.binding(f.first.store, { retentionMs: 20 }) });
+  buffer.edit('Still local'); const first = await buffer.checkpointDraft();
+  await new Promise(done => setTimeout(done, 35));
+  assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'failed'); assert.equal(buffer.getSnapshot().recovery.checkpoint.result.kind, 'expired');
+  assert.deepEqual((await f.first.store.list(first.ref.key, 20)).drafts, []);
+  const next = await buffer.checkpointDraft(); assert.equal(next.kind, 'stored'); assert(next.ref.sequence > first.ref.sequence); assert.equal(buffer.getSnapshot().text, 'Still local');
 });

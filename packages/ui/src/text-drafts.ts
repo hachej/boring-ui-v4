@@ -73,7 +73,7 @@ export function createTextDrafts(owner: Owner) {
   function stop(kind: 'revoked' | 'expired' | 'disposed'): void {
     checkSequence++;
     current = undefined;
-    restored = undefined;
+    if (kind !== 'disposed') restored = undefined;
     if (timer !== undefined) clearTimeout(timer);
     binding?.signal.removeEventListener('abort', revoke);
     emit({ kind });
@@ -91,9 +91,11 @@ export function createTextDrafts(owner: Owner) {
     if (!binding || closed || recovery.kind !== 'active') return;
     if (timer !== undefined) clearTimeout(timer);
     let expiry = binding.expiresAt;
+    if (current && current.draft.expiresAt > Date.now()) expiry = Math.min(expiry, current.draft.expiresAt);
     if (recovery.discovery.kind === 'offered') for (const choice of recovery.discovery.choices) expiry = Math.min(expiry, choice.expiresAt);
     timer = setTimeout(() => {
       if (access()) return;
+      if (current && current.draft.expiresAt <= Date.now()) checkpointFailure(current.draft.ref, 'write', { kind: 'expired', reason: 'The recovery checkpoint expired' });
       if (recovery.kind === 'active' && recovery.discovery.kind === 'offered') {
         const choices = recovery.discovery.choices.filter(choice => choice.expiresAt > Date.now());
         emit({ ...recovery, discovery: choices.length ? { ...recovery.discovery, choices } : { kind: 'empty' } });
@@ -136,13 +138,14 @@ export function createTextDrafts(owner: Owner) {
     } catch { result = { kind: 'unknown', reason: 'Draft storage acknowledgement was lost' }; }
     const revoked = access(); if (revoked) return revoked;
     if (result.kind === 'stored' && current && sameRef(current.draft.ref, draft.ref) && recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'stored', ref: draft.ref } });
+    else if (result.kind === 'superseded' && current && sameRef(current.draft.ref, draft.ref) && recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'idle' } });
     else if ('reason' in result) checkpointFailure(draft.ref, 'write', result);
     return result;
   }
   function capture(): TextDraftRef | undefined {
     const state = owner.snapshot();
     if (access() || !binding || !activeKey || !state.dirty) return undefined;
-    if (current && current.version === state.bufferVersion && owner.sameBase(current.draft.ref.base, state.base) && current.draft.text === state.text) return current.draft.ref;
+    if (current && current.version === state.bufferVersion && owner.sameBase(current.draft.ref.base, state.base) && current.draft.text === state.text && current.draft.expiresAt > Date.now()) return current.draft.ref;
     const now = Date.now();
     const draft: TextDraft = { version: 1, ref: { key: activeKey, base: structuredClone(state.base), writerId, sequence: ++sequence }, text: state.text, createdAt: now, expiresAt: Math.min(binding.expiresAt, now + binding.retentionMs) };
     const item = { draft, version: state.bufferVersion, promise: Promise.resolve<TextDraftCheckpointResult>({ kind: 'superseded' }) };
@@ -151,6 +154,7 @@ export function createTextDrafts(owner: Owner) {
     catch { const result = unavailable('The current text cannot be stored as a recovery draft'); item.promise = Promise.resolve(result); checkpointFailure(draft.ref, 'write', result); return draft.ref; }
     item.promise = Promise.resolve().then(() => write(draft));
     if (recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'pending', ref: draft.ref } });
+    scheduleExpiry();
     return draft.ref;
   }
   async function remove(ref: TextDraftRef): Promise<TextDraftChoiceFailure | undefined> {
@@ -161,6 +165,7 @@ export function createTextDrafts(owner: Owner) {
       if (value.kind !== 'removed' && value.kind !== 'missing' && value.kind !== 'superseded') result = failure(value);
     } catch { result = { kind: 'unknown', reason: 'Draft removal acknowledgement was lost' }; }
     if (result) checkpointFailure(ref, 'remove', result);
+    else if (!access() && current && sameRef(current.draft.ref, ref) && recovery.kind === 'active') emit({ ...recovery, checkpoint: { kind: 'idle' } });
     return access(true) ?? result;
   }
   async function latest(): Promise<ResourceExpectation | TextDraftFailure> {
@@ -234,13 +239,11 @@ export function createTextDrafts(owner: Owner) {
     checkpointDraft: async () => {
       const denied = access(); if (denied) return denied;
       owner.sync();
+      const retry = recovery.kind === 'active' && recovery.checkpoint.kind === 'failed' && recovery.checkpoint.operation === 'write' ? recovery.checkpoint.ref : undefined;
       const ref = capture();
       if (!ref || !current) return { kind: 'clean' };
       const item = current;
-      const result = await item.promise;
-      if (result.kind === 'stored' || result.kind === 'superseded') return result;
-      if (access()) return result;
-      item.promise = write(item.draft);
+      if (retry && sameRef(retry, ref)) item.promise = write(item.draft);
       return item.promise;
     },
     restoreDraft: async choice => {
