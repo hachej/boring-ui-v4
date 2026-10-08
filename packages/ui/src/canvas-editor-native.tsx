@@ -95,6 +95,7 @@ export default function NativeCanvas({ controller, assetUrls, title = 'Canvas', 
     </header>
     {uncertain && <div role="alert">Save acknowledgement was lost. Your current canvas is retained.
       <button type="button" disabled={busy} onClick={() => void run(controller.actions.reconcile)}>Check save outcome</button>
+      <button type="button" disabled={busy || state.lifecycle === 'disposed'} onClick={() => void run(controller.actions.abandon)}>Keep draft and refresh</button>
     </div>}
     {conflict && <div role="alert">The saved canvas changed. Your local edits have been kept.
       <button type="button" disabled={pending || uncertain || busy} onClick={() => void run(controller.actions.discardToRemote)}>Discard local changes and reload</button>

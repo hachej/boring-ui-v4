@@ -413,6 +413,31 @@ test('CanvasEditor DOM controls with fictional fonts and assets (not browser, fo
     assert.equal(f.writes, 1);
   });
 
+  await t.test('an unconfirmed save can be abandoned through the UI without replay or draft loss', async t => {
+    for (const committed of [false, true]) {
+      let attempts = 0;
+      const f = await fixture(t, { wrapClient: client => ({ ...client,
+        publish: async request => { attempts++; if (committed) await client.publish(request); throw new Error('Fictional lost acknowledgement'); },
+        lookup: async () => ({ kind: 'not-found' }),
+      }) });
+      await act(async () => f.editor.updatePage({ id: pageId, name: 'Attempted page' }));
+      await click(f.container, 'Save');
+      await waitFor(() => f.container.textContent.includes('Save unconfirmed'), 'Unknown acknowledgement was not shown');
+      await act(async () => f.editor.updatePage({ id: pageId, name: 'Newer local draft' }));
+      await click(f.container, 'Check save outcome');
+      assert.equal(f.controller.getSnapshot().save.result.kind, 'unknown');
+      await click(f.container, 'Keep draft and refresh');
+      await waitFor(() => f.controller.getSnapshot().save.kind === 'idle', 'Explicit abandonment did not release the unknown save');
+      assert.equal(f.store.get(pageId).name, 'Newer local draft');
+      assert.equal(f.controller.getSnapshot().dirty, true);
+      assert.equal(button(f.container, 'Save').disabled, false);
+      assert.equal(attempts, 1);
+      assert.equal(f.writes, committed ? 1 : 0);
+      assert.equal((await readDocument(f)).store[pageId].name, committed ? 'Attempted page' : 'Original');
+      await f.unmount();
+    }
+  });
+
   await t.test('external conflict keeps native edits until the explicit discard control is used', async t => {
     const f = await fixture(t);
     await act(async () => f.editor.updatePage({ id: pageId, name: 'Human draft' }));

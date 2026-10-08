@@ -24,7 +24,7 @@ const git = args => {
 const access = { scopeId: 'fictional', principalId: 'browser', initiatorId: 'journey' };
 const target = { resource: { providerId: 'fictional', path: 'board.canvas' }, view: { kind: 'published' } };
 const files = openSqliteWorkspaces({ filename: join(directory, 'canvas.sqlite'), providerId: 'fictional' });
-let server, browser, publications = 0, release, delayed = false;
+let server, browser, publications = 0, release, delayed = false, failPublication = false;
 const saved = async () => { const result = await files.read({ target, revision: { kind: 'latest' } }, access); assert.equal(result.kind, 'available'); return result.snapshot; };
 const document = async () => JSON.parse(new TextDecoder().decode((await saved()).bytes));
 const step = async (name, action) => {
@@ -73,7 +73,9 @@ try {
     assert.equal((await saved()).mediaType, canvasMediaType, 'SQLite retains the published canvas media type');
     const handler = createResourceHandler({ authenticate: async request => request.headers.get('authorization') === 'Bearer fictional-canvas-journey' ? access : null,
       reader: files, lookup: files.reconciliation, publisher: { publish: async (request, granted) => {
-        publications++; const outcome = await files.publication.publish(request, granted);
+        publications++;
+        if (failPublication) { failPublication = false; throw new Error('Fictional failure before document commit'); }
+        const outcome = await files.publication.publish(request, granted);
         if (delayed) { delayed = false; await new Promise(resolve => { release = resolve; }); }
         return outcome;
       } },
@@ -178,6 +180,22 @@ try {
     assert.equal(await run('return j.state().dirty;'), true);
     assert.equal((await document()).store['shape:reviewed'].x, 40);
     await browser.screenshot('late-acknowledgment.png');
+  });
+  await step('unconfirmed proposal save can return to a draft without replay', async () => {
+    const before = await document(), count = publications;
+    await propose('update', 'Proposal with unavailable publication'); failPublication = true;
+    await browser.click(button('Accept and save'));
+    await browser.until('publication remains unconfirmed', 'window.canvasProposals.state().save.kind === "settled" && window.canvasProposals.state().save.result.kind === "unknown"');
+    const draft = await run('return j.state().document;');
+    assert.equal(publications, count + 1);
+    await browser.click(button('Check save outcome'));
+    await browser.until('lookup reports no retained receipt', 'document.body.innerText.includes("No retained receipt")');
+    await browser.click(button('Keep draft and refresh'));
+    await browser.until('explicit recovery keeps the unsaved draft', 'window.canvasProposals.state().save.kind === "idle" && window.canvasProposals.state().dirty');
+    assert.deepEqual(await run('return j.state().document;'), draft);
+    assert.deepEqual(await document(), before);
+    assert.equal(publications, count + 1);
+    await browser.screenshot('unconfirmed-save-draft.png');
   });
   assert.deepEqual(browser.problems.filter(problem => problem.startsWith('exception:')), []);
   report.status = 'passed';
