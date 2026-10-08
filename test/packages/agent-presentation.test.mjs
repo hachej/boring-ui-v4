@@ -138,3 +138,49 @@ test('hard kill after a viewer effect does not replay the unsafe command on nati
   assert.equal(terminal.state.status, 'terminal'); assert.notEqual(terminal.state.outcome.status, 'completed');
   assert.match(JSON.stringify(terminal.state.outcome), /interrupt/i);
 });
+
+test('a truthy non-boolean authorization answer cannot grant command access', async t => {
+  let invoked = 0;
+  const f = await fixture(t, options({ authorize: () => 'allowed',
+    command: { name: 'command', input: { parse: value => value }, invoke: async () => { invoked++; return { kind: 'applied', value: undefined }; } } }));
+  assert.equal((await f.run()).isError, true);
+  assert.equal(invoked, 0);
+});
+
+test('authorization and caller mutation cannot change the parsed command input', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  const parsed = { selected: { document: 'original' } }; let invoked;
+  const f = await fixture(t, options({
+    authorize: async input => { input.selected.document = 'policy-redirect'; entered.resolve(); await release.promise; return true; },
+    command: { name: 'command', input: { parse: () => parsed }, invoke: async (_target, input) => { invoked = input; return { kind: 'applied', value: undefined }; } },
+  }));
+  const id = await f.start(); const waiting = f.result(id); await entered.promise;
+  parsed.selected.document = 'caller-redirect'; release.resolve();
+  assert.equal((await waiting).isError, false);
+  assert.deepEqual(invoked, { selected: { document: 'original' } });
+});
+
+test('a command ignoring cancellation cannot format its late result as applied', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); let nativeSignal; const formatted = [];
+  const f = await fixture(t, options({
+    command: { name: 'command', input: { parse: value => value }, invoke: async (_target, _input, signal) => {
+      nativeSignal = signal; entered.resolve(); await release.promise; return { kind: 'applied', value: 'late effect' };
+    } }, formatResult: result => { formatted.push(result); return formatResult(result); },
+  }));
+  const id = await f.start(); const waiting = f.harness.waitForTask(id, context); await entered.promise;
+  const stopping = f.harness.abortTask(id, context);
+  if (!nativeSignal.aborted) await new Promise(resolve => nativeSignal.addEventListener('abort', resolve, { once: true }));
+  release.resolve(); await stopping; await waiting;
+  assert.deepEqual(formatted, []);
+});
+
+test('non-cloneable target and input fail without authorization or invocation', async t => {
+  assert.throws(() => createPresentationTool(options({ target: { ...target(), subject: { callback: () => {} } } })), { name: 'DataCloneError' });
+  let authorized = 0, invoked = 0, formatted = 0;
+  const f = await fixture(t, options({ authorize: () => { authorized++; return true; },
+    command: { name: 'command', input: { parse: () => ({ callback: () => {} }) }, invoke: async () => { invoked++; return { kind: 'applied', value: undefined }; } },
+    formatResult: result => { formatted++; return formatResult(result); },
+  }));
+  assert.equal((await f.run()).isError, true);
+  assert.equal(authorized, 0); assert.equal(invoked, 0); assert.equal(formatted, 0);
+});

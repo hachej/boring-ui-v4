@@ -14,7 +14,7 @@ export interface PresentationToolOptions<P extends TSchema, Input, Output, Subje
   readonly formatResult: (result: PresentationResult<Output, Subject>) => ToolExecutionResult;
 }
 
-/** Bind one captured, structured-cloneable viewer target to a native, non-replayable tool. */
+/** Bind one captured viewer target to a native, non-replayable tool. Target and parsed input must be structured-cloneable. */
 export function createPresentationTool<P extends TSchema, Input, Output, Subject>(
   options: PresentationToolOptions<P, Input, Output, Subject>,
 ): ToolRegistration<P> {
@@ -39,10 +39,13 @@ export function createPresentationTool<P extends TSchema, Input, Output, Subject
       let input: Input;
       try { input = parse(prepared); }
       catch { return format({ kind: 'denied', reason: 'Invalid presentation command input' }); }
-      const allowed = await authorize(input, structuredClone(target), api, context);
+      const retainedInput = structuredClone(input);
+      const allowed = await authorize(structuredClone(retainedInput), structuredClone(target), api, context);
       signal?.throwIfAborted();
-      if (!allowed) return format({ kind: 'denied', reason: 'Presentation command authorization denied' });
-      return format(await invoke(structuredClone(target), input, signal));
+      if (allowed !== true) return format({ kind: 'denied', reason: 'Presentation command authorization denied' });
+      const result = await invoke(structuredClone(target), retainedInput, signal);
+      signal?.throwIfAborted();
+      return format(result);
     },
   });
 }
