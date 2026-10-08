@@ -11,7 +11,7 @@ import { openSqliteWorkspaces } from '../../examples/shared/sqlite-workspaces.mj
 import { admitDocumentTool, toolResultText } from './native-document.mjs';
 
 const [directory, phase, mode, operation] = process.argv.slice(2);
-assert.ok(directory && ['hold', 'recover'].includes(phase) && ['add', 'remove'].includes(operation));
+assert.ok(directory && ['hold', 'recover'].includes(phase) && ['add', 'remove', 'create'].includes(operation));
 const keepalive = setInterval(() => {}, 1000);
 const originalAccess = { scopeId: 'fictional-canvas', principalId: 'fictional-agent', initiatorId: 'fictional-reviewer', authorizationRef: 'fictional-grant-v1' };
 const access = { ...originalAccess };
@@ -22,7 +22,12 @@ if (phase === 'recover') {
   if (mode === 'changed-authorization') access.authorizationRef = 'fictional-grant-v2';
 }
 const target = { resource: { providerId: 'canvas-crash', path: 'board.tldraw' }, view: { kind: 'published' } };
-const owner = openSqliteWorkspaces({ filename: join(directory, 'documents.sqlite'), providerId: target.resource.providerId, authorize: () => true });
+let authorizationDenials = 0;
+const owner = openSqliteWorkspaces({ filename: join(directory, 'documents.sqlite'), providerId: target.resource.providerId,
+  authorize: action => {
+    if (phase === 'recover' && mode === 'lookup-denied' && action === 'lookup') { authorizationDenials++; return false; }
+    return true;
+  } });
 const actual = owner.workspace(originalAccess.scopeId);
 let harness, taskId, armed = phase === 'recover';
 let publishes = 0, providerPublications = 0, reads = 0;
@@ -50,34 +55,43 @@ const files = { ...actual,
     lookups.push({ operationId, principalId: granted.principalId, scopeId: granted.scopeId,
       initiatorId: granted.initiatorId, authorizationRef: granted.authorizationRef });
     if (phase === 'recover' && mode === 'missing-receipt') return { kind: 'not-found' };
-    return actual.reconciliation.lookup(operationId, granted);
+    if (phase === 'recover' && mode === 'lookup-throws') throw new Error('Fictional reconciliation transport is unavailable');
+    return owner.reconciliation.lookup(operationId, granted);
   } },
 };
-const tools = createCanvasTools({ workspace: () => phase === 'recover' && mode === 'revoked' ? undefined
-  : { files, root: '/workspace', access }, namespace: 'canvas-crash-v1' });
+const tools = createCanvasTools({ workspace: () => {
+  if (phase === 'recover' && mode === 'resolver-throws') throw new Error('Fictional original workspace expired');
+  return phase === 'recover' && mode === 'revoked' ? undefined
+    : { files, root: phase === 'recover' && mode === 'changed-root' ? '/other-workspace' : '/workspace', access };
+}, namespace: phase === 'recover' && mode === 'changed-namespace' ? 'canvas-crash-v2' : 'canvas-crash-v1',
+path: phase === 'recover' && mode === 'changed-path' ? 'other-board.tldraw' : 'board.tldraw' });
 const registry = createRegistry();
 registry.install(defineExtension({ name: 'fixture.canvas-crash', docs: [lastReadRevisions], tools }));
 try {
   harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'native.sqlite')), { registry, models: createModels() }, context);
   const conversation = await harness.root(context);
   if (phase === 'hold') {
-    const initial = await admitDocumentTool(conversation, { shapes: [
-      { id: 'first', kind: 'rectangle', text: 'Fictional first', x: 0, y: 0 },
-      { id: 'outside', kind: 'rectangle', text: 'Fictional outside', x: 300, y: 0 },
-    ], arrows: [{ from: 'first', to: 'outside' }] }, 'add_canvas_shapes');
-    const seeded = await toolResultText(harness, conversation, initial);
-    assert.equal(seeded.isError, false, seeded.text);
-    assert.equal(JSON.parse(seeded.text).kind, 'saved');
+    if (operation !== 'create') {
+      const initial = await admitDocumentTool(conversation, { shapes: [
+        { id: 'first', kind: 'rectangle', text: 'Fictional first', x: 0, y: 0 },
+        { id: 'outside', kind: 'rectangle', text: 'Fictional outside', x: 300, y: 0 },
+      ], arrows: [{ from: 'first', to: 'outside' }] }, 'add_canvas_shapes');
+      const seeded = await toolResultText(harness, conversation, initial);
+      assert.equal(seeded.isError, false, seeded.text);
+      assert.equal(JSON.parse(seeded.text).kind, 'saved');
+    }
     armed = true;
     taskId = await admitDocumentTool(conversation, operation === 'add' ? {
       shapes: [{ id: 'second', kind: 'rectangle', text: 'Fictional durable second', x: 600, y: 0 }],
       arrows: [{ from: 'outside', to: 'second' }],
-    } : { ids: ['first'] }, operation === 'add' ? 'add_canvas_shapes' : 'remove_canvas_shapes');
+    } : operation === 'create' ? {
+      shapes: [{ id: 'created', kind: 'rectangle', text: 'Fictional created board', x: 0, y: 0 }],
+    } : { ids: ['first'] }, operation === 'remove' ? 'remove_canvas_shapes' : 'add_canvas_shapes');
   } else taskId = JSON.parse(readFileSync(join(directory, 'ready.json'), 'utf8')).taskId;
   const settled = await toolResultText(harness, conversation, taskId);
   const terminal = await harness.getTask(taskId, context);
   const baseline = (await harness.snapshot(lastReadRevisions, conversation.id, context))?.revisions['canvas-crash:board.tldraw'];
-  writeFileSync(join(directory, 'recovered.json'), JSON.stringify({ ...settled, terminal, baseline, publishes, providerPublications, reads, lookups }));
+  writeFileSync(join(directory, 'recovered.json'), JSON.stringify({ ...settled, terminal, baseline, publishes, providerPublications, reads, lookups, authorizationDenials }));
 } finally {
   if (harness) await harness.close(context);
   owner.close();

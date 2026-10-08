@@ -12,8 +12,11 @@ const script = fileURLToPath(new URL('../fixtures/canvas-publication-crash-child
 const access = { scopeId: 'fictional-canvas', principalId: 'fictional-agent', initiatorId: 'fictional-reviewer', authorizationRef: 'fictional-grant-v1' };
 const target = { resource: { providerId: 'canvas-crash', path: 'board.tldraw' }, view: { kind: 'published' } };
 const modes = ['committed', 'missing-receipt', 'revoked', 'changed-principal', 'changed-scope', 'changed-initiator', 'changed-authorization', 'before-publication', 'human-edit'];
+const cases = [...['add', 'remove'].flatMap(operation => modes.map(mode => ({ operation, mode }))),
+  ...['committed', 'before-publication'].map(mode => ({ operation: 'create', mode })),
+  ...['resolver-throws', 'lookup-denied', 'lookup-throws', 'changed-namespace', 'changed-path', 'changed-root'].map(mode => ({ operation: 'add', mode }))];
 
-for (const operation of ['add', 'remove']) for (const mode of modes) {
+for (const { operation, mode } of cases) {
   test(`native canvas ${operation} recovery after real SIGKILL: ${mode}`, { timeout: 20000 }, async t => {
     const directory = mkdtempSync(join(tmpdir(), 'boring-canvas-crash-'));
     const workers = [];
@@ -52,6 +55,7 @@ for (const operation of ['add', 'remove']) for (const mode of modes) {
     assert.equal(marker.publishes, 1);
     assert.equal(marker.providerPublications, mode === 'before-publication' ? 0 : 1);
     assert.equal(marker.result?.kind ?? null, mode === 'before-publication' ? null : 'committed');
+    assert.equal(marker.request.changes[0].kind, operation === 'create' ? 'create' : 'replace');
     assert.equal(existsSync(join(directory, 'recovered.json')), false);
     assert.equal(first.child.kill('SIGKILL'), true);
     assert.deepEqual(await first.terminal, { code: null, signal: 'SIGKILL' });
@@ -60,7 +64,8 @@ for (const operation of ['add', 'remove']) for (const mode of modes) {
     let expected;
     try {
       const beforeRecovery = await provider.read({ target, revision: { kind: 'latest' } }, access);
-      assert.equal(beforeRecovery.kind, 'available');
+      const absent = operation === 'create' && mode === 'before-publication';
+      assert.equal(beforeRecovery.kind, absent ? 'missing' : 'available');
       if (mode === 'human-edit') {
         const document = JSON.parse(new TextDecoder().decode(beforeRecovery.snapshot.bytes));
         document.store['shape:outside'].x = 999;
@@ -70,7 +75,7 @@ for (const operation of ['add', 'remove']) for (const mode of modes) {
         { ...access, principalId: 'fictional-human' });
         assert.equal(human.kind, 'committed');
         expected = { ref: human.receipt.changes[0].after, bytes };
-      } else expected = { ref: beforeRecovery.snapshot.ref, bytes: beforeRecovery.snapshot.bytes };
+      } else expected = absent ? { kind: 'missing' } : { ref: beforeRecovery.snapshot.ref, bytes: beforeRecovery.snapshot.bytes };
     } finally { provider.close(); }
 
     const next = start('recover');
@@ -85,8 +90,9 @@ for (const operation of ['add', 'remove']) for (const mode of modes) {
     assert.equal(recovered.publishes, 0);
     assert.equal(recovered.providerPublications, 0);
     assert.equal(recovered.reads, 0);
-    const prohibitedLookup = mode === 'revoked' || mode.startsWith('changed-');
+    const prohibitedLookup = ['revoked', 'resolver-throws'].includes(mode) || mode.startsWith('changed-');
     assert.equal(recovered.lookups.length, prohibitedLookup ? 0 : 1);
+    assert.equal(recovered.authorizationDenials, mode === 'lookup-denied' ? 1 : 0);
     if (!prohibitedLookup) assert.deepEqual(recovered.lookups[0], { operationId: marker.request.operationId, ...access });
     if (saved) {
       const revision = marker.result.receipt.changes[0].after.revision;
@@ -107,9 +113,11 @@ for (const operation of ['add', 'remove']) for (const mode of modes) {
     const check = openSqliteWorkspaces({ filename: join(directory, 'documents.sqlite'), providerId: target.resource.providerId, authorize: () => true });
     try {
       const read = await check.read({ target, revision: { kind: 'latest' } }, access);
-      assert.equal(read.kind, 'available');
-      assert.deepEqual(read.snapshot.ref, expected.ref);
-      assert.deepEqual(read.snapshot.bytes, expected.bytes);
+      assert.equal(read.kind, expected.kind === 'missing' ? 'missing' : 'available');
+      if (read.kind === 'available') {
+        assert.deepEqual(read.snapshot.ref, expected.ref);
+        assert.deepEqual(read.snapshot.bytes, expected.bytes);
+      }
       const found = await check.reconciliation.lookup(marker.request.operationId, access);
       if (mode === 'before-publication') assert.equal(found.kind, 'not-found');
       else {
