@@ -162,6 +162,7 @@ The HTML installation fixture repeats public controller/renderer behavior throug
 | Shared chat behaviour for every surface (send, queue actions, uploads, pickers, rows, paged transcript), send/stop notices | `session.tsx`, `notice.tsx` |
 
 Pass `actions={{ answer, withdraw }}` with the matching functions from `createRemoteChat()` (feature-detect them: a transport without them leaves question cards and queued messages read-only). `answer(callId, answer)` resolves to `{ kind: 'answered' }` or a refusal that the card shows inline.
+A question or approval card is `data-state="writing"` while the model is still generating its call (options may be partial and nothing can be answered), then `pending` while it waits on the person.
 
 Each turn's tool calls and reasoning are folded into one activity block (after Vercel AI Elements' Chain of Thought). Collapsed it is one fixed-height line: the current step while the turn runs ("Reading notes/consultation.md", "Thinking") with a step counter, then "Used read ×3 · working_git" with a check. Failures open the block; a stopped turn says so. Rows stay in the DOM, hidden, and each expands to its arguments and result (`expert` mode shows no details for successful steps). Text the model writes between steps splits the turn into one block per uninterrupted run of steps; an `ask_user` question stays a visible card outside the block.
 

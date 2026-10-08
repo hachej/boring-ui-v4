@@ -35,7 +35,7 @@ export function parseAnswer(result: ToolResultMessage | undefined): { readonly a
 }
 
 
-/** Human-in-the-loop question: pending (options and optional free text), then answered with the chosen answer. */
+/** Human-in-the-loop question: writing (still generated, not answerable), pending (options and optional free text), then answered with the chosen answer. */
 export function QuestionCard({ call, result, answer, questionId, live = false }: {
   readonly call: ToolCall;
   readonly result: ToolResultMessage | undefined;
@@ -54,7 +54,9 @@ export function QuestionCard({ call, result, answer, questionId, live = false }:
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const current = settled && 'answer' in settled ? settled.answer : sent;
-  const state = settled ? ('failure' in settled ? 'failed' : 'answered') : sent !== undefined ? 'sent' : 'pending';
+  // `pending` means the question waits on the person; `writing` means the model is still generating it (options may be partial).
+  const state = settled ? ('failure' in settled ? 'failed' : 'answered') : sent !== undefined ? 'sent' : live ? 'writing' : 'pending';
+  const open = state === 'pending' || state === 'writing';
 
   async function submit(value: string) {
     const trimmed = value.trim();
@@ -71,16 +73,16 @@ export function QuestionCard({ call, result, answer, questionId, live = false }:
   const busy = sending !== undefined || live;
 
   return <section data-testid="question-card" data-state={state} data-call-id={call.id} aria-label={labels.question}
-    className={cn('my-2 rounded-xl border bg-card p-4 text-card-foreground shadow-xs', state === 'pending' ? 'border-ring/50' : 'border-border')}>
+    className={cn('my-2 rounded-xl border bg-card p-4 text-card-foreground shadow-xs', open ? 'border-ring/50' : 'border-border')}>
     <div className="flex items-start gap-3">
-      <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full', state === 'pending' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
+      <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full', open ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>
         {state === 'answered' || state === 'sent' ? <CheckIcon className="size-4" aria-hidden="true" /> : <MessageCircleQuestionIcon className="size-4" aria-hidden="true" />}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="m-0 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{state === 'pending' ? labels.questionForYou : state === 'failed' ? labels.notAnswered : labels.answered}</p>
+        <p className="m-0 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{open ? labels.questionForYou : state === 'failed' ? labels.notAnswered : labels.answered}</p>
         <p data-testid="question-text" className="mt-1 mb-0 text-[0.9375rem] leading-6 font-medium [overflow-wrap:anywhere]">{question.question || labels.askedQuestion}</p>
 
-        {state === 'pending' && <>
+        {open && <>
           {question.options.length > 0 && <div role="group" aria-label={labels.answerOptions} className="mt-3 flex flex-wrap gap-2">
             {question.options.map(option => <Button key={option} variant="outline" data-testid="question-option" data-option={option} disabled={!answer || !questionId || busy}
               onClick={() => { void submit(option); }} className={cn('h-auto min-h-11 max-w-full py-1.5 whitespace-normal sm:min-h-9', sending === option && 'border-ring')}>{option}</Button>)}
@@ -98,7 +100,7 @@ export function QuestionCard({ call, result, answer, questionId, live = false }:
         {(state === 'answered' || state === 'sent') && current !== undefined && <p className="mt-2 mb-0 text-sm text-muted-foreground">{labels.yourAnswer} <span data-testid="question-answer" className="rounded-md bg-muted px-1.5 py-0.5 font-medium text-foreground [overflow-wrap:anywhere]">{current}</span>
           {state === 'sent' && <span className="ms-2 text-xs">{labels.waitingForAgent}</span>}</p>}
         {state === 'failed' && settled && 'failure' in settled && <p role="alert" className="mt-2 mb-0 text-sm text-destructive">{settled.failure}</p>}
-        {refusal && state === 'pending' && <p role="alert" data-testid="question-refusal" className="mt-3 mb-0 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{refusal}</p>}
+        {refusal && open && <p role="alert" data-testid="question-refusal" className="mt-3 mb-0 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{refusal}</p>}
       </div>
     </div>
   </section>;
