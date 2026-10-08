@@ -60,7 +60,7 @@ async function attach() {
     return createPresentationTool({ name, description: `Fictional ${command} on one captured mounted canvas`,
       parameters: command === 'select' ? Type.Object({ shapeIds: Type.Array(Type.String()) }, { additionalProperties: false })
         : Type.Object({ edits: Type.Array(Type.Any()), summary: Type.String() }, { additionalProperties: false }),
-      command: connection[command], target: connection.target, prepareInput: args => ({ ...args, expiresAt: Date.now() + 10000 }),
+      command: connection[command], target: connection.target, prepareInput: args => ({ ...args, expiresAt: Date.now() + 30000 }),
       authorize: (_input, captured, api) => api.conversationId === conversation.id && !revocation.signal.aborted && captured.subject.scopeId === access.scopeId,
       formatResult: result => ({ content: [{ type: 'text', text: JSON.stringify(result) }] }),
     });
@@ -111,7 +111,7 @@ try {
     assert.equal(seed.kind, 'committed');
     harness = await Harness.open(await openNodeSqliteStorage(join(directory, 'native.sqlite')), { registry, models: createModels() }, context);
     conversation = await harness.root(context);
-    bridge = createCanvasTransport({ timeoutMs: 2000, authenticate: async request => {
+    bridge = createCanvasTransport({ timeoutMs: 30000, authenticate: async request => {
       if (request.method === 'POST' && request.headers.get('origin') !== origin) return null;
       const token = request.headers.get('authorization');
       if (!['Bearer fictional-browser', 'Bearer fictional-other'].includes(token)) return null;

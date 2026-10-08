@@ -56,7 +56,7 @@ jobs:
       - run: npm run build
       - name: Consumers
         run: |
-          for name in document editor html virtual remote-shell remote-files question presentation experience canvas canvas-editor; do
+          for name in document editor html virtual remote-shell remote-files question presentation experience canvas canvas-editor canvas-remote; do
             echo "::group::test:$name-consumer"
             npm run "test:$name-consumer"
             echo "::endgroup::"

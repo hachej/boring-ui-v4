@@ -26,8 +26,9 @@ export async function readBoundedJson(body: ReadableStream<Uint8Array> | null, m
   if (!Number.isSafeInteger(maximum) || maximum < 1) throw new TypeError('Expected a positive byte limit');
   if (!body) throw new RequestGuardError(400, 'Missing request body');
   const reader = body.getReader();
+  let fail: (() => void) | undefined;
   const abort = new Promise<never>((_, reject) => {
-    const fail = () => reject(new Error('Request body read aborted'));
+    fail = () => reject(new Error('Request body read aborted'));
     if (signal?.aborted) fail(); else signal?.addEventListener('abort', fail, { once: true });
   });
   abort.catch(() => {});
@@ -49,6 +50,7 @@ export async function readBoundedJson(body: ReadableStream<Uint8Array> | null, m
     try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, size))); }
     catch { throw new RequestGuardError(400, 'Request body is not valid JSON'); }
   } finally {
+    if (fail) signal?.removeEventListener('abort', fail);
     void reader.cancel().catch(() => {});
     reader.releaseLock();
   }

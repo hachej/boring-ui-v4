@@ -111,6 +111,8 @@ Inspection/presentation/proposal/mutation targets either a specific live viewer 
 
 Resource operations bind ID, expected revision and trusted context through the admitted dispatcher. Saved-document inspection/edits need no mounted viewer. Focus/selection/dirty-buffer commands require the correct instance/resource/view and local epoch/version; old, replaced or disconnected targets return stale/unavailable. A buffer inspection reports saved revision, local buffer version and dirty state, never just text presented as saved.
 
+An unacknowledged presentation effect returns `unknown`; disconnect or cancellation does not prove that the browser did nothing. Never replay it automatically.
+
 Distinguish applied presentation, proposed edits, committed mutation with actual receipt, stale/conflict/denied/unavailable and inherited partial/unknown provider outcomes. Proposal base revision/buffer version remain inspectable; durable proposals use explicit resource/host persistence. Acceptance is deliberate and target-bound, not inferred from typing or equated with product approval. Human-only decision resolution cannot be installed as agent approval authority.
 
 Mounted-editor mutation refuses/proposes over unsaved human work. Headless resource writes cannot claim knowledge of every browser buffer; a later refresh preserves it and reports conflict. Readonly policy is enforced below both tool/control interfaces. Closing one viewer releases only its subscription; it cannot close the shared provider or admitted background task.

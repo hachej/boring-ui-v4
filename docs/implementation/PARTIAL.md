@@ -1,5 +1,11 @@
 # Partial implementation checkpoint
 
+## Remote canvas presentation, 2026-10-08
+
+Branch `feat/remote-presentation-20261008` stacks on PR46 at `c362157`. It adds the [authenticated canvas host recipe](../architecture/CANVAS.md#authenticated-remote-presentation-recipe), explicit unknown presentation outcomes, native recovery tests, an installed consumer and a real browser journey gate. Independent review also reproduced retained abort listeners in the shared request guard; successful and refused reads now release them.
+
+Focused source tests pass; final candidate and CI results are recorded under ignored `.cache/evidence/remote-presentation/` and copied to the requested checkout. Local browser execution is blocked by loopback EPERM. Do not infer browser qualification from bundle or injected Fetch tests. W00 remains reconciled, W01-W08/W10-W13 partial and W09 a public-seam probe. P01-P14, A01-A48 and H01-H10 remain in scope. Eleven global proofs remain deferred; this increment does not promote them.
+
 ## Mounted canvas commands, 2026-10-08
 
 This increment adds inspect/select/frame to the optional native canvas renderer, preserving concrete native types and exact document/mount/page targets. It also removes a render-time owner mutation reproduced by a suspended controller replacement. See the [feature entry](FEATURES.md#mounted-canvas-commands) for public, native, installed and browser evidence commands, and the [canvas owner](../architecture/CANVAS.md#mounted-presentation-commands) for remaining qualifications.

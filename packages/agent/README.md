@@ -272,4 +272,4 @@ const navigate = createPresentationTool({
 
 Here `Type` is Pi AI's native schema builder, and `mounted`, `capturedTarget` and `canNavigate` belong to the host. The adapter passes native cancellation to the command and fixes replay to `unsafe`: an interrupted presentation call cannot safely be redirected or repeated. It acquires no controller, provider or Harness and owns none of their cleanup.
 
-This is direct in-process binding. A server cannot manipulate a remote browser through this adapter alone. Authenticated transport, browser target admission and mounted canvas commands remain separate work. Presentation/proposal results are not publication receipts or human approval.
+This is direct in-process binding. A server cannot manipulate a remote browser through this adapter alone. The optional [canvas host recipe](../../docs/architecture/CANVAS.md#authenticated-remote-presentation-recipe) supplies authenticated selection/proposal delivery to a mounted canvas. Other viewer transports and deployment identity remain separate work. Presentation/proposal results are not publication receipts or human approval.

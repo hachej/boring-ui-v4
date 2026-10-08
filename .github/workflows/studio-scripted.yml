@@ -44,6 +44,8 @@ jobs:
         run: npm run canvas:journey:commands
       - name: Canvas proposal review and persistence
         run: npm run canvas:journey:proposals
+      - name: Authenticated remote canvas commands
+        run: npm run canvas:journey:remote
       - name: Fake-model correctness journey
         run: npm run studio:journey:correctness
       - name: Studio journeys with the scripted model

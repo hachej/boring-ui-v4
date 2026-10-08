@@ -7,8 +7,9 @@ import { runCaptured } from './run-captured.mjs';
 import { prepareConsumerIsolation, assertConsumerTypeFiles, npmInstallFlags } from './consumer-isolation.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const editor = process.argv.includes('--editor');
-assert.ok(process.argv.slice(2).every(value => value === '--editor'), 'Only --editor is supported');
+const remote = process.argv.includes('--remote');
+const editor = remote || process.argv.includes('--editor');
+assert.ok(process.argv.slice(2).every(value => ['--editor', '--remote'].includes(value)), 'Only --editor or --remote is supported');
 const directory = mkdtempSync(join(tmpdir(), editor ? 'boring-canvas-editor-consumer-' : 'boring-canvas-consumer-'));
 const cache = process.env.npm_config_cache;
 assert.ok(cache, 'Set npm_config_cache to a writable npm cache (npm run sets it)');
@@ -22,7 +23,7 @@ try {
   const isolated = prepareConsumerIsolation(directory);
   mkdirSync(join(directory, 'packs'));
   const archives = [];
-  for (const name of ['files', 'ui']) {
+  for (const name of ['files', 'ui', ...(remote ? ['agent'] : [])]) {
     const packed = JSON.parse(run('npm', ['pack', join(root, 'packages', name), '--json', '--ignore-scripts', '--pack-destination', join(directory, 'packs')]))[0];
     archives.push(join(directory, 'packs', packed.filename));
   }
@@ -31,6 +32,7 @@ try {
   const sourceLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   const dependencies = Object.fromEntries(['@tldraw/editor', '@tldraw/store', 'react', 'react-dom'].map(name => [name, ui.peerDependencies[name]]));
   if (editor) dependencies.tldraw = ui.peerDependencies.tldraw;
+  if (remote) for (const name of ['@earendil-works/pi-durable', '@earendil-works/pi-ai', '@earendil-works/chord', '@modelcontextprotocol/sdk', 'zod']) dependencies[name] = rootManifest.devDependencies[name];
   dependencies['@tldraw/tlschema'] = sourceLock.packages['node_modules/@tldraw/tlschema'].version;
   for (const name of ['typescript', '@types/react', '@types/react-dom', '@types/node', 'happy-dom', 'esbuild']) dependencies[name] = rootManifest.devDependencies[name];
   for (const [name, version] of Object.entries(dependencies)) assert.match(version, /^\d+\.\d+\.\d+$/, `Expected an exact dependency pin: ${name}`);
@@ -59,7 +61,7 @@ try {
   writeFileSync(join(directory, 'package-lock.json'), JSON.stringify({ name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages }));
   run('npm', ['install', '--package-lock-only', ...npmInstallFlags(cache), ...archives]);
   run('npm', ['ci', ...npmInstallFlags(cache)]);
-  for (const name of ['@earendil-works/pi-durable', '@earendil-works/chord', '@earendil-works/pi-ai', '@boring/agent', '@boring/execution', 'marked', ...(editor ? [] : ['tldraw'])]) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
+  for (const name of [...(remote ? [] : ['@earendil-works/pi-durable', '@earendil-works/chord', '@earendil-works/pi-ai', '@boring/agent']), '@boring/execution', 'marked', ...(editor ? [] : ['tldraw'])]) assert.equal(existsSync(join(directory, 'node_modules', name)), false, name);
   writeFileSync(join(directory, 'consumer.ts'), `import { createCanvasController, type CanvasController, type CanvasOptions, type CanvasProposal } from '@boring/ui/canvas';
 import { applyCanvasEdits, parseCanvasDocument, type CanvasEdit } from '@boring/ui/canvas-document';
 import type { TLStoreSchema, TLShape } from '@tldraw/tlschema';
@@ -112,6 +114,7 @@ const withTools: CanvasEditorProps = { ...props, onMountedTools: tools => {
 } };
 createElement(CanvasEditor, withTools);` : ''}
 `);
+  if (remote) writeFileSync(join(directory, 'consumer.ts'), readFileSync(join(directory, 'consumer.ts'), 'utf8') + '\n' + readFileSync(join(root, 'test/fixtures/isolated-canvas-remote-consumer.ts'), 'utf8'));
   // The consumer recipe sets skipLibCheck, as tldraw apps do: the pinned SDK's own declarations do not check strictly
   // (@tldraw/utils imports lodash.* whose @types it lists only as devDependencies; tldraw's ArrowShapeUtil overrides break
   // under exactOptionalPropertyTypes). The consumer's own code is still checked strictly against our declarations.
@@ -142,12 +145,18 @@ console.log('server document import and validation completed without DOM or edit
   run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'server-entry.js', '--bundle', '--platform=node', '--format=esm', '--outfile=server-bundle.mjs', '--metafile=server-meta.json'], isolated);
   const serverInputs = Object.keys(JSON.parse(readFileSync(join(directory, 'server-meta.json'), 'utf8')).inputs);
   assert.ok(serverInputs.every(path => !/\/(?:@tldraw\/editor|react|react-dom|@boring\/(?:agent|files))\//.test(path)), 'Document edits must not load an editor, React, agent or resource implementation');
-  const tests = ['ui-canvas-document.test.mjs', 'ui-canvas-proposals.test.mjs', 'ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : [])];
+  const tests = ['ui-canvas-document.test.mjs', 'ui-canvas-proposals.test.mjs', 'ui-canvas.test.mjs', 'ui-canvas-editor-lifecycle.test.mjs', ...(editor ? ['ui-canvas-editor.test.mjs'] : []), ...(remote ? ['files-request-guard.test.mjs'] : [])];
   // Tests are copied flat; their host (one SQLite workspace per scope, public @boring/files entries only) sits beside them.
   copyFileSync(join(root, 'examples/shared/sqlite-workspaces.mjs'), join(directory, 'sqlite-workspaces.mjs'));
   for (const name of tests) writeFileSync(join(directory, name), readFileSync(join(root, 'test/packages', name), 'utf8').replace("'../../examples/shared/sqlite-workspaces.mjs'", "'./sqlite-workspaces.mjs'"));
   run(process.execPath, ['--test', '--experimental-test-isolation=none', ...tests], isolated);
-  writeFileSync(join(directory, 'browser-entry.js'), `export { createCanvasController, canvasMediaType } from '@boring/ui/canvas';\n${editor ? "export { CanvasEditor } from '@boring/ui/canvas-editor';\nimport 'tldraw/tldraw.css';\n" : ''}`);
+  if (remote) {
+    const copied = ['examples/shared/canvas-transport-protocol.mjs', 'examples/shared/canvas-transport-server.mjs', 'examples/shared/canvas-transport-client.mjs',
+      'test/compatibility/canvas-transport.test.mjs', 'test/compatibility/canvas-transport-protocol.test.mjs', 'test/fixtures/canvas-transport-crash-child.mjs', 'test/fixtures/native-document.mjs', 'test/compatibility/canvas-transport-client.test.mjs'];
+    for (const path of copied) { mkdirSync(join(directory, path, '..'), { recursive: true }); copyFileSync(join(root, path), join(directory, path)); }
+    run(process.execPath, ['--test', '--experimental-test-isolation=none', 'test/compatibility/canvas-transport.test.mjs', 'test/compatibility/canvas-transport-protocol.test.mjs', 'test/compatibility/canvas-transport-client.test.mjs'], isolated);
+  }
+  writeFileSync(join(directory, 'browser-entry.js'), `export { createCanvasController, canvasMediaType } from '@boring/ui/canvas';\n${editor ? "export { CanvasEditor } from '@boring/ui/canvas-editor';\nimport 'tldraw/tldraw.css';\n" : ''}${remote ? "export { connectCanvasPresentation } from './examples/shared/canvas-transport-client.mjs';\n" : ''}`);
   run(process.execPath, ['node_modules/esbuild/bin/esbuild', 'browser-entry.js', '--bundle', '--platform=browser', '--format=esm', '--outfile=browser.js', '--metafile=browser-meta.json'], isolated);
   const inputs = Object.keys(JSON.parse(readFileSync(join(directory, 'browser-meta.json'), 'utf8')).inputs);
   assertConsumerTypeFiles(inputs.map(path => resolve(directory, path)).join('\n'), directory);
@@ -158,6 +167,7 @@ console.log('server document import and validation completed without DOM or edit
     assert.ok(inputs.some(path => /tldraw\/dist/.test(path)), 'renderer must bundle the actual native SDK');
     assert.ok(readFileSync(join(directory, 'browser.css'), 'utf8').length > 0, 'selected native CSS must build');
   }
+  if (remote) console.log('PASS: copied remote canvas recipe through installed public APIs, native crash tests, typed native tool composition and browser bundle exclusions');
   console.log('PASS: isolated pinned registry dependencies, packed canvas, native store/publication tests and browser bundle; browser journeys, license, real fonts/assets and migrations remain unqualified');
   console.log('PASS: canvas declarations (strict consumer code; Boring declarations library-checked; upstream tldraw declarations need skipLibCheck)');
 } finally { rmSync(directory, { recursive: true, force: true }); }
