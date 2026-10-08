@@ -1,4 +1,4 @@
-import { TLDOCUMENT_ID } from '@tldraw/tlschema';
+import { isBindingId, isShapeId, TLDOCUMENT_ID } from '@tldraw/tlschema';
 import type { TLBinding, TLRecord, TLShape, TLStoreSchema, TLStoreSnapshot } from '@tldraw/tlschema';
 import { parseCanvasRecords } from './canvas-records.js';
 
@@ -58,32 +58,50 @@ export function parseCanvasDocument(value: unknown, schema: TLStoreSchema): TLSt
   return document;
 }
 
+/** Parse edit inputs with the selected native schema, without changing a document. */
+export function parseCanvasEdits(value: unknown, schema: TLStoreSchema): readonly CanvasEdit[] {
+  if (!Array.isArray(value) || value.length === 0) throw new TypeError('Canvas edits must be a nonempty array');
+  const edits: CanvasEdit[] = [], requested = new Set<string>();
+  for (const item of structuredClone(value)) {
+    const edit: unknown = item;
+    if (!edit || typeof edit !== 'object' || !('kind' in edit)) throw new TypeError('Invalid canvas edit');
+    let parsed: CanvasEdit;
+    if (edit.kind === 'remove') {
+      if (Object.keys(edit).some(key => key !== 'kind' && key !== 'id') || !('id' in edit) || typeof edit.id !== 'string'
+        || (!isShapeId(edit.id) && !isBindingId(edit.id))) throw new TypeError('Invalid canvas removal');
+      parsed = { kind: 'remove', id: edit.id };
+    } else if (edit.kind === 'create' || edit.kind === 'update') {
+      if (Object.keys(edit).some(key => key !== 'kind' && key !== 'record') || !('record' in edit) || !edit.record || typeof edit.record !== 'object'
+        || !('typeName' in edit.record)) throw new TypeError('Invalid canvas edit record');
+      const record = edit.record.typeName === 'shape' ? schema.types.shape.validate(edit.record)
+        : edit.record.typeName === 'binding' ? schema.types.binding.validate(edit.record) : undefined;
+      if (!record || (record.typeName !== 'shape' && record.typeName !== 'binding')) throw new TypeError('Canvas edits accept only shapes and bindings');
+      parsed = { kind: edit.kind, record };
+    } else throw new TypeError('Unknown canvas edit kind');
+    const id = parsed.kind === 'remove' ? parsed.id : parsed.record.id;
+    if (requested.has(id)) throw new TypeError('Canvas batch edits an identity more than once');
+    requested.add(id); edits.push(parsed);
+  }
+  return edits;
+}
+
 /** Apply one atomic edit batch to a detached candidate. The caller owns conditional publication. */
 export function applyCanvasEdits(document: TLStoreSnapshot, edits: readonly CanvasEdit[], schema: TLStoreSchema): CanvasEditResult {
   try {
     const candidate = parseCanvasDocument(document, schema);
-    if (!Array.isArray(edits) || edits.length === 0) throw new TypeError('Canvas edits must be a nonempty array');
-    const requested = new Set<string>(), removed = new Set<TLRecord['id']>(), written = new Set<string>();
-    for (const edit of structuredClone(edits)) {
-      if (!edit || typeof edit !== 'object') throw new TypeError('Invalid canvas edit');
+    const removed = new Set<TLRecord['id']>(), written = new Set<string>();
+    for (const edit of parseCanvasEdits(edits, schema)) {
       if (edit.kind === 'remove') {
-        if (Object.keys(edit).some(key => key !== 'kind' && key !== 'id') || typeof edit.id !== 'string') throw new TypeError('Invalid canvas removal');
-        if (requested.has(edit.id)) throw new TypeError('Canvas batch edits an identity more than once');
         const current = candidate.store[edit.id];
         if (current?.typeName !== 'shape' && current?.typeName !== 'binding') throw new TypeError('Canvas removal requires an existing shape or binding');
-        requested.add(edit.id); removed.add(edit.id);
-      } else if (edit.kind === 'create' || edit.kind === 'update') {
-        if (Object.keys(edit).some(key => key !== 'kind' && key !== 'record') || !edit.record || typeof edit.record !== 'object') throw new TypeError('Invalid canvas edit record');
-        const record = edit.record.typeName === 'shape' ? schema.types.shape.validate(edit.record)
-          : edit.record.typeName === 'binding' ? schema.types.binding.validate(edit.record) : undefined;
-        if (!record || (record.typeName !== 'shape' && record.typeName !== 'binding')) throw new TypeError('Canvas edits accept only shapes and bindings');
-        if (requested.has(record.id)) throw new TypeError('Canvas batch edits an identity more than once');
-        const current = candidate.store[record.id];
+        removed.add(edit.id);
+      } else {
+        const record = edit.record, current = candidate.store[record.id];
         if (edit.kind === 'create' ? current !== undefined : current?.typeName !== record.typeName || !('type' in current) || current.type !== record.type) {
           throw new TypeError('Canvas create requires absence; update requires an existing record of the same type');
         }
-        requested.add(record.id); written.add(record.id); candidate.store[record.id] = record;
-      } else throw new TypeError('Unknown canvas edit kind');
+        written.add(record.id); candidate.store[record.id] = record;
+      }
     }
     const records = Object.values(candidate.store);
     let previousSize = -1;
