@@ -1,3 +1,4 @@
+import { createPreparationSession } from './preparation-session.mjs';
 import { createMarkdownController } from '@boring/ui/markdown';
 import { textValue } from '../redaction/adoption-bindings.mjs';
 import { createActionRequestId } from './action-binding.mjs';
@@ -26,7 +27,9 @@ export async function createRedactionBrowserSession(client) {
       const controller = createMarkdownController({ identity: configuration.identity, instanceId: id(), epoch: id(), source: letter.kind === 'available' ? { kind: 'saved', snapshot: letter.snapshot } : { kind: 'new', target: config.letters[subject] }, client: api.letters[subject] });
       blocks[subject] = { subject, generation: 0, letter: controller, request: null, ref: null, proposal: null, outcome: null, adoption: null, record: await api.records[subject].read({ target: config.records[subject], revision: { kind: 'latest' } }), choices: {} };
     }
-    consultations.set(config.id, { config, api, notes, blocks, mounted: null, dictations: [], notice: '' });
+    const owner = { config, api, notes, blocks, mounted: null, dictations: [], notice: '' };
+    consultations.set(config.id, owner);
+    owner.preparation = await createPreparationSession({ owner, identity: configuration.identity, notify: emit, current: () => alive && active === config.id ? `${config.id}:${page}` : null });
   }
   emit();
   const entry = consultationId => { const value = consultations.get(consultationId); if (!alive || !value) throw new Error('Consultation session closed'); return value; };
@@ -168,7 +171,7 @@ export async function createRedactionBrowserSession(client) {
   }
   return {
     client, consultations, getSnapshot: () => state, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
-    switch: consultationId => { entry(consultationId); active = consultationId; page++; emit(); },
+    switch: consultationId => { entry(consultationId); consultations.get(active)?.preparation.deactivate(); active = consultationId; page++; emit(); },
     mounted: (consultationId, tools) => { const value = consultations.get(consultationId); if (value) { value.mounted = tools; emit(); } },
     generate, reload, correct, adopt, adoptionResult, dictate, retryDictation: transcribe,
     choose: (subject, itemId, kind) => { entry(active).blocks[subject].choices[itemId] = kind; emit(); },
@@ -176,6 +179,6 @@ export async function createRedactionBrowserSession(client) {
     refreshProposal: (consultationId, subject) => { const value = entry(consultationId); return inspectBlock(value, value.blocks[subject]); },
     retryCorrection: async (consultationId, subject) => { const value = entry(consultationId), block = value.blocks[subject]; if (!block.correction) return; const generation = block.generation, correction = block.correction, result = await value.api.correct(correction.input); if (generation !== block.generation || block.correction !== correction) return result; correction.result = result; if (block.correction.result.kind === 'committed') await inspectBlock(value, block); emit(); },
     retryAdoption: async (consultationId, subject) => { const value = entry(consultationId), block = value.blocks[subject]; if (!block.adoption) return; const generation = block.generation, adoption = block.adoption, result = await value.api.adopt(adoption.request); if (generation !== block.generation || block.adoption !== adoption) return result; adoption.result = result; if (block.adoption.result.kind === 'admitted') block.adoption.ref = block.adoption.result.ref; emit(); },
-    async dispose() { alive = false; page++; for (const value of consultations.values()) { value.mounted = null; value.notes.dispose(); for (const block of Object.values(value.blocks)) block.letter.dispose(); } emit(); listeners.clear(); },
+    async dispose() { alive = false; page++; for (const value of consultations.values()) { value.mounted = null; await value.preparation.dispose(); value.notes.dispose(); for (const block of Object.values(value.blocks)) block.letter.dispose(); } emit(); listeners.clear(); },
   };
 }

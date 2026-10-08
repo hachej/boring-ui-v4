@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
+import { PreparationExperience } from './preparation-view.jsx';
 import { MarkdownEditor } from '@boring/ui/markdown-editor';
 import { createRedactionBrowserClient } from './client.mjs';
 import { createRedactionBrowserSession, hasLetterDraft } from './session.mjs';
@@ -50,9 +51,7 @@ export function RedactionBrowser({ session }) {
   return <main data-boring="redaction-browser"><h1>Fictional consultation workspace</h1><p>No microphone or real clinical data. Scripted proposals and recordings only.</p>
     <nav>{state.consultations.map(value => <button key={value.config.id} aria-pressed={state.active === value.config.id} onClick={() => session.switch(value.config.id)}>{value.config.title}</button>)}</nav>
     <h2>{owner.config.title}</h2><output role="status" data-notice>{owner.notice}</output>{error && <p role="alert">{error}</p>}
-    <div data-notes><MarkdownEditor key={`${owner.config.id}:${state.page}`} controller={owner.notes} initialMode="source" title="Consultation notes" onMountedTools={mounted} /></div>
-    <button onClick={() => run(() => session.generate())}>Generate A/B/C from selected notes</button><button onClick={() => run(() => session.reload())}>Observe latest</button>
-    <button onClick={() => run(() => session.dictate())}>Insert fictional dictation</button>
+    <PreparationExperience key={owner.config.id} owner={owner} notes={<div data-notes><MarkdownEditor key={`${owner.config.id}:${state.page}`} controller={owner.notes} initialMode="source" title="Consultation notes" onMountedTools={mounted} /></div>} actions={<div data-fixed-actions><button onClick={() => run(() => session.generate())}>Generate A/B/C from selected notes</button><button onClick={() => run(() => session.reload())}>Observe latest</button><button onClick={() => run(() => session.dictate())}>Insert fictional dictation</button></div>} />
     <section data-dictations>{owner.dictations.map(capture => <article key={capture.requestId} data-dictation={capture.requestId}><output role="status">{capture.status}: {capture.reason ?? 'Original consultation and cursor retained'}</output>{capture.transcript !== null && <pre data-transcript>{capture.transcript}</pre>}{capture.status === 'failed' && <button onClick={() => run(() => session.retryDictation(capture))}>Retry original recording</button>}</article>)}</section>
     <div data-blocks>{Object.values(owner.blocks).map(block => <Block key={`${owner.config.id}:${block.subject}`} session={session} owner={owner} block={block} />)}</div>
   </main>;
