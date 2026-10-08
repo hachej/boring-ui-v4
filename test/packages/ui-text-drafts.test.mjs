@@ -32,12 +32,14 @@ test('editing during a held recovery read settles discovery instead of leaving c
 });
 
 test('late storage acknowledgement cannot report an expired checkpoint as stored', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const f = await fixture(t);
   const entered = deferred(), release = deferred();
   let record;
   const store = { ...f.first.store, write: async draft => {
     record = draft;
     const result = await f.first.store.write(draft);
+    assert.equal(result.kind, 'stored');
     entered.resolve();
     await release.promise;
     return result;
@@ -46,7 +48,7 @@ test('late storage acknowledgement cannot report an expired checkpoint as stored
   buffer.edit('Fictional expiring checkpoint');
   const pending = buffer.checkpointDraft();
   await entered.promise;
-  await new Promise(resolve => setTimeout(resolve, Math.max(0, record.expiresAt - Date.now()) + 20));
+  t.mock.timers.tick(31);
   release.resolve();
   assert.equal((await pending).kind, 'expired');
   assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'failed');
@@ -182,12 +184,13 @@ for (const tamper of [draft => ({ ...draft, version: 2 }), draft => ({ ...draft,
 });
 
 test('bounds, expiry, and validator rejection preserve the local document', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const f = await seeded(t);
   const bounded = f.buffer({ drafts: f.binding(f.first.store, { maxBytes: 2 }) }); assert.equal((await bounded.checkDrafts()).kind, 'unavailable');
   const structured = f.buffer({ drafts: f.binding(f.first.store, { validateText: () => { throw Error('Invalid domain'); } }) }); const choice = await offer(structured);
   assert.equal((await structured.restoreDraft(choice)).kind, 'unavailable'); assert.equal(structured.getSnapshot().text, 'Saved fictional note');
   const expiring = f.buffer({ drafts: f.binding(f.first.store, { expiresAt: Date.now() + 25 }) }); const expiringChoice = await offer(expiring);
-  await new Promise(done => setTimeout(done, 35)); assert.equal(expiring.getSnapshot().recovery.kind, 'expired'); assert.equal((await expiring.restoreDraft(expiringChoice)).kind, 'expired');
+  t.mock.timers.tick(26); assert.equal(expiring.getSnapshot().recovery.kind, 'expired'); assert.equal((await expiring.restoreDraft(expiringChoice)).kind, 'expired');
 });
 
 test('store transaction floors span bases, retries are exact, and listings are bounded', async t => {
@@ -252,9 +255,11 @@ test('expired records are never offered, malformed publication keeps draft, look
 });
 
 test('checkpoint expiry is visible and an explicit new checkpoint renews the version', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const f = await fixture(t); const buffer = f.buffer({ drafts: f.binding(f.first.store, { retentionMs: 20 }) });
   buffer.edit('Still local'); const first = await buffer.checkpointDraft();
-  await new Promise(done => setTimeout(done, 35));
+  assert.equal(first.kind, 'stored');
+  t.mock.timers.tick(21);
   assert.equal(buffer.getSnapshot().recovery.checkpoint.kind, 'failed'); assert.equal(buffer.getSnapshot().recovery.checkpoint.result.kind, 'expired');
   assert.deepEqual((await f.first.store.list(first.ref.key, 20)).drafts, []);
   const next = await buffer.checkpointDraft(); assert.equal(next.kind, 'stored'); assert(next.ref.sequence > first.ref.sequence); assert.equal(buffer.getSnapshot().text, 'Still local');
