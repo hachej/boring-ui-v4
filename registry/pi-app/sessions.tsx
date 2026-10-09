@@ -49,17 +49,16 @@ export function SessionsPane({ conversations, title: givenTitle, drawer, onClose
         : 'w-72 shrink-0 border-r border-border')}>
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         {library
-          ? <div role="tablist" aria-label={title} className="flex min-w-0 flex-1 items-center gap-1">
-              {(['conversations', 'library'] as const).map(tab => {
-                const Icon = tab === 'library' ? icons.library : icons.sessions;
-                return <button key={tab} type="button" role="tab" data-testid={`sessions-tab-${tab}`} aria-selected={shown === tab} onClick={() => onViewChange?.(tab)}
-                  className={cn('inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-sm font-medium', shown === tab ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                  <Icon className="size-3.5 shrink-0" aria-hidden="true" /><span className="truncate">{tab === 'library' ? labels.library : title}</span>
-                </button>;
-              })}
+          ? <div role="tablist" aria-label={title} className="flex min-w-0 flex-1 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+              {(['conversations', 'library'] as const).map(tab => <button key={tab} type="button" role="tab" data-testid={`sessions-tab-${tab}`} aria-selected={shown === tab} onClick={() => onViewChange?.(tab)}
+                className={cn('h-7 min-w-0 flex-1 cursor-pointer truncate rounded-md px-2 text-[13px] font-medium', shown === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                {tab === 'library' ? labels.library : title}
+              </button>)}
             </div>
           : <h2 className="m-0 min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">{title}</h2>}
-        {conversations.onNew && shown === 'conversations' && <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations.onNew!(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" />{labels.newChat}</Button>}
+        {conversations.onNew && shown === 'conversations' && (library
+          ? <Button size="icon-sm" variant="outline" data-testid="conversation-new" aria-label={labels.newChat} title={labels.newChat} onClick={() => { conversations.onNew!(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" /></Button>
+          : <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations.onNew!(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" />{labels.newChat}</Button>)}
         {drawer && onClose && <Button size="icon-sm" variant="ghost" aria-label={labels.closeSessions} title={labels.close} data-testid="sessions-close" onClick={onClose}><icons.closeSessions className="size-4" aria-hidden="true" /></Button>}
       </header>
       {shown === 'library' && library
