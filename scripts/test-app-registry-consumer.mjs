@@ -67,7 +67,7 @@ createServer(async (req, res) => { try { const body = await readFile(join(${JSON
   // A consumer page: only the block, its hooks and the host's own routes.
   writeFileSync(join(directory, 'src/page.tsx'), `import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AgentWorkspace, useConversations, useRemoteChat } from './components/pi-app/agent-workspace';
+import { AgentWorkspace, FileTree, useConversations, useRemoteChat } from './components/pi-app/agent-workspace';
 import type { OpenedView } from './components/pi-app/agent-workspace';
 import type { BlockAction, ChatLabels } from './components/pi-chat/pi-chat';
 import { DownloadIcon } from 'lucide-react';
@@ -93,6 +93,7 @@ export function App() {
     labels={{ sessionsTitle: 'Projects', share: 'Send a link' }} icons={{ newChat: SparkIcon }} panelActions={view => view.kind === 'artifact' ? [exportChat] : []}
     opened={opened} onOpenedChange={setOpened} connecting={<p>Connecting…</p>}
     sessionsFooter={onPicked => <button onClick={() => { setOpened({ kind: 'file', path: 'notes.md' }); onPicked(); }}>Library</button>}
+    library={onPicked => <FileTree items={[{ id: 'notes.md', folders: ['Notes'], label: 'notes.md' }]} onOpen={item => { setOpened({ kind: 'file', path: item.id }); onPicked(); }} />}
     chat={{ showHistory: false, showConnectionStatus: false, labels: chatLabels, icons: { send: SparkIcon }, headerActions: [exportChat], messageActions: reply => [{ id: 'quote', label: 'Quote ' + reply.key, onSelect: () => {} }], ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} />;
 }
 createRoot(document.getElementById('root')!).render(<App />);

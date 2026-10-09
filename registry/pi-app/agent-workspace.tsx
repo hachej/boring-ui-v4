@@ -23,11 +23,15 @@ import { ArtifactPanel, useArtifactVersions, useTurn } from './artifact-panel';
 import type { CustomViewers, SavedRevision, ViewerOptions } from './artifact-panel';
 import { FileViewer } from './file-viewer';
 import { SessionsPane, SessionsToggle } from './sessions';
+import type { SessionsView } from './sessions';
 
 export { ArtifactPanel, useArtifactVersions, useTurn } from './artifact-panel';
 export type { CustomViewerProps, CustomViewers, SavedRevision, ViewerOptions } from './artifact-panel';
 export { FileViewer } from './file-viewer';
 export { SessionsPane, SessionsToggle } from './sessions';
+export type { SessionsView } from './sessions';
+export { FileTree } from './file-tree';
+export type { FileTreeItem } from './file-tree';
 export { useConversations } from './use-conversations';
 export { useRemoteChat } from './use-remote-chat';
 export type { RemoteChatState } from './use-remote-chat';
@@ -87,6 +91,11 @@ export interface AgentWorkspaceProps {
   readonly conversations?: ConversationsConfig | undefined;
   /** Host content below the session list, for example a library. Invoke onPicked after selecting an item. */
   readonly sessionsFooter?: ((onPicked: () => void) => ReactNode) | undefined;
+  /**
+   * A library view of the sessions pane, for example a `FileTree` of the host's files: tabs switch between it and the conversations,
+   * remembered for the session. Invoke onPicked after opening an item to close a mobile drawer.
+   */
+  readonly library?: ((onPicked: () => void) => ReactNode) | undefined;
   readonly resources: WorkspaceResources;
   /** Recognise artifacts in tool results that carry no descriptor (`ArtifactsConfig.detect`). */
   readonly detect?: ArtifactsConfig['detect'] | undefined;
@@ -133,7 +142,7 @@ const defaultLocate = (path: string): ResourceLocator => ({ resource: { provider
  * its versions, the file viewer and the host's own views). Agent artifacts open the panel as they appear. Every prop is data or a callback:
  * the host owns the routes, authentication, the controller and what is open (when controlled).
  */
-export function AgentWorkspace({ controller, conversationId, chat = {}, labels, icons, panelActions, connecting, conversations, sessionsFooter, resources, detect, viewers, interactive, share, opened: controlled,
+export function AgentWorkspace({ controller, conversationId, chat = {}, labels, icons, panelActions, connecting, conversations, sessionsFooter, library, resources, detect, viewers, interactive, share, opened: controlled,
   defaultOpened = null, onOpenedChange, panels, autoOpen = true, fileBack, floatingChat, chatTop, controls, storageKey = 'boring.agent-workspace', sheetBelow = 768, drawerBelow = 768, floatBelow, className }: AgentWorkspaceProps) {
   const [own, setOwn] = useState<OpenedView | null>(defaultOpened);
   const opened = controlled !== undefined ? controlled : own;
@@ -206,6 +215,8 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, labels, 
   const narrow = width > 0 && width < drawerBelow;
   const [collapsed, setCollapsed] = useState(() => readFlag(`${storageKey}.sessions-hidden`));
   const [drawer, setDrawer] = useState(false);
+  const [paneView, setPaneView] = useState<SessionsView>(() => readFlag(`${storageKey}.library`) ? 'library' : 'conversations');
+  const changePaneView = useCallback((next: SessionsView) => { writeFlag(`${storageKey}.library`, next === 'library'); setPaneView(next); }, [storageKey]);
   useEffect(() => { if (!narrow) setDrawer(false); }, [narrow]);
   const docked = Boolean(conversations) && width > 0 && !narrow && !collapsed;
   const toggle = conversations && <SessionsToggle open={narrow ? drawer : !collapsed} drawer={narrow}
@@ -248,7 +259,7 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, labels, 
   ];
   return <AppTextProvider value={text}><ChatTextProvider value={chatText}><div ref={root} data-boring="agent-workspace" data-sessions={!conversations ? undefined : narrow ? (drawer ? 'drawer' : 'closed') : docked ? 'docked' : 'hidden'}
     className={cn('relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden', className)}>
-    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} footer={sessionsFooter} drawer={narrow} onClose={() => setDrawer(false)} />}
+    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} footer={sessionsFooter} library={library} view={paneView} onViewChange={changePaneView} drawer={narrow} onClose={() => setDrawer(false)} />}
     <ArtifactWorkspace open={panelOpen} onClose={close} panelLabel={text.labels.artifactPanel} labels={{ resize: text.labels.resizePanel, floatHint: text.labels.floatHint }} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey={`${storageKey}.panel-width`}
       sheetBelow={docked ? Math.max(0, sheetBelow - SESSIONS_WIDTH) : sheetBelow} {...(floatBelow === undefined ? {} : { floatBelow })}
       chat={layout => layout.floating && floatingChat && chatProps ? floatingChat(chatProps, layout.dock) : docked_chat}

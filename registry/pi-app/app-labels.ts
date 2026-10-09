@@ -4,7 +4,7 @@
  */
 import { createContext, createElement, useContext } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeftIcon, PanelLeftIcon, PictureInPicture2Icon, PlusIcon, XIcon } from 'lucide-react';
+import { ArrowLeftIcon, LibraryIcon, MessagesSquareIcon, PanelLeftIcon, PictureInPicture2Icon, PlusIcon, XIcon } from 'lucide-react';
 import type { BlockIcon } from '../button/actions';
 import { defaultViewerIcons, defaultViewerLabels } from '../viewers/viewer-window';
 
@@ -16,6 +16,10 @@ export const defaultAppLabels = {
   openSessions: 'Open chats',
   hideSessions: 'Hide chats',
   showSessions: 'Show chats',
+  library: 'Library',
+  librarySearch: 'Search files',
+  libraryEmpty: 'No files yet.',
+  libraryNoMatch: (query: string) => `No file matches “${query}”.`,
   floatChat: 'Float chat',
   floatHint: 'Release to float the chat',
   resizePanel: 'Resize artifact panel',
@@ -42,6 +46,8 @@ export const defaultAppIcons = {
   closeSessions: XIcon as BlockIcon,
   floatChat: PictureInPicture2Icon as BlockIcon,
   back: ArrowLeftIcon as BlockIcon,
+  sessions: MessagesSquareIcon as BlockIcon,
+  library: LibraryIcon as BlockIcon,
 };
 export type AppIcons = typeof defaultAppIcons;
 
