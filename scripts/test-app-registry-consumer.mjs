@@ -93,6 +93,7 @@ export function App() {
     labels={{ sessionsTitle: 'Projects', share: 'Send a link' }} icons={{ newChat: SparkIcon }} panelActions={view => view.kind === 'artifact' ? [exportChat] : []}
     opened={opened} onOpenedChange={setOpened} connecting={<p>Connecting…</p>}
     sessionsFooter={onPicked => <button onClick={() => { setOpened({ kind: 'file', path: 'notes.md' }); onPicked(); }}>Library</button>}
+    libraryPlacement="below" agents={{ items: [{ id: 'pm', label: 'PM' }, { id: 'dev', label: 'Developer' }], activeId: 'pm', onSelect: () => {} }}
     library={onPicked => <FileTree items={[{ id: 'notes.md', folders: ['Notes'], label: 'notes.md' }]} onOpen={item => { setOpened({ kind: 'file', path: item.id }); onPicked(); }} />}
     chat={{ showHistory: false, showConnectionStatus: false, labels: chatLabels, icons: { send: SparkIcon }, headerActions: [exportChat], messageActions: reply => [{ id: 'quote', label: 'Quote ' + reply.key, onSelect: () => {} }], ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} />;
 }

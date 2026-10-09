@@ -8,21 +8,31 @@ import { ConversationList } from '../pi-chat/pi-chat';
 import type { ConversationsConfig } from '../pi-chat/pi-chat';
 import { cn } from '../utils/utils';
 
+/** One agent the person can talk to; `AgentWorkspace` shows a switcher when it has two or more. */
+export interface WorkspaceAgent { readonly id: string; readonly label: string; readonly description?: string | undefined }
+/** The agents of the page and the chosen one. The host scopes `conversations` to `activeId`. */
+export interface WorkspaceAgents { readonly items: readonly WorkspaceAgent[]; readonly activeId: string; readonly onSelect: (id: string) => void }
+/** Where the library goes in the sessions pane: a tab beside the conversations, or below them with both visible. */
+export type LibraryPlacement = 'tab' | 'below';
+export type SessionsView = 'conversations' | 'library';
+
 /**
  * The sessions pane: a title with New, then the searchable conversation list of `pi-chat` (`ConversationList`: search, Archived filter,
  * rename, archive, delete). Docked at the left on a wide screen; a drawer over the page with a backdrop on a narrow one, closed by
  * Escape, the backdrop, the close button or choosing a conversation. With `library`, tabs at the top switch the pane between the
- * conversations and the host's library (for example a `FileTree`).
+ * conversations and the host's library (for example a `FileTree`), or with `libraryPlacement="below"` the library sits under the
+ * list. With two or more `agents`, a switcher at the top chooses whose conversations are listed; one agent shows none.
  */
-export type SessionsView = 'conversations' | 'library';
-
-export function SessionsPane({ conversations, title: givenTitle, drawer, onClose, footer, library, view = 'conversations', onViewChange }: {
-  readonly conversations: ConversationsConfig;
-  /** A second view of the pane; invoke onPicked after opening an item to close a mobile drawer. */
+export function SessionsPane({ conversations, title: givenTitle, drawer, onClose, footer, library, libraryPlacement = 'tab', view = 'conversations', onViewChange, agents }: {
+  /** The conversation list; without it (a single-session page) the pane shows only the library. */
+  readonly conversations?: ConversationsConfig | undefined;
+  /** The host's library; invoke onPicked after opening an item to close a mobile drawer. */
   readonly library?: ((onPicked: () => void) => ReactNode) | undefined;
-  /** Which view is shown when there is a library. */
+  readonly libraryPlacement?: LibraryPlacement | undefined;
+  /** Which tab is shown when the library is a tab. */
   readonly view?: SessionsView | undefined;
   readonly onViewChange?: ((view: SessionsView) => void) | undefined;
+  readonly agents?: WorkspaceAgents | undefined;
   /** Host content below the list; invoke onPicked after choosing a library item to close a mobile drawer. */
   readonly footer?: ((onPicked: () => void) => ReactNode) | undefined;
   readonly title?: string;
@@ -32,7 +42,7 @@ export function SessionsPane({ conversations, title: givenTitle, drawer, onClose
   readonly onClose?: (() => void) | undefined;
 }) {
   const { labels, icons } = useAppText();
-  const title = givenTitle ?? labels.sessionsTitle;
+  const title = givenTitle ?? (conversations ? labels.sessionsTitle : labels.library);
   useEffect(() => {
     if (!drawer || !onClose) return;
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) onClose(); };
@@ -40,15 +50,32 @@ export function SessionsPane({ conversations, title: givenTitle, drawer, onClose
     return () => document.removeEventListener('keydown', escape);
   }, [drawer, onClose]);
   const picked = drawer ? onClose : undefined;
-  const shown: SessionsView = library ? view : 'conversations';
+  const inPane = library;
+  const tabs = Boolean(inPane && conversations) && libraryPlacement === 'tab';
+  const shown: SessionsView = !conversations ? 'library' : tabs ? view : 'conversations';
+  const switcher = agents && agents.items.length > 1;
+  const newButton = conversations?.onNew && shown === 'conversations' && (tabs
+    ? <Button size="icon-sm" variant="outline" data-testid="conversation-new" aria-label={labels.newChat} title={labels.newChat} onClick={() => { conversations?.onNew?.(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" /></Button>
+    : <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations?.onNew?.(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" />{labels.newChat}</Button>);
+  const close = drawer && onClose && <Button size="icon-sm" variant="ghost" aria-label={labels.closeSessions} title={labels.close} data-testid="sessions-close" onClick={onClose}><icons.closeSessions className="size-4" aria-hidden="true" /></Button>;
   return <>
     {drawer && <button type="button" tabIndex={-1} aria-hidden="true" data-testid="sessions-backdrop" onClick={onClose} className="fixed inset-0 z-40 cursor-default bg-black/40" />}
-    <aside data-testid="conversations" data-drawer={drawer ? 'true' : 'false'} aria-label={title} {...(drawer ? { role: 'dialog', 'aria-modal': true } : {})}
+    <aside data-testid="conversations" data-drawer={drawer ? 'true' : 'false'} data-library={inPane ? libraryPlacement : undefined} aria-label={title} {...(drawer ? { role: 'dialog', 'aria-modal': true } : {})}
       className={cn('pi-chat flex min-h-0 flex-col bg-background text-foreground', drawer
         ? 'fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border shadow-xl pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'
         : 'w-72 shrink-0 border-r border-border')}>
+      {switcher && <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
+          <span className="shrink-0">{labels.agent}</span>
+          <select data-testid="agent-select" value={agents.activeId} onChange={event => agents.onSelect(event.target.value)}
+            className="h-8 min-w-0 flex-1 cursor-pointer truncate rounded-md border border-border bg-background px-2 text-sm font-medium text-foreground">
+            {agents.items.map(agent => <option key={agent.id} value={agent.id} title={agent.description}>{agent.label}</option>)}
+          </select>
+        </label>
+        {close}
+      </div>}
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        {library
+        {tabs
           ? <div role="tablist" aria-label={title} className="flex min-w-0 flex-1 items-center gap-0.5 rounded-lg bg-muted p-0.5">
               {(['conversations', 'library'] as const).map(tab => <button key={tab} type="button" role="tab" data-testid={`sessions-tab-${tab}`} aria-selected={shown === tab} onClick={() => onViewChange?.(tab)}
                 className={cn('h-7 min-w-0 flex-1 cursor-pointer truncate rounded-md px-2 text-[13px] font-medium', shown === tab ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
@@ -56,14 +83,16 @@ export function SessionsPane({ conversations, title: givenTitle, drawer, onClose
               </button>)}
             </div>
           : <h2 className="m-0 min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">{title}</h2>}
-        {conversations.onNew && shown === 'conversations' && (library
-          ? <Button size="icon-sm" variant="outline" data-testid="conversation-new" aria-label={labels.newChat} title={labels.newChat} onClick={() => { conversations.onNew!(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" /></Button>
-          : <Button size="sm" variant="outline" data-testid="conversation-new" onClick={() => { conversations.onNew!(); picked?.(); }}><icons.newChat className="size-3.5" aria-hidden="true" />{labels.newChat}</Button>)}
-        {drawer && onClose && <Button size="icon-sm" variant="ghost" aria-label={labels.closeSessions} title={labels.close} data-testid="sessions-close" onClick={onClose}><icons.closeSessions className="size-4" aria-hidden="true" /></Button>}
+        {newButton}
+        {!switcher && close}
       </header>
-      {shown === 'library' && library
-        ? <div role="tabpanel" data-testid="sessions-library" className="flex min-h-0 flex-1 flex-col">{library(() => picked?.())}</div>
-        : <ConversationList conversations={conversations} onPicked={picked} />}
+      {shown === 'library' && inPane
+        ? <div {...(tabs ? { role: 'tabpanel' } : {})} data-testid="sessions-library" className="flex min-h-0 flex-1 flex-col">{inPane(() => picked?.())}</div>
+        : conversations && <ConversationList conversations={conversations} onPicked={picked} />}
+      {inPane && conversations && libraryPlacement === 'below' && <section aria-label={labels.library} data-testid="sessions-library" className="flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-border">
+        <h2 className="m-0 px-3 pt-2 text-xs font-semibold text-muted-foreground">{labels.library}</h2>
+        {inPane(() => picked?.())}
+      </section>}
       {footer && <div className="shrink-0 border-t border-border">{footer(() => picked?.())}</div>}
     </aside>
   </>;

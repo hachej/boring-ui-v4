@@ -17,6 +17,7 @@ export const defaultAppLabels = {
   hideSessions: 'Hide chats',
   showSessions: 'Show chats',
   library: 'Library',
+  agent: 'Agent',
   librarySearch: 'Search files',
   libraryEmpty: 'No files yet.',
   libraryNoMatch: (query: string) => `No file matches “${query}”.`,
