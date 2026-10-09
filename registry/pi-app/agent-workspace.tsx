@@ -85,6 +85,8 @@ export interface AgentWorkspaceProps {
   readonly connecting?: ReactNode;
   /** The sessions pane (`useConversations`). Omit it for a page without one. Replies keep their Fork button through `conversations.fork`. */
   readonly conversations?: ConversationsConfig | undefined;
+  /** Host content below the session list, for example a library. Invoke onPicked after selecting an item. */
+  readonly sessionsFooter?: ((onPicked: () => void) => ReactNode) | undefined;
   readonly resources: WorkspaceResources;
   /** Recognise artifacts in tool results that carry no descriptor (`ArtifactsConfig.detect`). */
   readonly detect?: ArtifactsConfig['detect'] | undefined;
@@ -131,7 +133,7 @@ const defaultLocate = (path: string): ResourceLocator => ({ resource: { provider
  * its versions, the file viewer and the host's own views). Agent artifacts open the panel as they appear. Every prop is data or a callback:
  * the host owns the routes, authentication, the controller and what is open (when controlled).
  */
-export function AgentWorkspace({ controller, conversationId, chat = {}, labels, icons, panelActions, connecting, conversations, resources, detect, viewers, interactive, share, opened: controlled,
+export function AgentWorkspace({ controller, conversationId, chat = {}, labels, icons, panelActions, connecting, conversations, sessionsFooter, resources, detect, viewers, interactive, share, opened: controlled,
   defaultOpened = null, onOpenedChange, panels, autoOpen = true, fileBack, floatingChat, chatTop, controls, storageKey = 'boring.agent-workspace', sheetBelow = 768, drawerBelow = 768, floatBelow, className }: AgentWorkspaceProps) {
   const [own, setOwn] = useState<OpenedView | null>(defaultOpened);
   const opened = controlled !== undefined ? controlled : own;
@@ -246,7 +248,7 @@ export function AgentWorkspace({ controller, conversationId, chat = {}, labels, 
   ];
   return <AppTextProvider value={text}><ChatTextProvider value={chatText}><div ref={root} data-boring="agent-workspace" data-sessions={!conversations ? undefined : narrow ? (drawer ? 'drawer' : 'closed') : docked ? 'docked' : 'hidden'}
     className={cn('relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden', className)}>
-    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} drawer={narrow} onClose={() => setDrawer(false)} />}
+    {conversations && (docked || (narrow && drawer)) && <SessionsPane conversations={conversations} footer={sessionsFooter} drawer={narrow} onClose={() => setDrawer(false)} />}
     <ArtifactWorkspace open={panelOpen} onClose={close} panelLabel={text.labels.artifactPanel} labels={{ resize: text.labels.resizePanel, floatHint: text.labels.floatHint }} fullscreen={fullscreen} onFullscreenChange={setFullscreen} storageKey={`${storageKey}.panel-width`}
       sheetBelow={docked ? Math.max(0, sheetBelow - SESSIONS_WIDTH) : sheetBelow} {...(floatBelow === undefined ? {} : { floatBelow })}
       chat={layout => layout.floating && floatingChat && chatProps ? floatingChat(chatProps, layout.dock) : docked_chat}

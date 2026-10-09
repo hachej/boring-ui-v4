@@ -92,7 +92,8 @@ export function App() {
     conversations={conversations && { ...conversations, rowActions: item => [{ id: 'star', label: 'Star ' + (item.title ?? ''), placement: 'menu', onSelect: () => {} }] }}
     labels={{ sessionsTitle: 'Projects', share: 'Send a link' }} icons={{ newChat: SparkIcon }} panelActions={view => view.kind === 'artifact' ? [exportChat] : []}
     opened={opened} onOpenedChange={setOpened} connecting={<p>Connecting…</p>}
-    chat={{ labels: chatLabels, icons: { send: SparkIcon }, headerActions: [exportChat], messageActions: reply => [{ id: 'quote', label: 'Quote ' + reply.key, onSelect: () => {} }], ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} />;
+    sessionsFooter={onPicked => <button onClick={() => { setOpened({ kind: 'file', path: 'notes.md' }); onPicked(); }}>Library</button>}
+    chat={{ showHistory: false, showConnectionStatus: false, labels: chatLabels, icons: { send: SparkIcon }, headerActions: [exportChat], messageActions: reply => [{ id: 'quote', label: 'Quote ' + reply.key, onSelect: () => {} }], ...(chat.status === 'ready' ? { actions: chat.actions } : {}) }} />;
 }
 createRoot(document.getElementById('root')!).render(<App />);
 `);

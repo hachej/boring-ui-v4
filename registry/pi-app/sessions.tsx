@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { Button } from '../button/button';
 import { useAppText } from './app-labels';
 import { ConversationList } from '../pi-chat/pi-chat';
@@ -12,8 +13,10 @@ import { cn } from '../utils/utils';
  * rename, archive, delete). Docked at the left on a wide screen; a drawer over the page with a backdrop on a narrow one, closed by
  * Escape, the backdrop, the close button or choosing a conversation.
  */
-export function SessionsPane({ conversations, title: givenTitle, drawer, onClose }: {
+export function SessionsPane({ conversations, title: givenTitle, drawer, onClose, footer }: {
   readonly conversations: ConversationsConfig;
+  /** Host content below the list; invoke onPicked after choosing a library item to close a mobile drawer. */
+  readonly footer?: ((onPicked: () => void) => ReactNode) | undefined;
   readonly title?: string;
   /** Rendered as a drawer (narrow screens). */
   readonly drawer: boolean;
@@ -41,6 +44,7 @@ export function SessionsPane({ conversations, title: givenTitle, drawer, onClose
         {drawer && onClose && <Button size="icon-sm" variant="ghost" aria-label={labels.closeSessions} title={labels.close} data-testid="sessions-close" onClick={onClose}><icons.closeSessions className="size-4" aria-hidden="true" /></Button>}
       </header>
       <ConversationList conversations={conversations} onPicked={picked} />
+      {footer && <div className="shrink-0 border-t border-border">{footer(() => picked?.())}</div>}
     </aside>
   </>;
 }
