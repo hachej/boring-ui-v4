@@ -766,6 +766,11 @@
           "target": "components/pi-app/file-viewer.tsx"
         },
         {
+          "path": "registry/pi-app/file-tree.tsx",
+          "type": "registry:component",
+          "target": "components/pi-app/file-tree.tsx"
+        },
+        {
           "path": "registry/pi-app/file-kinds.ts",
           "type": "registry:lib",
           "target": "components/pi-app/file-kinds.ts"
