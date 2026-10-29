@@ -101,7 +101,7 @@
     "clsx": "2.1.1",
     "entities": "8.1.0",
     "esbuild": "0.28.2",
-    "happy-dom": "20.14.5",
+    "happy-dom": "21.0.4",
     "isomorphic-git": "1.42.6",
     "just-bash": "3.6.0",
     "lucide-react": "1.51.0",
